@@ -1,6 +1,7 @@
 /// Source: produces a constant value on every process() call.
 ///
-/// `∅ → output` — no input, yields `Default::default()`.
+/// `∅ → output` — yields the injected initial value, or `Default::default()` if none.
+/// 工程修补 7.5.4：通过 `MachineContext::set_initial_value()` 注入常量值。
 use std::marker::PhantomData;
 use crate::prelude_all::*;
 
@@ -68,8 +69,10 @@ impl<O: Clone + Default + Send + Sync + 'static> Machine for Source<O> {
     fn name() -> &'static str { "builtin.Source" }
     fn config_schema() -> ConfigSchema { ConfigSchema::new() }
 
-    fn init(_ctx: &MachineContext) -> Result<SourceState<O>, InitError> {
-        Ok(SourceState { output: O::default() })
+    fn init(ctx: &MachineContext) -> Result<SourceState<O>, InitError> {
+        // 工程修补 7.5.4：优先使用注入的初始值，否则用 Default。
+        let output = ctx.initial_value::<O>().cloned().unwrap_or_default();
+        Ok(SourceState { output })
     }
     fn process(state: &mut SourceState<O>, _ctx: &MachineContext, _input: SourceInput) -> ProcessOutput<SourceOutput<O>> {
         ProcessOutput::Yield(SourceOutput::Output(state.output.clone()))

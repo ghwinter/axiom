@@ -4,6 +4,13 @@
 //! This keeps `Machine::process()` synchronous inside the task while allowing
 //! Tokio's async runtime to handle IO-bound work (networking, timers).
 //!
+//! # Panic Safety (工程修补 7.5.2)
+//!
+//! If `process()` panics inside `spawn_blocking`, the state is dropped without
+//! calling `cleanup()` — "safe but leaky". This matches `LinearRuntime`'s
+//! `CleanupGuard` behavior. We use `catch_unwind` to capture the panic,
+//! preventing it from propagating and allowing orderly error return.
+//!
 //! # Example
 //!
 //! ```ignore
@@ -15,6 +22,7 @@
 
 use axiom::machine::{Machine, ProcessOutput};
 use axiom::port::MachineContext;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 use tokio::task;
 
@@ -36,6 +44,13 @@ impl core::fmt::Display for TokioRunError {
     }
 }
 
+/// Result of the process loop inside spawn_blocking.
+enum ProcessResult<M: Machine> {
+    Ok(M::State, Vec<M::Output>),
+    /// process() panicked; state is dropped, cleanup skipped (工程修补 7.5.2).
+    Panicked(String),
+}
+
 /// Multi-threaded Tokio runtime adapter.
 pub struct TokioRuntime;
 
@@ -48,6 +63,8 @@ impl TokioRuntime {
     ///
     /// Returns the collected outputs. `Yield` produces one entry;
     /// `YieldMulti` produces multiple entries (fan-out).
+    ///
+    /// If `process()` panics, `cleanup()` is skipped (safe but leaky).
     pub async fn run<M: Machine>(
         name: &'static str,
         inputs: Vec<M::Input>,
@@ -61,27 +78,55 @@ impl TokioRuntime {
         let ctx = Arc::new(ctx);
         let ctx_for_task = Arc::clone(&ctx);
 
-        // process loop on a blocking thread
-        let outputs = task::spawn_blocking(move || {
-            let mut state = state;
-            let mut outputs = Vec::new();
-            for input in inputs {
-                match M::process(&mut state, &*ctx_for_task, input) {
-                    ProcessOutput::Yield(out) => outputs.push(out),
-                    ProcessOutput::YieldMulti(outs) => outputs.extend(outs),
-                    ProcessOutput::Idle => {}
-                    ProcessOutput::Done => break,
+        // process loop on a blocking thread, with panic capture (工程修补 7.5.2)
+        let result = task::spawn_blocking(move || {
+            // AssertUnwindSafe: we accept that state may be in an inconsistent
+            // state after panic; we will drop it without calling cleanup.
+            let mut state = AssertUnwindSafe(state);
+            let ctx_ref = AssertUnwindSafe(&*ctx_for_task);
+            let inputs = AssertUnwindSafe(inputs);
+
+            let result = catch_unwind(move || {
+                let mut outputs = Vec::new();
+                for input in inputs.0 {
+                    match M::process(&mut state.0, ctx_ref.0, input) {
+                        ProcessOutput::Yield(out) => outputs.push(out),
+                        ProcessOutput::YieldMulti(outs) => outputs.extend(outs),
+                        ProcessOutput::Idle => {}
+                        ProcessOutput::Done => break,
+                    }
+                }
+                (state.0, outputs)
+            });
+
+            match result {
+                Ok((state, outputs)) => ProcessResult::Ok(state, outputs),
+                Err(panic_payload) => {
+                    let msg = if let Some(s) = panic_payload.downcast_ref::<&'static str>() {
+                        s.to_string()
+                    } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                        s.clone()
+                    } else {
+                        "unknown panic".to_string()
+                    };
+                    // state is consumed by unwind; dropped without cleanup.
+                    ProcessResult::Panicked(msg)
                 }
             }
-            (state, outputs)
         })
         .await
         .map_err(|e| TokioRunError::TaskPanicked(e.to_string()))?;
 
-        let (state, outputs) = outputs;
-
-        M::cleanup(state, &*ctx).map_err(|e| TokioRunError::CleanupFailed(e.to_string()))?;
-
-        Ok(outputs)
+        match result {
+            ProcessResult::Ok(state, outputs) => {
+                M::cleanup(state, &*ctx)
+                    .map_err(|e| TokioRunError::CleanupFailed(e.to_string()))?;
+                Ok(outputs)
+            }
+            ProcessResult::Panicked(msg) => {
+                // 工程修补 7.5.2：cleanup 被跳过，state 已在 unwind 中 drop。
+                Err(TokioRunError::TaskPanicked(msg))
+            }
+        }
     }
 }

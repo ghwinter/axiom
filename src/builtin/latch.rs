@@ -1,7 +1,9 @@
-/// Latch: holds the last received value and returns it.
+/// Latch: Moore 型延迟元素——输出上一次的输入，而非当前输入。
 ///
-/// `T → T` — useful for breaking cycles in feedback topologies.
-/// State is `Option<T>`. First process() returns the input and stores it.
+/// `T → T` — 用于打破反馈拓扑中的代数环（定理 1.2a）。
+///
+/// 语义：$\delta(s, i) = (s', \lambda(s))$，其中 $s' = i$，$\lambda(s) = s$。
+/// 即：状态存当前输入，输出取旧状态。首次调用时 $s_0 = \text{None}$，输出 `Idle`（工程修补 1.2a）。
 use std::marker::PhantomData;
 use crate::prelude_all::*;
 
@@ -66,14 +68,22 @@ impl<T: Clone + Send + Sync + 'static> Machine for Latch<T> {
     fn config_schema() -> ConfigSchema { ConfigSchema::new() }
 
     fn init(_ctx: &MachineContext) -> Result<Option<T>, InitError> { Ok(None) }
+
+    /// Moore 型延迟：输出旧状态，存入新输入。
+    /// 首次调用（state = None）返回 Idle（工程修补 1.2a）。
     fn process(state: &mut Option<T>, _ctx: &MachineContext, input: LatchInput<T>) -> ProcessOutput<LatchOutput<T>> {
         match input {
             LatchInput::Input(v) => {
-                *state = Some(v.clone());
-                ProcessOutput::Yield(LatchOutput::Output(v))
+                let old = state.take();
+                *state = Some(v);
+                match old {
+                    None => ProcessOutput::Idle,
+                    Some(prev) => ProcessOutput::Yield(LatchOutput::Output(prev)),
+                }
             }
         }
     }
+
     fn cleanup(_state: Option<T>, _ctx: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
     fn deterministic() -> bool { true }
 }

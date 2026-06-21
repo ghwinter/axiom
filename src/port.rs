@@ -298,7 +298,8 @@ impl ConfigSchema {
 /// Context provided to a Machine during its lifecycle.
 ///
 /// Carries observation detection, output connection tracking,
-/// snapshot capabilities, lifecycle state, signal polling, and time access.
+/// snapshot capabilities, lifecycle state, signal polling, time access,
+/// and initial value injection (工程修补 7.5.4).
 pub struct MachineContext {
     pub name: &'static str,
     /// Number of active consumers on observation ports.
@@ -309,6 +310,9 @@ pub struct MachineContext {
     pub(crate) output_count: Arc<AtomicUsize>,
     /// Snapshot function (wired by runtime).
     pub(crate) snapshot_fn: Option<Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>>,
+    /// Initial value injection for Source-like machines (工程修补 7.5.4).
+    /// Stored as type-erased `Arc<dyn Any + Send + Sync>`; machines downcast in `init()`.
+    pub(crate) initial_value: Option<Arc<dyn core::any::Any + Send + Sync>>,
     /// Current lifecycle phase (set by runtime).
     lifecycle: AtomicU8,
     /// Pending system signals count (inc by runtime, polled by machine).
@@ -373,6 +377,7 @@ impl MachineContext {
             observe_count: Arc::new(AtomicUsize::new(0)),
             output_count: Arc::new(AtomicUsize::new(0)),
             snapshot_fn: None,
+            initial_value: None,
             lifecycle: AtomicU8::new(Lifecycle::Init as u8),
             signal_flag: AtomicU8::new(0),
             time_ms: AtomicU64::new(0),
@@ -405,6 +410,20 @@ impl MachineContext {
     /// Returns a byte-serialized snapshot of state, if available.
     pub fn snapshot(&self) -> Option<Vec<u8>> {
         self.snapshot_fn.as_ref().and_then(|f| f())
+    }
+
+    // ── Initial value injection (工程修补 7.5.4) ──────────
+
+    /// Inject an initial value for Source-like machines.
+    /// Called by the runtime/deploy layer before `init()`.
+    pub fn set_initial_value<V: core::any::Any + Send + Sync + 'static>(&mut self, value: V) {
+        self.initial_value = Some(Arc::new(value));
+    }
+
+    /// Retrieve the injected initial value, downcasting to `V`.
+    /// Returns `None` if no value was injected or type mismatch.
+    pub fn initial_value<V: core::any::Any + Send + Sync + 'static>(&self) -> Option<&V> {
+        self.initial_value.as_ref()?.downcast_ref::<V>()
     }
 
     // ── Lifecycle ────────────────────────────────────────
@@ -443,19 +462,24 @@ impl MachineContext {
     }
 
     /// Send a signal to this machine (called by runtime).
-    /// The signal is flagged; the machine polls it via poll_signal().
-    pub fn send_signal(&self) {
-        self.signal_flag.store(1, Ordering::Release);
+    /// 工程修补 7.5.3：接受信号类型参数，支持 Shutdown 和 Checkpoint。
+    pub fn send_signal(&self, signal: SystemSignal) {
+        let code = match signal {
+            SystemSignal::Shutdown => 1,
+            SystemSignal::Checkpoint => 2,
+        };
+        self.signal_flag.store(code, Ordering::Release);
     }
 
-    /// Poll for a pending system signal. Returns the signal type
-    /// (currently only Shutdown) and clears the flag.
+    /// Poll for a pending system signal. Returns the signal type and clears the flag.
     /// Should be called once at the top of each process().
     pub fn poll_signal(&self) -> Option<SystemSignal> {
         let flag = self.signal_flag.swap(0, Ordering::Acquire);
         match flag {
             0 => None,
-            _ => Some(SystemSignal::Shutdown),
+            1 => Some(SystemSignal::Shutdown),
+            2 => Some(SystemSignal::Checkpoint),
+            _ => Some(SystemSignal::Shutdown), // 防御性回退
         }
     }
 
@@ -472,7 +496,11 @@ impl MachineContext {
     }
 
     pub fn observe_disconnect(&self) {
-        self.observe_count.fetch_sub(1, Ordering::Relaxed);
+        // 工程修补 7.5.1：防止 fetch_sub 下溢导致 wrap-around。
+        // 使用 fetch_update 确保计数不低于零。
+        let _ = self.observe_count.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+            if v == 0 { None } else { Some(v - 1) }
+        });
     }
 
     // ── Output connection adapter API ────────────────────
@@ -486,6 +514,9 @@ impl MachineContext {
     }
 
     pub fn output_disconnect(&self) {
-        self.output_count.fetch_sub(1, Ordering::Relaxed);
+        // 工程修补 7.5.1：防止 fetch_sub 下溢导致 wrap-around。
+        let _ = self.output_count.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |v| {
+            if v == 0 { None } else { Some(v - 1) }
+        });
     }
 }

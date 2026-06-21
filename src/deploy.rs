@@ -130,14 +130,39 @@ impl DeploySpec {
         self
     }
 
-    /// Validate the spec:
-    /// - All machine names referenced in links exist.
-    /// - All port names referenced in links exist in the machine's port schema.
-    /// - No cyclic dependencies that violate deployment constraints.
+    /// Validate the spec (工程修补 7.5.5):
+    /// - All machine/func names referenced in links exist.
+    /// - Machine/func names are unique within the deployment.
+    /// - No self-loops (a machine linking to itself).
+    /// - No cyclic dependencies (topological sort).
+    ///
+    /// **Note**: Port name existence and type compatibility require `PortSchema`,
+    /// which is not available in the static `DeploySpec`. These checks are
+    /// performed at runtime via `LinkCompat::check`.
     pub fn validate(&self) -> Result<(), ValidationError> {
+        // 1. 名称唯一性检查
+        let mut seen_machines = std::collections::HashSet::new();
+        for m in &self.machines {
+            if !seen_machines.insert(m.name) {
+                return Err(ValidationError::DuplicateName(m.name));
+            }
+        }
+        let mut seen_funcs = std::collections::HashSet::new();
+        for f in &self.funcs {
+            if !seen_funcs.insert(f.name) {
+                return Err(ValidationError::DuplicateName(f.name));
+            }
+        }
+
+        // 2. 链接引用的机器/函数存在性 + 自环检查
         for link in &self.links {
             let src_name = link.out.0;
             let dst_name = link.into.0;
+
+            // 自环检查
+            if src_name == dst_name {
+                return Err(ValidationError::SelfLoop(src_name));
+            }
 
             if !self.machines.iter().any(|m| m.name == src_name)
                 && !self.funcs.iter().any(|f| f.name == src_name)
@@ -150,6 +175,61 @@ impl DeploySpec {
                 return Err(ValidationError::UnknownMachine(dst_name));
             }
         }
+
+        // 3. 循环依赖检查（拓扑排序，Kahn 算法）
+        // 构建邻接表：src → [dst, ...]
+        let mut adj: std::collections::HashMap<&'static str, Vec<&'static str>> =
+            std::collections::HashMap::new();
+        let mut in_degree: std::collections::HashMap<&'static str, usize> =
+            std::collections::HashMap::new();
+
+        // 初始化所有节点
+        for m in &self.machines {
+            adj.entry(m.name).or_default();
+            in_degree.entry(m.name).or_insert(0);
+        }
+        for f in &self.funcs {
+            adj.entry(f.name).or_default();
+            in_degree.entry(f.name).or_insert(0);
+        }
+
+        // 构建边
+        for link in &self.links {
+            adj.entry(link.out.0).or_default().push(link.into.0);
+            *in_degree.entry(link.into.0).or_insert(0) += 1;
+        }
+
+        // Kahn 算法
+        let mut queue: Vec<&'static str> = in_degree
+            .iter()
+            .filter(|&(_, &deg)| deg == 0)
+            .map(|(&name, _)| name)
+            .collect();
+        let mut visited = 0usize;
+        while let Some(node) = queue.pop() {
+            visited += 1;
+            if let Some(neighbors) = adj.get(node) {
+                for &neighbor in neighbors {
+                    if let Some(deg) = in_degree.get_mut(&neighbor) {
+                        *deg -= 1;
+                        if *deg == 0 {
+                            queue.push(neighbor);
+                        }
+                    }
+                }
+            }
+        }
+
+        if visited != in_degree.len() {
+            // 存在环——找出环中的节点
+            let cycle_node = in_degree
+                .iter()
+                .find(|&(_, &deg)| deg > 0)
+                .map(|(&name, _)| name)
+                .unwrap_or("unknown");
+            return Err(ValidationError::CyclicDependency(cycle_node));
+        }
+
         Ok(())
     }
 }
@@ -159,6 +239,12 @@ impl DeploySpec {
 #[derive(Debug)]
 pub enum ValidationError {
     UnknownMachine(&'static str),
+    /// 机器名或函数名在部署中重复。
+    DuplicateName(&'static str),
+    /// 机器链接到自身。
+    SelfLoop(&'static str),
+    /// 存在循环依赖（拓扑排序未完成）。
+    CyclicDependency(&'static str),
     UnknownPort {
         machine: &'static str,
         port: &'static str,

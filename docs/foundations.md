@@ -76,6 +76,23 @@
 > **定理 1.2（状态局部性）**  
 > $\text{定义 1.2} \Rightarrow$ 对于任意 $M$，所有 $\delta$ 的写入集包含在 $L_S \cup w_{\delta}$ 中。
 
+**定义 1.2a（Mealy 语义与 Moore 语义）**  
+axiom 的默认 Machine 是 **Mealy 机**：输出同时依赖当前状态和当前输入，$\delta: S \times I \to S \times O$。
+
+某些计算原语需要 **Moore 语义**：输出仅依赖当前状态，与当前输入无关。形式化为 $\lambda: S \to O$，状态转移 $\delta_S: S \times I \to S$。
+
+**Moore 型 Machine 的构造**：将 $\delta$ 实现为"先更新状态，再从旧状态产出"：
+$$\delta(s, i) = (s', \lambda(s)) \quad \text{其中} \quad s' = \delta_S(s, i)$$
+
+即输出 $\lambda(s)$ 来自**转移前**的状态 $s$，而非转移后的 $s'$。这实现了"延迟一拍"语义。
+
+> **定理 1.2a（Moore 延迟打破反馈环）**  
+> $\text{定义 1.2a} \Rightarrow$ 在反馈拓扑 $M_1 \to M_2 \to M_1$ 中，若 $M_2$ 为 Moore 型，则 $M_2$ 的输出滞后输入一拍，打破同一时钟内的代数环。  
+> *证明：$M_1$ 在时刻 $t$ 的输出依赖 $M_2$ 在时刻 $t$ 的输出，但 $M_2$ 在时刻 $t$ 的输出来自 $t-1$ 的状态，不依赖 $M_1$ 在 $t$ 的输出。*
+
+> **工程修补 1.2a（Moore 型的首次输出）**  
+> Moore 型 Machine 在首次调用 $\delta$ 时，状态 $s_0$ 是初始值。若 $\lambda(s_0)$ 无意义（如 `Option::None`），需约定首次输出为 `Idle` 而非 `Yield`。这是图灵机模型不涉及但工程实现必须处理的边界条件。
+
 ### 1.3 实体
 
 **定义 1.3（实体）**  
@@ -233,6 +250,40 @@ $\Delta: M \to (Hint \times Spec)$ 将 Machine 映射到执行原语和参数。
 
 > **定理 7.3（背压传播条件）**  
 > $\text{LinkKind 定义} \Rightarrow$ 背压传播 $\iff$ 连接使用 BoundedBuf_{blocking}。
+
+---
+
+## 7.5 工程修补：数学模型与实现之间的缝隙
+
+> 以下各条承认图灵机/Mealy 机形式化定义未覆盖、但工程实现必须处理的边界条件。每条标注了对应的 Rust 修补机制。
+
+**修补 7.5.1（连接计数的下溢）**  
+数学定义 2.4 中连接 $\ell$ 的存在性是布尔量。工程实现用引用计数（`AtomicUsize`）跟踪活跃连接数，使 Machine 能查询 `output_is_connected()`。但引用计数的减法操作 `fetch_sub(1)` 在计数为零时会发生无符号整数回绕（wrap-around），导致计数变为最大值，`is_connected()` 永远返回 `true`。
+
+**修补方式**：使用 `compare_exchange` 循环确保计数不低于零，或使用 `fetch_update` 保证单调递减。
+
+**修补 7.5.2（panic 时的状态清理）**  
+数学定义 1.2 中 $\delta$ 是全函数（对所有输入都有定义）。工程实现中 $\delta$（即 `process()`）可能 panic。此时状态 $S$ 处于未定义中间态，调用 $\rho$（`cleanup()`）可能不安全。
+
+**修补方式**：线性运行时使用 `CleanupGuard` 在 panic 时安全丢弃状态（跳过 `cleanup`）；异步运行时需等价机制。这是"safe but leaky"的折衷——资源可能泄漏，但不会产生未定义行为。
+
+**修补 7.5.3（信号传递的类型擦除）**  
+数学定义中系统信号 $\sigma \in \{Shutdown, Checkpoint\}$ 是离散事件。工程实现用单个 `AtomicU8` 标志位传递信号，无法区分信号类型。`send_signal()` 无参数，`poll_signal()` 永远返回 `Shutdown`。
+
+**修补方式**：将 `signal_flag` 扩展为 `AtomicU8`，0 = 无信号，1 = Shutdown，2 = Checkpoint。`send_signal(signal: SystemSignal)` 接受参数。
+
+**修补 7.5.4（Source 的常量注入）**  
+数学定义中 Source 是 $M = (S, \emptyset, O, \delta, \rho)$，$\delta: S \times \emptyset \to S \times O$。工程实现中 `init()` 只能从 `MachineContext` 获取信息，无法接受外部配置参数来设定要产生的常量值。
+
+**修补方式**：通过 `MachineContext` 的配置通道（如 `config_overrides`）传入序列化值，或通过部署时的 `MachineInstance` 配置注入。
+
+**修补 7.5.5（部署校验的完备性）**  
+数学定义 2.4 中连接图 $\Sigma$ 的合法性要求：所有连接的端口名存在、类型匹配、无循环依赖。工程实现的 `DeploySpec::validate()` 只检查了机器名存在性，端口名和类型检查依赖运行时 `LinkCompat::check`，循环依赖检查未实现。
+
+**修补方式**：在 `validate()` 中补充端口名存在性检查和类型匹配检查；循环依赖检查需拓扑排序算法。
+
+**修补 7.5.6（Moore 型的首次输出）**  
+见工程修补 1.2a。Moore 型 Machine 首次调用时状态为初始值 $s_0$，若 $\lambda(s_0)$ 无意义，需约定输出 `Idle`。这是形式化定义不涉及但实现必须处理的边界。
 
 ---
 
