@@ -4,6 +4,7 @@
 /// DeploySpec validation, and Clock implementations.
 
 use axiom::prelude_all::*;
+use axiom::flow::FlowKind;
 use axiom::time::Clock;
 
 // ════════════════════════════════════════════════════════════
@@ -160,7 +161,8 @@ fn test_port_decl_creation() {
     assert_eq!(out_port.name, "result_out");
 
     let obs_port = PortDecl::observe::<f64>("metric");
-    assert_eq!(obs_port.dir, PortDir::Observe);
+    assert_eq!(obs_port.dir, PortDir::Out);
+    assert_eq!(obs_port.flow, FlowKind::Observe);
     assert_eq!(obs_port.name, "metric");
 }
 

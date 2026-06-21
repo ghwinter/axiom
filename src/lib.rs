@@ -1,3 +1,5 @@
+pub mod entity;
+pub mod flow;
 pub mod func;
 pub mod machine;
 pub mod port;
@@ -8,8 +10,10 @@ pub mod time;
 
 /// Core prelude for typical use.
 pub mod prelude_all {
+    pub use crate::flow::FlowKind;
+    pub use crate::entity::{Entity, EntityRestoreError};
     pub use crate::func::{Func, FuncWithScratch, FuncScratchPipeline, Scratched, CostEstimate};
-    pub use crate::machine::{Machine, ProcessOutput, InitError, CleanupError, RestoreError};
+    pub use crate::machine::{Machine, ProcessOutput, InitError, CleanupError};
     pub use crate::port::{
         PortDir, PortDecl, PortSchema, PortRegistry, ConfigDecl, ConfigSchema, MachineContext,
         LinkCompat,

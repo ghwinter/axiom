@@ -2,33 +2,35 @@ use core::any::TypeId;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use crate::flow::FlowKind;
+
 // ── Port direction ────────────────────────────────────────────────────────────
 
 /// The direction of data flow through a port.
 ///
-/// # Semantics
-/// - `In`: data flows into the machine. The machine consumes it.
-/// - `Out`: data flows out of the machine. Other machines may consume it.
-/// - `Observe`: structured observation data flows out of the machine.
-///   Observe ports are read-only from the outside and are never connected to
-///   `In` ports — they are connected to a `Collector` sink.
+/// Direction is orthogonal to [`FlowKind`]: an output port can carry data,
+/// control, or observation information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PortDir {
+    /// Data flows into the entity.
     In,
+    /// Data flows out of the entity.
     Out,
-    Observe,
 }
 
-// ── Port declaration (compile-time / schema) ─────────────────────────────────
+// ── Port declaration ─────────────────────────────────────────────────────────
 
-/// A single port declaration in a machine's port schema.
+/// A single port declaration in an entity's port schema.
 ///
-/// Includes type metadata for link-time compatibility checking
-/// and a schema version for evolution support.
+/// Three orthogonal dimensions:
+/// - **Direction** (`PortDir`): in or out.
+/// - **Semantic kind** (`FlowKind`): data, control, or observation.
+/// - **Type**: the Rust type of data crossing this port.
 #[derive(Debug, Clone)]
 pub struct PortDecl {
     pub name: &'static str,
     pub dir: PortDir,
+    pub flow: FlowKind,
     pub type_id: TypeId,
     pub type_name: &'static str,
     pub schema_ver: u32,
@@ -36,35 +38,39 @@ pub struct PortDecl {
 }
 
 impl PortDecl {
-    /// Declare an input port.
+    // ── Data ports ─────────────────────────────────────────
+
     pub fn input<T: 'static>(name: &'static str) -> Self {
-        Self {
-            name,
-            dir: PortDir::In,
-            type_id: TypeId::of::<T>(),
-            type_name: core::any::type_name::<T>(),
-            schema_ver: 0,
-            description: "",
-        }
+        Self::new::<T>(name, PortDir::In, FlowKind::Data)
     }
 
-    /// Declare an output port.
     pub fn output<T: 'static>(name: &'static str) -> Self {
-        Self {
-            name,
-            dir: PortDir::Out,
-            type_id: TypeId::of::<T>(),
-            type_name: core::any::type_name::<T>(),
-            schema_ver: 0,
-            description: "",
-        }
+        Self::new::<T>(name, PortDir::Out, FlowKind::Data)
     }
 
-    /// Declare an observation port.
+    // ── Control ports ──────────────────────────────────────
+
+    pub fn ctrl_in<T: 'static>(name: &'static str) -> Self {
+        Self::new::<T>(name, PortDir::In, FlowKind::Control)
+    }
+
+    pub fn ctrl_out<T: 'static>(name: &'static str) -> Self {
+        Self::new::<T>(name, PortDir::Out, FlowKind::Control)
+    }
+
+    // ── Observation ports ──────────────────────────────────
+
     pub fn observe<T: 'static>(name: &'static str) -> Self {
+        Self::new::<T>(name, PortDir::Out, FlowKind::Observe)
+    }
+
+    // ── Generic constructor ────────────────────────────────
+
+    pub fn new<T: 'static>(name: &'static str, dir: PortDir, flow: FlowKind) -> Self {
         Self {
             name,
-            dir: PortDir::Observe,
+            dir,
+            flow,
             type_id: TypeId::of::<T>(),
             type_name: core::any::type_name::<T>(),
             schema_ver: 0,
@@ -85,14 +91,14 @@ impl PortDecl {
 
 // ── Port schema ───────────────────────────────────────────────────────────────
 
-/// The complete set of ports a machine exposes.
+/// The complete set of ports an entity exposes.
 #[derive(Debug, Clone)]
 pub struct PortSchema {
     ports: Vec<PortDecl>,
-    // Index to the primary input/output for quick lookup.
+    // Cached indices for fast lookup.
     primary_in: Option<usize>,
     primary_out: Option<usize>,
-    observe_idx: Option<usize>,
+    observe_out: Option<usize>,
 }
 
 impl PortSchema {
@@ -101,25 +107,31 @@ impl PortSchema {
             ports: Vec::new(),
             primary_in: None,
             primary_out: None,
-            observe_idx: None,
+            observe_out: None,
         }
     }
 
     pub fn with(mut self, decl: PortDecl) -> Self {
         let idx = self.ports.len();
-        match decl.dir {
-            PortDir::In if self.primary_in.is_none() => self.primary_in = Some(idx),
-            PortDir::Out if self.primary_out.is_none() => self.primary_out = Some(idx),
-            PortDir::Observe if self.observe_idx.is_none() => self.observe_idx = Some(idx),
+        match (decl.dir, &decl.flow) {
+            (PortDir::In, FlowKind::Data) if self.primary_in.is_none() => {
+                self.primary_in = Some(idx);
+            }
+            (PortDir::Out, FlowKind::Data) if self.primary_out.is_none() => {
+                self.primary_out = Some(idx);
+            }
+            (PortDir::Out, FlowKind::Observe) if self.observe_out.is_none() => {
+                self.observe_out = Some(idx);
+            }
             _ => {}
         }
         self.ports.push(decl);
         self
     }
 
-    pub fn ports(&self) -> &[PortDecl] {
-        &self.ports
-    }
+    pub fn ports(&self) -> &[PortDecl] { &self.ports }
+    pub fn is_empty(&self) -> bool { self.ports.is_empty() }
+    pub fn len(&self) -> usize { self.ports.len() }
 
     pub fn find(&self, name: &str) -> Option<&PortDecl> {
         self.ports.iter().find(|p| p.name == name)
@@ -134,45 +146,33 @@ impl PortSchema {
     }
 
     pub fn observe_port(&self) -> Option<&PortDecl> {
-        self.observe_idx.map(|i| &self.ports[i])
+        self.observe_out.map(|i| &self.ports[i])
     }
 }
 
 // ── Link-compatibility check ──────────────────────────────────────────────────
 
-/// Result of checking whether two port declarations can be linked.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkCompat {
-    /// Ports are compatible.
     Compatible,
-    /// Ports are compatible with an automatic schema migration (version drift ≤ 1).
     Migrate { from_ver: u32, to_ver: u32 },
-    /// Ports are incompatible.
     Incompatible { reason: &'static str },
 }
 
 impl PortDecl {
-    /// Check whether this port can be linked to `other`.
-    ///
-    /// Rules:
-    /// - `self.dir` must be `Out`, `other.dir` must be `In`.
-    /// - `self.type_id == other.type_id`.
-    /// - Schema versions must differ by at most 1.
     pub fn can_link_to(&self, other: &PortDecl) -> LinkCompat {
         if self.dir != PortDir::Out {
-            return LinkCompat::Incompatible {
-                reason: "source port is not an output",
-            };
+            return LinkCompat::Incompatible { reason: "source port is not an output" };
         }
         if other.dir != PortDir::In {
-            return LinkCompat::Incompatible {
-                reason: "target port is not an input",
-            };
+            return LinkCompat::Incompatible { reason: "target port is not an input" };
         }
         if self.type_id != other.type_id {
-            return LinkCompat::Incompatible {
-                reason: "type mismatch",
-            };
+            return LinkCompat::Incompatible { reason: "type mismatch" };
+        }
+        // FlowKind must match (Data↔Data, Control↔Control, Observe↔In ports don't connect)
+        if self.flow != other.flow {
+            return LinkCompat::Incompatible { reason: "flow kind mismatch" };
         }
         let ver_diff = if self.schema_ver > other.schema_ver {
             self.schema_ver - other.schema_ver
@@ -185,64 +185,47 @@ impl PortDecl {
                 from_ver: self.schema_ver.min(other.schema_ver),
                 to_ver: self.schema_ver.max(other.schema_ver),
             },
-            _ => LinkCompat::Incompatible {
-                reason: "schema version drift > 1",
-            },
+            _ => LinkCompat::Incompatible { reason: "schema version drift > 1" },
         }
     }
 }
 
 // ── Port registry (runtime) ───────────────────────────────────────────────────
 
-/// Runtime registry of a machine's port statistics.
-///
-/// Populated during `Machine::init` and readable by snapshotter tools.
-/// Does NOT hold data handles — it holds only `&'static str` metadata
-/// and a reference to the underlying buffer's stats.
 #[derive(Debug, Default)]
 pub struct PortRegistry {
     entries: Vec<PortEntry>,
 }
 
-/// A registered port with its runtime statistics handle.
 #[derive(Debug)]
 pub struct PortEntry {
     pub name: &'static str,
     pub dir: PortDir,
+    pub flow: FlowKind,
     pub type_name: &'static str,
     pub schema_ver: u32,
 }
 
 impl PortRegistry {
-    pub fn new() -> Self {
-        Self::default()
-    }
+    pub fn new() -> Self { Self::default() }
 
     pub fn register(&mut self, decl: &PortDecl) {
         self.entries.push(PortEntry {
             name: decl.name,
             dir: decl.dir,
+            flow: decl.flow,
             type_name: decl.type_name,
             schema_ver: decl.schema_ver,
         });
     }
 
-    pub fn entries(&self) -> &[PortEntry] {
-        &self.entries
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
+    pub fn entries(&self) -> &[PortEntry] { &self.entries }
+    pub fn len(&self) -> usize { self.entries.len() }
+    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
 }
 
 // ── Config schema ─────────────────────────────────────────────────────────────
 
-/// Declaration of a configuration parameter.
 #[derive(Debug, Clone)]
 pub struct ConfigDecl {
     pub key: &'static str,
@@ -260,55 +243,30 @@ impl ConfigDecl {
     }
 }
 
-/// The set of configuration parameters a machine exposes.
 #[derive(Debug, Clone, Default)]
 pub struct ConfigSchema {
     decls: Vec<ConfigDecl>,
 }
 
 impl ConfigSchema {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
+    pub fn new() -> Self { Self::default() }
     pub fn with(mut self, decl: ConfigDecl) -> Self {
         self.decls.push(decl);
         self
     }
-
-    pub fn decls(&self) -> &[ConfigDecl] {
-        &self.decls
-    }
+    pub fn decls(&self) -> &[ConfigDecl] { &self.decls }
 }
 
 // ── MachineContext ────────────────────────────────────────────────────────────
 
 /// Context provided to a Machine during its lifecycle.
 ///
-/// The context carries the machine's identity, observation state,
-/// and a snapshot mechanism for pull-based state queries.
-///
-/// # Observation detection
-/// `observe_is_connected()` returns true if at least one consumer
-/// has subscribed to this machine's observe_out port.
-/// The runtime sets this flag when establishing or tearing down a link.
-/// Use it to skip expensive observation code when nobody is watching.
-///
-/// # State snapshots
-/// `snapshot()` returns a byte-serialized copy of the machine's current
-/// State, if the machine supports checkpointing (Machine::checkpoint).
-/// The runtime wires this up during init.
+/// Carries observation detection and snapshot capabilities.
 pub struct MachineContext {
-    /// Human-readable machine name.
     pub name: &'static str,
-
-    /// Number of active consumers on the observe_out port.
-    /// Incremented by the runtime when a link is established.
-    /// Decremented when a link is torn down.
+    /// Number of active consumers on observation ports.
     pub(crate) observe_count: Arc<AtomicUsize>,
-
-    /// Snapshot function: captures the current State and serializes it.
-    /// Set by the runtime after init, using Machine::checkpoint.
+    /// Snapshot function (wired by runtime).
     pub(crate) snapshot_fn: Option<Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>>,
 }
 
@@ -331,50 +289,32 @@ impl MachineContext {
         }
     }
 
-    /// Returns `true` if at least one consumer is connected to the
-    /// machine's observe_out port. Use this to skip observation
-    /// code (formatting, string allocation) when nobody is watching.
-    ///
-    /// This is a single atomic load — zero overhead when hot.
+    /// Returns `true` if at least one consumer is connected to any of this
+    /// machine's observation ports.
     #[inline]
     pub fn observe_is_connected(&self) -> bool {
         self.observe_count.load(Ordering::Relaxed) > 0
     }
 
-    /// Returns a byte-serialized snapshot of the machine's current
-    /// State, if the machine implements `Machine::checkpoint`.
-    ///
-    /// This enables pull-based observation: external tools (CLI, TUI,
-    /// health checkers) can query state at any time without waiting
-    /// for the machine to emit an observe event.
+    /// Returns a byte-serialized snapshot of state, if available.
     pub fn snapshot(&self) -> Option<Vec<u8>> {
         self.snapshot_fn.as_ref().and_then(|f| f())
     }
 
     // ── Runtime adapter API ──────────────────────────────────
-    // These methods are used by runtime adapters (e.g., axiom_tokio)
-    // to wire up observation detection and snapshot mechanisms.
-    // They are not intended for Machine implementors.
 
-    /// Set the snapshot function. Called by the runtime after init,
-    /// once the machine's State is allocated.
     pub fn set_snapshot_fn(&mut self, f: Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>) {
         self.snapshot_fn = Some(f);
     }
 
-    /// Get a reference to the observe consumer count.
-    /// The runtime uses this to register a new consumer.
     pub fn observe_count_handle(&self) -> Arc<AtomicUsize> {
         Arc::clone(&self.observe_count)
     }
 
-    /// Manually increment observe count (used by runtimes that
-    /// cannot wait for link establishment).
     pub fn observe_connect(&self) {
         self.observe_count.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Manually decrement observe count.
     pub fn observe_disconnect(&self) {
         self.observe_count.fetch_sub(1, Ordering::Relaxed);
     }
