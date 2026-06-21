@@ -1,0 +1,28 @@
+[package]
+name = "axiom"
+version = "0.1.0"
+edition = "2024"
+description = "Minimal computation primitives: Func (stateless, stack) and Machine (stateful, heap) with typed ports, explicit link topology, and deployment specs. Zero dependencies, zero runtime assumptions."
+license = "MIT"
+repository = "https://github.com/user/axiom"
+
+[[example]]
+name = "counter"
+path = "examples/counter.rs"
+
+[[example]]
+name = "pipeline"
+path = "examples/pipeline.rs"
+
+[[example]]
+name = "complex_topology"
+path = "examples/complex_topology.rs"
+required-features = ["std"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+default = ["std"]
+std = []
+serialize = ["dep:serde"]

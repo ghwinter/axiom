@@ -1,0 +1,14 @@
+# Generated output
+/target/
+**/*.rs.bk
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS garbage
+.DS_Store
+Thumbs.db
