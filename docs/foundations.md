@@ -95,7 +95,11 @@
 端口 $p = (T, d, f)$ 由类型 $T$、方向 $d \in \{in, out\}$ 和流语义 $f \in \{data, control, observe\}$ 构成。
 
 **定义 2.2（接口）**  
-一个接口 $\Gamma$ 是端口的有限集。
+一个接口 $\Gamma$ 是端口的有限**集**。即 $\forall p_1, p_2 \in \Gamma: name(p_1) \neq name(p_2) \lor p_1 = p_2$。
+
+> **公理 2.2（接口的编译期静态声明）**  
+> 一个 Machine 的接口 $\Gamma_{in}$ 和 $\Gamma_{out}$ 在编译期固定，运行时不可变。  
+> *Rust 映射：`type Input: HasPortInfo`（enum，每端口一个 variant）+ `type Ports: PortSet`（连接类型空间与值空间）。*
 
 **定义 2.3（连接）**  
 连接 $\ell = (p_s, p_t)$ 要求 $dir(p_s) = out$、$dir(p_t) = in$、$T_{p_s} = T_{p_t}$、$f_{p_s} = f_{p_t}$。
@@ -108,8 +112,21 @@
 > $\text{定义 2.1} \Rightarrow$ 观测流 $(f = observe)$ 的输出不参与任何 Machine 的 $\delta$ 输入。  
 > *证明：$\delta$ 签名 $S \times I \to S \times O$ 中 $Obs$ 不存在于输入中。FlowKind::Observe 是端口标注，不是计算分量。*
 
+> **定理 2.3（类型-值一致性）**  
+> $\text{公理 2.2} \land \text{定义 2.2} \Rightarrow$ `type Input` 的 enum variant 集与 `port_schema()` 的 PortDecl 集一一对应。  
+> *证明：`type Ports: PortSet` 的 `port_schema()` 由 `PortSet` 实现生成，其声明与 `type Input`/`type Output` 的 enum variant 声明同源（`declare_ports!` 宏或手动 PortSet impl 保证）。*  
+> *Rust 映射：`PortSet` trait 连接 `type Input: HasPortInfo`（类型空间）与 `PortSchema`（值空间），`port_schema()` 自动派生。*
+
+> **定理 2.4（多端口扇出存在性）**  
+> $\text{定义 2.2} \Rightarrow$ 一个 Machine 可以在单次 $\delta$ 调用中向多个输出端口产出。  
+> *Rust 映射：`ProcessOutput::YieldMulti(Vec<O>)` 允许一次返回多个 Output variant。*
+
 **定义 2.4（连接图）**  
 系统 $\Sigma = (M_\Sigma, L_\Sigma)$，$L_\Sigma \subseteq \bigcup_{M \in M_\Sigma} Out_M \times \bigcup_{M \in M_\Sigma} In_M$。
+
+> **定理 2.5（输出可达性）**  
+> $\text{定义 2.4} \Rightarrow$ Machine $M$ 的输出端口 $p$ 的数据可达 $\iff$ $\exists \ell \in L_\Sigma: \ell = (p, \_)$。  
+> *Rust 映射：`MachineContext::output_is_connected()` 返回是否有消费者连接到输出端口。*
 
 ---
 
@@ -224,15 +241,19 @@ $\Delta: M \to (Hint \times Spec)$ 将 Machine 映射到执行原语和参数。
 | 代数概念 | Rust 实现 | 编译器保证 |
 |---------|-----------|-----------|
 | 纯函数 $f = (I, O, \hat{f})$ | `trait Func { type I; type O; fn call(I) -> O }` | Send+Sync，无 &mut State |
-| 机器 $M = (S, I, O, \delta, \rho)$ | `trait Machine { type S; type I; type O; process(); cleanup() }` | Send+Sync，生命周期间 |
+| 机器 $M = (S, I, O, \delta, \rho)$ | `trait Machine { type State; type Input: HasPortInfo; type Output: HasPortInfo; type Ports: PortSet; process(); cleanup() }` | Send+Sync，生命周期间 |
+| 接口集 $\Gamma$ | `type Input`/`type Output`（enum，每端口一个 variant） | HasPortInfo 保证端口元数据可查 |
+| 端口集连接 | `type Ports: PortSet<Input=Self::Input, Output=Self::Output>` | PortSet 保证类型空间与值空间一致 |
 | 实体 $E = (S, name)$ | `trait Entity { type S; fn name() }` | 无 process，无端口 |
-| 端口 $p = (T, d, f)$ | `PortDecl { type_id, dir: PortDir, flow: FlowKind }` | TypeId 连接时检查 |
+| 端口 $p = (T, d, f)$ | `PortDecl { type_id, dir: PortDir, flow: FlowKind }` + enum variant | TypeId 连接时检查 |
 | 连接 $\ell$ | `LinkSpec { out, into, kind: LinkKind }` | LinkCompat::check |
 | 连接图 $\Sigma$ | `DeploySpec { machines, links }` | validate() |
 | 部署 $\Delta$ | `MachinePhysicalSpec { execution: ExecutionHint }` | Trait 签名不含 Hint |
 | 资源类 $R$ | `ResourceClass { Static, DynamicHeap, OsResource, ... }` | 文档标记 |
 | 恒等态射 $id$ | `builtin::Identity<I>` | 零开销，零分支 |
 | 范畴组合 $⨟$ | `FuncScratchPipeline<(A,B)>` | 编译期泛型复合 |
+| 多端口扇出 | `ProcessOutput::YieldMulti(Vec<O>)` | 定理 2.4 |
+| 输出可达性查询 | `MachineContext::output_is_connected()` | 定理 2.5 |
 
 ---
 

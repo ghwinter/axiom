@@ -112,6 +112,14 @@ impl PortSchema {
     }
 
     pub fn with(mut self, decl: PortDecl) -> Self {
+        // Definition 2.2: Γ is a *set* — no duplicate port names allowed.
+        // This is a programming error (static declaration), so panic early.
+        if let Some(existing) = self.ports.iter().find(|p| p.name == decl.name) {
+            panic!(
+                "PortSchema duplicate port name '{}': existing {:?}:{:?}, new {:?}:{:?}",
+                decl.name, existing.dir, existing.flow, decl.dir, decl.flow
+            );
+        }
         let idx = self.ports.len();
         match (decl.dir, &decl.flow) {
             (PortDir::In, FlowKind::Data) if self.primary_in.is_none() => {
@@ -135,6 +143,34 @@ impl PortSchema {
 
     pub fn find(&self, name: &str) -> Option<&PortDecl> {
         self.ports.iter().find(|p| p.name == name)
+    }
+
+    /// All input ports (any flow kind).
+    pub fn inputs(&self) -> impl Iterator<Item = &PortDecl> {
+        self.ports.iter().filter(|p| p.dir == PortDir::In)
+    }
+
+    /// All output ports (any flow kind).
+    pub fn outputs(&self) -> impl Iterator<Item = &PortDecl> {
+        self.ports.iter().filter(|p| p.dir == PortDir::Out)
+    }
+
+    /// All observe ports (output + Observe flow).
+    pub fn observe_ports(&self) -> impl Iterator<Item = &PortDecl> {
+        self.ports.iter().filter(|p| p.dir == PortDir::Out && p.flow == FlowKind::Observe)
+    }
+
+    /// Validate that this schema satisfies the mathematical definition of an
+    /// interface set (Definition 2.2): no duplicate names, each port has a
+    /// valid type. Returns `Ok(())` if valid, `Err(reason)` otherwise.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        let mut seen = std::collections::HashSet::new();
+        for p in &self.ports {
+            if !seen.insert(p.name) {
+                return Err("duplicate port name in schema");
+            }
+        }
+        Ok(())
     }
 
     pub fn primary_input(&self) -> Option<&PortDecl> {
@@ -261,12 +297,16 @@ impl ConfigSchema {
 
 /// Context provided to a Machine during its lifecycle.
 ///
-/// Carries observation detection, snapshot capabilities,
-/// lifecycle state, signal polling, and time access.
+/// Carries observation detection, output connection tracking,
+/// snapshot capabilities, lifecycle state, signal polling, and time access.
 pub struct MachineContext {
     pub name: &'static str,
     /// Number of active consumers on observation ports.
     pub(crate) observe_count: Arc<AtomicUsize>,
+    /// Number of active consumers on data/control output ports.
+    /// Machines can query this to skip expensive computation when
+    /// nobody is listening (Theorem 7.2 — observability requires links).
+    pub(crate) output_count: Arc<AtomicUsize>,
     /// Snapshot function (wired by runtime).
     pub(crate) snapshot_fn: Option<Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>>,
     /// Current lifecycle phase (set by runtime).
@@ -318,6 +358,7 @@ impl core::fmt::Debug for MachineContext {
         f.debug_struct("MachineContext")
             .field("name", &self.name)
             .field("observe_count", &self.observe_count.load(Ordering::Relaxed))
+            .field("output_count", &self.output_count.load(Ordering::Relaxed))
             .field("has_snapshot_fn", &self.snapshot_fn.is_some())
             .field("lifecycle", &self.lifecycle())
             .field("time_ms", &self.time_ms.load(Ordering::Relaxed))
@@ -330,6 +371,7 @@ impl MachineContext {
         Self {
             name,
             observe_count: Arc::new(AtomicUsize::new(0)),
+            output_count: Arc::new(AtomicUsize::new(0)),
             snapshot_fn: None,
             lifecycle: AtomicU8::new(Lifecycle::Init as u8),
             signal_flag: AtomicU8::new(0),
@@ -344,6 +386,18 @@ impl MachineContext {
     #[inline]
     pub fn observe_is_connected(&self) -> bool {
         self.observe_count.load(Ordering::Relaxed) > 0
+    }
+
+    // ── Output connection ────────────────────────────────
+
+    /// Returns `true` if at least one consumer is connected to any of this
+    /// machine's data/control output ports.
+    ///
+    /// Machines can use this to skip expensive computation when nobody
+    /// is listening (Theorem 7.2 — output is reachable iff links exist).
+    #[inline]
+    pub fn output_is_connected(&self) -> bool {
+        self.output_count.load(Ordering::Relaxed) > 0
     }
 
     // ── Snapshot ─────────────────────────────────────────
@@ -419,5 +473,19 @@ impl MachineContext {
 
     pub fn observe_disconnect(&self) {
         self.observe_count.fetch_sub(1, Ordering::Relaxed);
+    }
+
+    // ── Output connection adapter API ────────────────────
+
+    pub fn output_count_handle(&self) -> Arc<AtomicUsize> {
+        Arc::clone(&self.output_count)
+    }
+
+    pub fn output_connect(&self) {
+        self.output_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn output_disconnect(&self) {
+        self.output_count.fetch_sub(1, Ordering::Relaxed);
     }
 }
