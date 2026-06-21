@@ -6,7 +6,7 @@ description = "Func + Machine: typed ports, explicit topology, deploy-time physi
 license = "MIT"
 
 [workspace]
-members = ["adapters/*"]
+members = ["axiom-tokio"]
 
 [[example]]
 name = "counter"

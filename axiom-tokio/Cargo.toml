@@ -6,5 +6,5 @@ description = "Tokio runtime adapter for axiom — spawn Machines as blocking ta
 license = "MIT"
 
 [dependencies]
-axiom = { path = "../../" }
+axiom = { path = "../" }
 tokio = { version = "1", features = ["full"] }

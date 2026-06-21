@@ -1,6 +1,7 @@
 # Generated output
 /target/
 **/*.rs.bk
+/tmp
 
 # IDE / editor
 .idea/
