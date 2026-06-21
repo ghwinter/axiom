@@ -1,6 +1,10 @@
 # axiom
 
-Minimal computation primitives. Zero dependencies, zero runtime assumptions.
+**Func + Machine: typed ports, explicit topology, deploy-time physics.**
+**函数与状态机：类型化端口、显式拓扑、部署时物理决策。**
+
+Zero-dependency computation primitives for observable, controllable systems.
+零依赖计算原语，构建可观测、可控制的软件系统。
 
 `Func` (stack, stateless) and `Machine` (heap, stateful) — with typed ports, explicit link
 topology, deployment specs, resource classification, and an algebraic foundation.
