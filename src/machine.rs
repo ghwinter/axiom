@@ -22,6 +22,8 @@
 /// wrapping them in async tasks or spawning dedicated threads.
 
 use crate::port::{PortSchema, ConfigSchema, MachineContext};
+use crate::resource::{MachinePhysicalSpec, ResourceClass};
+use crate::entity::EntityRestoreError;
 
 pub trait Machine: Send + Sync + 'static {
     /// Persistent state — heap-allocated, observable.
@@ -64,6 +66,25 @@ pub trait Machine: Send + Sync + 'static {
     /// Clean up resources before destruction.
     fn cleanup(state: Self::State, ctx: &MachineContext) -> Result<(), CleanupError>;
 
+    // ── Physical resource specification ────────────────────
+
+    /// Physical resource declaration. Used by the deployer to allocate
+    /// threads, budget memory, and schedule the machine.
+    fn physical_spec() -> MachinePhysicalSpec
+    where
+        Self: Sized,
+    {
+        MachinePhysicalSpec::default()
+    }
+
+    /// Resource classification for lifecycle-aware resource tracking.
+    fn resource_classes() -> &'static [ResourceClass]
+    where
+        Self: Sized,
+    {
+        &[]
+    }
+
     // ── Optional ──────────────────────────────────────────
 
     /// Whether this machine is deterministic (replay-safe).
@@ -72,6 +93,19 @@ pub trait Machine: Send + Sync + 'static {
         Self: Sized,
     {
         false
+    }
+
+    /// Serialize state for checkpoint/restore.
+    fn checkpoint(_state: &Self::State) -> Option<Vec<u8>> {
+        None
+    }
+
+    /// Deserialize and restore state from a checkpoint.
+    fn restore(
+        _state: &mut Self::State,
+        _data: &[u8],
+    ) -> Result<(), EntityRestoreError> {
+        Err(EntityRestoreError::NotSupported)
     }
 }
 

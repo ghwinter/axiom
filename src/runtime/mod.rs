@@ -12,4 +12,4 @@
 
 mod linear;
 
-pub use linear::LinearRuntime;
+pub use linear::{LinearRuntime, CleanupGuard};

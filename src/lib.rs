@@ -13,7 +13,7 @@ pub mod time;
 /// Core prelude for typical use.
 pub mod prelude_all {
     pub use crate::builtin::{
-        Identity, Sink, Tee, Latch, Collector, EntityRoot,
+        Identity, Sink, Tee, Latch, Collector, EntityRoot, FuncMachine,
     };
     pub use crate::deploy::{DeploySpec, DeploySettings, MachineInstance, FuncBinding};
     pub use crate::entity::{Entity, EntityRestoreError};
@@ -23,7 +23,7 @@ pub mod prelude_all {
     pub use crate::machine::{Machine, ProcessOutput, InitError, CleanupError};
     pub use crate::port::{
         PortDir, PortDecl, PortSchema, PortRegistry, ConfigDecl, ConfigSchema, MachineContext,
-        LinkCompat,
+        LinkCompat, Lifecycle, SystemSignal,
     };
     pub use crate::resource::{MachinePhysicalSpec, ExecutionHint, ResourceClass, ThreadPoolSpec};
     pub use crate::time::{TimeTick, Clock, RealClock, ReplayClock};

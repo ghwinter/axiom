@@ -1,5 +1,5 @@
 use core::any::TypeId;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicUsize, AtomicU8, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::flow::FlowKind;
@@ -261,13 +261,56 @@ impl ConfigSchema {
 
 /// Context provided to a Machine during its lifecycle.
 ///
-/// Carries observation detection and snapshot capabilities.
+/// Carries observation detection, snapshot capabilities,
+/// lifecycle state, signal polling, and time access.
 pub struct MachineContext {
     pub name: &'static str,
     /// Number of active consumers on observation ports.
     pub(crate) observe_count: Arc<AtomicUsize>,
     /// Snapshot function (wired by runtime).
     pub(crate) snapshot_fn: Option<Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>>,
+    /// Current lifecycle phase (set by runtime).
+    lifecycle: AtomicU8,
+    /// Pending system signals count (inc by runtime, polled by machine).
+    signal_flag: AtomicU8,
+    /// Current time in ms since epoch (set by runtime each tick).
+    time_ms: AtomicU64,
+}
+
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+/// The phase a Machine is currently in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Lifecycle {
+    Init     = 0,
+    Running  = 1,
+    Stopping = 2,
+    Stopped  = 3,
+}
+
+impl Lifecycle {
+    /// Progress to the next phase (monotonic forward only).
+    pub fn next(self) -> Option<Self> {
+        match self {
+            Lifecycle::Init => Some(Lifecycle::Running),
+            Lifecycle::Running => Some(Lifecycle::Stopping),
+            Lifecycle::Stopping => Some(Lifecycle::Stopped),
+            Lifecycle::Stopped => None,
+        }
+    }
+    pub fn is_active(self) -> bool { self == Lifecycle::Running }
+    pub fn is_terminal(self) -> bool { self == Lifecycle::Stopped }
+}
+
+// ── SystemSignal ──────────────────────────────────────────────────────────────
+
+/// A signal sent from the runtime to a Machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SystemSignal {
+    /// Request graceful shutdown after current process() completes.
+    Shutdown,
+    /// Request a state checkpoint (if supported).
+    Checkpoint,
 }
 
 impl core::fmt::Debug for MachineContext {
@@ -276,6 +319,8 @@ impl core::fmt::Debug for MachineContext {
             .field("name", &self.name)
             .field("observe_count", &self.observe_count.load(Ordering::Relaxed))
             .field("has_snapshot_fn", &self.snapshot_fn.is_some())
+            .field("lifecycle", &self.lifecycle())
+            .field("time_ms", &self.time_ms.load(Ordering::Relaxed))
             .finish()
     }
 }
@@ -286,8 +331,13 @@ impl MachineContext {
             name,
             observe_count: Arc::new(AtomicUsize::new(0)),
             snapshot_fn: None,
+            lifecycle: AtomicU8::new(Lifecycle::Init as u8),
+            signal_flag: AtomicU8::new(0),
+            time_ms: AtomicU64::new(0),
         }
     }
+
+    // ── Observation ──────────────────────────────────────
 
     /// Returns `true` if at least one consumer is connected to any of this
     /// machine's observation ports.
@@ -296,12 +346,64 @@ impl MachineContext {
         self.observe_count.load(Ordering::Relaxed) > 0
     }
 
+    // ── Snapshot ─────────────────────────────────────────
+
     /// Returns a byte-serialized snapshot of state, if available.
     pub fn snapshot(&self) -> Option<Vec<u8>> {
         self.snapshot_fn.as_ref().and_then(|f| f())
     }
 
-    // ── Runtime adapter API ──────────────────────────────────
+    // ── Lifecycle ────────────────────────────────────────
+
+    /// Current lifecycle phase of the machine.
+    /// Set by the runtime. Machines can query this to adjust behaviour
+    /// during shutdown (e.g. skip non-essential work during Stopping).
+    pub fn lifecycle(&self) -> Lifecycle {
+        match self.lifecycle.load(Ordering::Acquire) {
+            0 => Lifecycle::Init,
+            1 => Lifecycle::Running,
+            2 => Lifecycle::Stopping,
+            _ => Lifecycle::Stopped,
+        }
+    }
+
+    // ── Time ─────────────────────────────────────────────
+
+    /// Current wall-clock or simulation time in milliseconds.
+    /// Set by the runtime before each process() call.
+    /// Returns 0 if the runtime does not provide time.
+    pub fn time_ms(&self) -> u64 {
+        self.time_ms.load(Ordering::Relaxed)
+    }
+
+    // ── Runtime adapter API ──────────────────────────────
+
+    /// Set the current lifecycle phase (called by runtime).
+    pub fn set_lifecycle(&self, lc: Lifecycle) {
+        self.lifecycle.store(lc as u8, Ordering::Release);
+    }
+
+    /// Set the current time in ms (called by runtime before process()).
+    pub fn set_time_ms(&self, ms: u64) {
+        self.time_ms.store(ms, Ordering::Relaxed);
+    }
+
+    /// Send a signal to this machine (called by runtime).
+    /// The signal is flagged; the machine polls it via poll_signal().
+    pub fn send_signal(&self) {
+        self.signal_flag.store(1, Ordering::Release);
+    }
+
+    /// Poll for a pending system signal. Returns the signal type
+    /// (currently only Shutdown) and clears the flag.
+    /// Should be called once at the top of each process().
+    pub fn poll_signal(&self) -> Option<SystemSignal> {
+        let flag = self.signal_flag.swap(0, Ordering::Acquire);
+        match flag {
+            0 => None,
+            _ => Some(SystemSignal::Shutdown),
+        }
+    }
 
     pub fn set_snapshot_fn(&mut self, f: Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>) {
         self.snapshot_fn = Some(f);

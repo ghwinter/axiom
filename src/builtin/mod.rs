@@ -11,6 +11,7 @@
 //! | Latch | `T → T` | Holds last value |
 //! | Collector | `I → ∅` | Gathers into observe stream |
 //! | EntityRoot | `∅` | System root, no I/O |
+//! | FuncMachine | bridges Func → Machine | Wraps any Func |
 
 mod identity;
 mod sink;
@@ -19,6 +20,7 @@ mod tee;
 mod latch;
 mod collector;
 mod entity_root;
+mod func_machine;
 
 pub use identity::Identity;
 pub use sink::Sink;
@@ -27,3 +29,4 @@ pub use tee::Tee;
 pub use latch::Latch;
 pub use collector::Collector;
 pub use entity_root::EntityRoot;
+pub use func_machine::FuncMachine;
