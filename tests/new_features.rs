@@ -1,11 +1,21 @@
 use axiom::prelude_all::*;
-use axiom::machine::{ProcessOutput, InitError, CleanupError};
-use axiom::port::MachineContext;
 use std::sync::Arc;
 
 // ════════════════════════════════════════════════════════════
-// observe_is_connected tests
+// ObserveAwareMachine — multi-port with Data + Observe outputs
 // ════════════════════════════════════════════════════════════
+
+declare_ports! {
+    pub struct ObsAwarePorts {
+        input type ObsAwareInput {
+            in_ [Data] => i32,
+        }
+        output type ObsAwareOutput {
+            out [Data]    => i32,
+            log [Observe] => String,
+        }
+    }
+}
 
 struct ObserveAwareMachine;
 
@@ -14,25 +24,27 @@ struct ObserveState { formatted_count: usize }
 
 impl Machine for ObserveAwareMachine {
     type State = ObserveState;
-    type Input = i32;
-    type Output = i32;
-
+    type Input = ObsAwareInput;
+    type Output = ObsAwareOutput;
+    type Ports = ObsAwarePorts;
 
     fn name() -> &'static str { "observe_aware" }
-    fn port_schema() -> PortSchema { PortSchema::new()
-        .with(PortDecl::input::<i32>("in"))
-        .with(PortDecl::output::<i32>("out"))
-        .with(PortDecl::observe::<String>("log"))
-    }
     fn config_schema() -> ConfigSchema { ConfigSchema::new() }
 
     fn init(_ctx: &MachineContext) -> Result<ObserveState, InitError> { Ok(ObserveState::default()) }
 
-    fn process(state: &mut ObserveState, ctx: &MachineContext, input: i32) -> ProcessOutput<i32> {
+    fn process(state: &mut ObserveState, ctx: &MachineContext, input: ObsAwareInput) -> ProcessOutput<ObsAwareOutput> {
+        let v = match input { ObsAwareInput::in_(v) => v };
         if ctx.observe_is_connected() {
             state.formatted_count += 1;
+            // Yield both data and observe output (fan-out).
+            ProcessOutput::YieldMulti(vec![
+                ObsAwareOutput::out(v * 2),
+                ObsAwareOutput::log(format!("processed={}", v)),
+            ])
+        } else {
+            ProcessOutput::Yield(ObsAwareOutput::out(v * 2))
         }
-        ProcessOutput::Yield(input * 2)
     }
 
     fn cleanup(_state: ObserveState, _ctx: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
@@ -59,7 +71,7 @@ impl Machine for ObserveAwareMachine {
 #[test] fn test_observe_aware_machine_skips_formatting_when_disconnected() {
     let ctx = MachineContext::new("observe_aware");
     let mut state = ObserveAwareMachine::init(&ctx).unwrap();
-    let _ = ObserveAwareMachine::process(&mut state, &ctx, 42);
+    let _ = ObserveAwareMachine::process(&mut state, &ctx, ObsAwareInput::in_(42));
     assert_eq!(state.formatted_count, 0);
 }
 
@@ -67,7 +79,7 @@ impl Machine for ObserveAwareMachine {
     let ctx = MachineContext::new("observe_aware");
     ctx.observe_connect();
     let mut state = ObserveAwareMachine::init(&ctx).unwrap();
-    let _ = ObserveAwareMachine::process(&mut state, &ctx, 42);
+    let _ = ObserveAwareMachine::process(&mut state, &ctx, ObsAwareInput::in_(42));
     assert_eq!(state.formatted_count, 1);
 }
 
@@ -75,10 +87,10 @@ impl Machine for ObserveAwareMachine {
     let ctx = MachineContext::new("observe_aware");
     let mut state = ObserveAwareMachine::init(&ctx).unwrap();
     ctx.observe_connect();
-    let _ = ObserveAwareMachine::process(&mut state, &ctx, 1);
+    let _ = ObserveAwareMachine::process(&mut state, &ctx, ObsAwareInput::in_(1));
     assert_eq!(state.formatted_count, 1);
     ctx.observe_disconnect();
-    let _ = ObserveAwareMachine::process(&mut state, &ctx, 2);
+    let _ = ObserveAwareMachine::process(&mut state, &ctx, ObsAwareInput::in_(2));
     assert_eq!(state.formatted_count, 1);
 }
 
@@ -172,6 +184,17 @@ impl FuncWithScratch for Triple {
 // Snapshot tests
 // ════════════════════════════════════════════════════════════
 
+declare_ports! {
+    pub struct SnapPorts {
+        input type SnapInput {
+            in_ [Data] => i32,
+        }
+        output type SnapOutput {
+            out [Data] => i32,
+        }
+    }
+}
+
 #[test] fn test_snapshot_none_by_default() {
     let ctx = MachineContext::new("test");
     assert!(ctx.snapshot().is_none());
@@ -190,23 +213,20 @@ impl FuncWithScratch for Triple {
 
     impl Machine for SnapMachine {
         type State = SnState;
-        type Input = i32;
-        type Output = i32;
-    
+        type Input = SnapInput;
+        type Output = SnapOutput;
+        type Ports = SnapPorts;
+
         fn name() -> &'static str { "snap" }
-        fn port_schema() -> PortSchema { PortSchema::new()
-            .with(PortDecl::input::<i32>("in"))
-            .with(PortDecl::output::<i32>("out"))
-        }
         fn config_schema() -> ConfigSchema { ConfigSchema::new() }
         fn init(_ctx: &MachineContext) -> Result<SnState, InitError> { Ok(SnState::default()) }
-        fn process(s: &mut SnState, _ctx: &MachineContext, i: i32) -> ProcessOutput<i32> {
-            s.count += i; ProcessOutput::Yield(s.count)
+        fn process(s: &mut SnState, _ctx: &MachineContext, input: SnapInput) -> ProcessOutput<SnapOutput> {
+            let i = match input { SnapInput::in_(v) => v };
+            s.count += i; ProcessOutput::Yield(SnapOutput::out(s.count))
         }
         fn cleanup(_s: SnState, _ctx: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
     }
 
-    // Use Arc<Mutex<SnState>> to avoid borrow issues with the closure.
     let shared = std::sync::Arc::new(std::sync::Mutex::new(SnState::default()));
     let mut ctx = MachineContext::new("snap_test");
     let shared_clone = std::sync::Arc::clone(&shared);
@@ -216,8 +236,8 @@ impl FuncWithScratch for Triple {
 
     {
         let mut state = shared.lock().unwrap();
-        let _ = SnapMachine::process(&mut state, &ctx, 10);
-        let _ = SnapMachine::process(&mut state, &ctx, 20);
+        let _ = SnapMachine::process(&mut state, &ctx, SnapInput::in_(10));
+        let _ = SnapMachine::process(&mut state, &ctx, SnapInput::in_(20));
         assert_eq!(state.count, 30);
     }
 

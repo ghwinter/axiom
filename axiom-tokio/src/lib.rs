@@ -46,7 +46,8 @@ impl TokioRuntime {
     /// 2. `process()` loop on a blocking thread (spawn_blocking).
     /// 3. `cleanup()` after join.
     ///
-    /// Returns the collected outputs.
+    /// Returns the collected outputs. `Yield` produces one entry;
+    /// `YieldMulti` produces multiple entries (fan-out).
     pub async fn run<M: Machine>(
         name: &'static str,
         inputs: Vec<M::Input>,
@@ -67,6 +68,7 @@ impl TokioRuntime {
             for input in inputs {
                 match M::process(&mut state, &*ctx_for_task, input) {
                     ProcessOutput::Yield(out) => outputs.push(out),
+                    ProcessOutput::YieldMulti(outs) => outputs.extend(outs),
                     ProcessOutput::Idle => {}
                     ProcessOutput::Done => break,
                 }

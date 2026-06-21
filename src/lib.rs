@@ -6,6 +6,7 @@ pub mod func;
 pub mod link;
 pub mod machine;
 pub mod port;
+pub mod portset;
 pub mod resource;
 pub mod runtime;
 pub mod time;
@@ -25,6 +26,14 @@ pub mod prelude_all {
         PortDir, PortDecl, PortSchema, PortRegistry, ConfigDecl, ConfigSchema, MachineContext,
         LinkCompat, Lifecycle, SystemSignal,
     };
+    pub use crate::portset::{
+        PortSet, HasPortInfo,
+        In, Out, SinglePorts,        // single-port convenience
+        NoInput, NoOutput,           // empty-port convenience
+    };
     pub use crate::resource::{MachinePhysicalSpec, ExecutionHint, ResourceClass, ThreadPoolSpec};
     pub use crate::time::{TimeTick, Clock, RealClock, ReplayClock};
+
+    /// The port declaration macro for multi-port Machines.
+    pub use crate::declare_ports;
 }

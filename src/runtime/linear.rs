@@ -115,7 +115,8 @@ impl LinearRuntime {
     /// 2. `M::process()` — called once per input.
     /// 3. `M::cleanup()` — releases resources.
     ///
-    /// Returns the collected outputs.
+    /// Returns the collected outputs. `Yield` produces one entry;
+    /// `YieldMulti` produces multiple entries (fan-out).
     pub fn run<M: Machine>(
         name: &'static str,
         inputs: Vec<M::Input>,
@@ -140,6 +141,7 @@ impl LinearRuntime {
         for input in inputs {
             match M::process(guard.state(), ctx, input) {
                 ProcessOutput::Yield(out) => outputs.push(out),
+                ProcessOutput::YieldMulti(outs) => outputs.extend(outs),
                 ProcessOutput::Idle => {}
                 ProcessOutput::Done => break,
             }

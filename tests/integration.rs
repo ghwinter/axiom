@@ -4,6 +4,7 @@
 /// DeploySpec validation, and Clock implementations.
 
 use axiom::prelude_all::*;
+use axiom::builtin::{TeeInput, TeeOutput};
 use axiom::flow::FlowKind;
 use axiom::time::Clock;
 
@@ -52,7 +53,6 @@ fn test_func_generic() {
 
 #[test]
 fn test_func_composition() {
-    // Manually compose two Funcs
     let x = 7;
     let doubled = Double::call(x);
     let quad = Double::call(doubled);
@@ -60,8 +60,19 @@ fn test_func_composition() {
 }
 
 // ════════════════════════════════════════════════════════════
-// Machine tests
+// Machine tests — using declare_ports! for clean multi-port decl
 // ════════════════════════════════════════════════════════════
+
+declare_ports! {
+    pub struct CounterPorts {
+        input type CounterInput {
+            in_ [Data] => i32,
+        }
+        output type CounterOutput {
+            out [Data] => i32,
+        }
+    }
+}
 
 struct SimpleCounter;
 
@@ -70,18 +81,11 @@ struct CounterState { count: i32 }
 
 impl Machine for SimpleCounter {
     type State = CounterState;
-    type Input = i32;
-    type Output = i32;
-
+    type Input = CounterInput;
+    type Output = CounterOutput;
+    type Ports = CounterPorts;
 
     fn name() -> &'static str { "counter" }
-
-    fn port_schema() -> PortSchema {
-        PortSchema::new()
-            .with(PortDecl::input::<i32>("in"))
-            .with(PortDecl::output::<i32>("out"))
-    }
-
     fn config_schema() -> ConfigSchema { ConfigSchema::new() }
 
     fn init(_ctx: &MachineContext) -> Result<CounterState, InitError> {
@@ -91,14 +95,14 @@ impl Machine for SimpleCounter {
     fn process(
         state: &mut CounterState,
         _ctx: &MachineContext,
-        input: i32,
-    ) -> ProcessOutput<i32> {
-        state.count += input;
-        ProcessOutput::Yield(state.count)
+        input: CounterInput,
+    ) -> ProcessOutput<CounterOutput> {
+        let v = match input { CounterInput::in_(v) => v };
+        state.count += v;
+        ProcessOutput::Yield(CounterOutput::out(state.count))
     }
 
     fn cleanup(state: CounterState, _ctx: &MachineContext) -> Result<(), CleanupError> {
-        // Ensure final state is correct
         assert!(state.count > 0, "counter should have been incremented");
         Ok(())
     }
@@ -118,11 +122,11 @@ fn test_machine_process() {
     let ctx = MachineContext::new("test");
     let mut state = SimpleCounter::init(&ctx).unwrap();
 
-    let r1 = SimpleCounter::process(&mut state, &ctx, 5);
-    assert!(matches!(r1, ProcessOutput::Yield(5)));
+    let r1 = SimpleCounter::process(&mut state, &ctx, CounterInput::in_(5));
+    assert_eq!(r1, ProcessOutput::Yield(CounterOutput::out(5)));
 
-    let r2 = SimpleCounter::process(&mut state, &ctx, 3);
-    assert!(matches!(r2, ProcessOutput::Yield(8)));
+    let r2 = SimpleCounter::process(&mut state, &ctx, CounterInput::in_(3));
+    assert_eq!(r2, ProcessOutput::Yield(CounterOutput::out(8)));
 }
 
 #[test]
@@ -131,18 +135,17 @@ fn test_machine_full_lifecycle() {
     let mut state = SimpleCounter::init(&ctx).unwrap();
 
     for val in [10, 20, 30] {
-        let _ = SimpleCounter::process(&mut state, &ctx, val);
+        let _ = SimpleCounter::process(&mut state, &ctx, CounterInput::in_(val));
     }
 
-    let result = SimpleCounter::process(&mut state, &ctx, 0);
-    assert!(matches!(result, ProcessOutput::Yield(60)));
+    let result = SimpleCounter::process(&mut state, &ctx, CounterInput::in_(0));
+    assert_eq!(result, ProcessOutput::Yield(CounterOutput::out(60)));
 
     let _ = SimpleCounter::cleanup(state, &ctx);
 }
 
 #[test]
 fn test_machine_nondeterministic_default() {
-    // SimpleCounter explicitly returns true
     assert!(SimpleCounter::deterministic());
 }
 
@@ -312,8 +315,20 @@ fn test_resource_class_debug() {
 }
 
 // ════════════════════════════════════════════════════════════
-// Machine with Observe port
+// Machine with Observe port — multi-port via declare_ports!
 // ════════════════════════════════════════════════════════════
+
+declare_ports! {
+    pub struct ObsCounterPorts {
+        input type ObsCounterInput {
+            in_ [Data] => i32,
+        }
+        output type ObsCounterOutput {
+            out [Data]    => i32,
+            log [Observe] => String,
+        }
+    }
+}
 
 struct ObservableCounter;
 
@@ -322,19 +337,11 @@ struct ObsState { count: i32 }
 
 impl Machine for ObservableCounter {
     type State = ObsState;
-    type Input = i32;
-    type Output = i32;
-
+    type Input = ObsCounterInput;
+    type Output = ObsCounterOutput;
+    type Ports = ObsCounterPorts;
 
     fn name() -> &'static str { "observable_counter" }
-
-    fn port_schema() -> PortSchema {
-        PortSchema::new()
-            .with(PortDecl::input::<i32>("in"))
-            .with(PortDecl::output::<i32>("out"))
-            .with(PortDecl::observe::<String>("log"))
-    }
-
     fn config_schema() -> ConfigSchema { ConfigSchema::new() }
 
     fn init(_ctx: &MachineContext) -> Result<ObsState, InitError> {
@@ -344,11 +351,15 @@ impl Machine for ObservableCounter {
     fn process(
         state: &mut ObsState,
         _ctx: &MachineContext,
-        input: i32,
-    ) -> ProcessOutput<i32> {
-        state.count += input;
-        // Output also carries observation data
-        ProcessOutput::Yield(state.count)
+        input: ObsCounterInput,
+    ) -> ProcessOutput<ObsCounterOutput> {
+        let v = match input { ObsCounterInput::in_(v) => v };
+        state.count += v;
+        // Yield both the data output and the observe output (fan-out).
+        ProcessOutput::YieldMulti(vec![
+            ObsCounterOutput::out(state.count),
+            ObsCounterOutput::log(format!("count={}", state.count)),
+        ])
     }
 
     fn cleanup(_state: ObsState, _ctx: &MachineContext) -> Result<(), CleanupError> {
@@ -364,23 +375,54 @@ fn test_machine_with_observe() {
     assert_eq!(obs.unwrap().name, "log");
 }
 
+#[test]
+fn test_observe_counter_yields_both_data_and_observe() {
+    let ctx = MachineContext::new("obs_counter");
+    let mut state = ObservableCounter::init(&ctx).unwrap();
+    let result = ObservableCounter::process(&mut state, &ctx, ObsCounterInput::in_(42));
+    match result {
+        ProcessOutput::YieldMulti(outs) => {
+            assert_eq!(outs.len(), 2);
+            // First is data output
+            assert_eq!(outs[0], ObsCounterOutput::out(42));
+            // Second is observe output
+            match &outs[1] {
+                ObsCounterOutput::log(s) => assert!(s.contains("42")),
+                _ => panic!("expected log variant"),
+            }
+        }
+        _ => panic!("expected YieldMulti"),
+    }
+}
+
 // ════════════════════════════════════════════════════════════
-// Edge cases
+// Edge cases: Idle and Done
 // ════════════════════════════════════════════════════════════
+
+declare_ports! {
+    pub struct IdlerPorts {
+        input type IdlerInput {
+            in_ [Data] => i32,
+        }
+        output type IdlerOutput {
+            out [Data] => i32,
+        }
+    }
+}
 
 #[test]
 fn test_machine_process_idle() {
     struct Idler;
     impl Machine for Idler {
         type State = ();
-        type Input = i32;
-        type Output = i32;
-    
+        type Input = IdlerInput;
+        type Output = IdlerOutput;
+        type Ports = IdlerPorts;
+
         fn name() -> &'static str { "idler" }
-        fn port_schema() -> PortSchema { PortSchema::new() }
         fn config_schema() -> ConfigSchema { ConfigSchema::new() }
         fn init(_ctx: &MachineContext) -> Result<(), InitError> { Ok(()) }
-        fn process(_: &mut (), _: &MachineContext, _: i32) -> ProcessOutput<i32> {
+        fn process(_: &mut (), _: &MachineContext, _: IdlerInput) -> ProcessOutput<IdlerOutput> {
             ProcessOutput::Idle
         }
         fn cleanup(_: (), _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
@@ -388,8 +430,19 @@ fn test_machine_process_idle() {
 
     let ctx = MachineContext::new("idler");
     let mut state = Idler::init(&ctx).unwrap();
-    let result = Idler::process(&mut state, &ctx, 42);
+    let result = Idler::process(&mut state, &ctx, IdlerInput::in_(42));
     assert!(matches!(result, ProcessOutput::Idle));
+}
+
+declare_ports! {
+    pub struct OneShotPorts {
+        input type OneShotInput {
+            in_ [Data] => i32,
+        }
+        output type OneShotOutput {
+            out [Data] => i32,
+        }
+    }
 }
 
 #[test]
@@ -397,19 +450,20 @@ fn test_machine_process_done() {
     struct OneShot;
     impl Machine for OneShot {
         type State = bool;
-        type Input = i32;
-        type Output = i32;
-    
+        type Input = OneShotInput;
+        type Output = OneShotOutput;
+        type Ports = OneShotPorts;
+
         fn name() -> &'static str { "oneshot" }
-        fn port_schema() -> PortSchema { PortSchema::new() }
         fn config_schema() -> ConfigSchema { ConfigSchema::new() }
         fn init(_ctx: &MachineContext) -> Result<bool, InitError> { Ok(false) }
-        fn process(state: &mut bool, _: &MachineContext, input: i32) -> ProcessOutput<i32> {
+        fn process(state: &mut bool, _: &MachineContext, input: OneShotInput) -> ProcessOutput<OneShotOutput> {
+            let v = match input { OneShotInput::in_(v) => v };
             if *state {
                 ProcessOutput::Done
             } else {
                 *state = true;
-                ProcessOutput::Yield(input)
+                ProcessOutput::Yield(OneShotOutput::out(v))
             }
         }
         fn cleanup(state: bool, _: &MachineContext) -> Result<(), CleanupError> {
@@ -421,11 +475,63 @@ fn test_machine_process_done() {
     let ctx = MachineContext::new("oneshot");
     let mut state = OneShot::init(&ctx).unwrap();
 
-    // First call yields
-    let r1 = OneShot::process(&mut state, &ctx, 99);
-    assert!(matches!(r1, ProcessOutput::Yield(99)));
+    let r1 = OneShot::process(&mut state, &ctx, OneShotInput::in_(99));
+    assert_eq!(r1, ProcessOutput::Yield(OneShotOutput::out(99)));
 
-    // Second call returns Done
-    let r2 = OneShot::process(&mut state, &ctx, 100);
+    let r2 = OneShot::process(&mut state, &ctx, OneShotInput::in_(100));
     assert!(matches!(r2, ProcessOutput::Done));
+}
+
+// ════════════════════════════════════════════════════════════
+// Single-port convenience: In<T> / Out<T> / SinglePorts<T>
+// ════════════════════════════════════════════════════════════
+
+struct Doubler;
+
+impl Machine for Doubler {
+    type State = ();
+    type Input = In<i32>;
+    type Output = Out<i32>;
+    type Ports = SinglePorts<i32>;
+
+    fn name() -> &'static str { "doubler" }
+    fn config_schema() -> ConfigSchema { ConfigSchema::new() }
+    fn init(_ctx: &MachineContext) -> Result<(), InitError> { Ok(()) }
+    fn process(_: &mut (), _: &MachineContext, input: In<i32>) -> ProcessOutput<Out<i32>> {
+        ProcessOutput::Yield(Out(input.0 * 2))
+    }
+    fn cleanup(_: (), _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
+    fn deterministic() -> bool { true }
+}
+
+#[test]
+fn test_single_port_convenience() {
+    let schema = Doubler::port_schema();
+    assert_eq!(schema.ports().len(), 2);
+    assert_eq!(schema.primary_input().unwrap().name, "input");
+    assert_eq!(schema.primary_output().unwrap().name, "output");
+
+    let ctx = MachineContext::new("doubler");
+    let mut state = Doubler::init(&ctx).unwrap();
+    let r = Doubler::process(&mut state, &ctx, In(21));
+    assert_eq!(r, ProcessOutput::Yield(Out(42)));
+}
+
+// ════════════════════════════════════════════════════════════
+// Tee fan-out test (YieldMulti)
+// ════════════════════════════════════════════════════════════
+
+#[test]
+fn test_tee_fanout_yields_both_ports() {
+    let ctx = MachineContext::new("tee");
+    let mut state = Tee::<i32>::init(&ctx).unwrap();
+    let result = Tee::process(&mut state, &ctx, TeeInput::Input(42));
+    match result {
+        ProcessOutput::YieldMulti(outs) => {
+            assert_eq!(outs.len(), 2);
+            assert_eq!(outs[0], TeeOutput::OutputA(42));
+            assert_eq!(outs[1], TeeOutput::OutputB(42));
+        }
+        _ => panic!("Tee should YieldMulti, got {:?}", result),
+    }
 }
