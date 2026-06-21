@@ -10,7 +10,7 @@ impl<I: Send + Sync + 'static> Machine for Collector<I> {
     type State = Vec<I>;
     type Input = I;
     type Output = ();
-    type Observe = Vec<I>;
+
 
     fn name() -> &'static str { "builtin.Collector" }
     fn port_schema() -> PortSchema { PortSchema::new()

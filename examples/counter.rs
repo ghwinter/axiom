@@ -56,7 +56,7 @@ impl Machine for Accumulator {
     type State = AccState;
     type Input = i32;
     type Output = (i32, i32);
-    type Observe = ();
+
 
     fn name() -> &'static str { "accumulator" }
 

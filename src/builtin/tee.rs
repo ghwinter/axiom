@@ -10,7 +10,7 @@ impl<I: Clone + Send + Sync + 'static> Machine for Tee<I> {
     type State = ();
     type Input = I;
     type Output = (I, I);
-    type Observe = ();
+
 
     fn name() -> &'static str { "builtin.Tee" }
     fn port_schema() -> PortSchema { PortSchema::new()

@@ -11,7 +11,7 @@ impl<T: Clone + Send + Sync + 'static> Machine for Latch<T> {
     type State = Option<T>;
     type Input = T;
     type Output = T;
-    type Observe = ();
+
 
     fn name() -> &'static str { "builtin.Latch" }
     fn port_schema() -> PortSchema { PortSchema::new()

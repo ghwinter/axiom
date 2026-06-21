@@ -63,9 +63,12 @@
 ### 1.2 机器
 
 **定义 1.2（机器）**  
-一个机器 $M$ 定义为 $M = (S, I, O, Obs, \delta, \rho)$：
+一个机器 $M$ 定义为 $M = (S, I, O, \delta, \rho)$——这是 IO-Object $(S, I, O, \delta)$ 加上清理函数 $\rho$：
+- 没有独立的 $Obs$ 分量。观察数据是 $O$ 中通过 $FlowKind::Observe$ 端口输出的子集。
+- 没有独立的 $C$ 分量。控制数据是 $I$ 中通过 $FlowKind::Control$ 端口输入的子集。
+- $S$ 分配在堆上（$L_S \subset L_P$），$\delta$ 每次调用执行一个计算步。
 - $S$ 是状态空间
-- $\delta: S \times I \to S \times O \times Obs^*$ 是转移函数（Mealy 机）
+- $\delta: S \times I \to S \times O$ 是转移函数（Mealy 机）
 - $\rho: S \to S$ 是清理函数
 
 **物理实现：** $S$ 分配在堆上（$L_S \subset L_P$），$\delta$ 每次调用执行一个计算步。
@@ -103,7 +106,7 @@
 
 > **定理 2.2（观测隔离性）**  
 > $\text{定义 2.1} \Rightarrow$ 观测流 $(f = observe)$ 的输出不参与任何 Machine 的 $\delta$ 输入。  
-> *证明：$\delta$ 签名 $S \times I \to S \times O \times Obs^*$ 中 $Obs$ 只出现在输出中。*
+> *证明：$\delta$ 签名 $S \times I \to S \times O$ 中 $Obs$ 不存在于输入中。FlowKind::Observe 是端口标注，不是计算分量。*
 
 **定义 2.4（连接图）**  
 系统 $\Sigma = (M_\Sigma, L_\Sigma)$，$L_\Sigma \subseteq \bigcup_{M \in M_\Sigma} Out_M \times \bigcup_{M \in M_\Sigma} In_M$。
@@ -113,7 +116,7 @@
 ## 3. 执行序列与调度
 
 **定义 3.1（执行序列）**  
-机器 $M$ 的 $\delta$ 应用序列：$s_0 \xrightarrow{i_1} (s_1, o_1, obs_1) \xrightarrow{i_2} (s_2, o_2, obs_2) ...$
+机器 $M$ 的 $\delta$ 应用序列：$s_0 \xrightarrow{i_1} (s_1, o_1) \xrightarrow{i_2} (s_2, o_2) ...$
 
 **定义 3.2（调度器）**  
 调度器 $\Pi: M_\Sigma \times \mathbb{N} \to \{T_1, ..., T_n\}$ 将每次 $\delta$ 调用映射到物理线程。
@@ -170,7 +173,7 @@ $R = (\tau, \alpha, \zeta, \gamma)$，其中 $\tau \in \{static, dynamic, os, th
 给定 $M_1: I \to O$ 和 $M_2: O \to J$，存在组合 $M_1 ⨟ M_2: I \to J$。
 
 **定义 5.1（串行组合）**  
-$M_1 ⨟ M_2 = (S_1 \times S_2, I_1, O_2, Obs_1 \times Obs_2, \delta_{12}, \rho_{12})$，其中 $\delta_{12}$ 先执行 $\delta_1$ 再执行 $\delta_2$。
+$M_1 ⨟ M_2 = (S_1 \times S_2, I_1, O_2, \delta_{12}, \rho_{12})$，其中 $\delta_{12}$ 先执行 $\delta_1$ 再执行 $\delta_2$。
 
 > **定理 5.1（确定性保持）**  
 > $\text{定义 5.1} \Rightarrow$ $M_1$ 和 $M_2$ 都确定 $\implies$ $M_1 ⨟ M_2$ 确定。  
@@ -209,7 +212,7 @@ $\Delta: M \to (Hint \times Spec)$ 将 Machine 映射到执行原语和参数。
 > $\text{定义 2.4} \Rightarrow$ 任意 $M \in M_\Sigma$ 的 $\delta$ 调用只读取：$S_M$、$L_\Sigma$ 中的上游数据、当前输入 $i$。
 
 > **定理 7.2（可观测性完备性）**  
-> $\text{定义 2.4} \Rightarrow$ $Obs_M$ 的数据可达收集器 $\iff$ $L_\Sigma$ 包含对应连接。
+> $\text{定义 2.4} \Rightarrow$ $O_M$ 中标注为 FlowKind::Observe 的输出可达收集器 $\iff$ $L_\Sigma$ 包含对应连接。
 
 > **定理 7.3（背压传播条件）**  
 > $\text{LinkKind 定义} \Rightarrow$ 背压传播 $\iff$ 连接使用 BoundedBuf_{blocking}。
@@ -221,7 +224,7 @@ $\Delta: M \to (Hint \times Spec)$ 将 Machine 映射到执行原语和参数。
 | 代数概念 | Rust 实现 | 编译器保证 |
 |---------|-----------|-----------|
 | 纯函数 $f = (I, O, \hat{f})$ | `trait Func { type I; type O; fn call(I) -> O }` | Send+Sync，无 &mut State |
-| 机器 $M = (S, I, O, Obs, \delta, \rho)$ | `trait Machine { type S; type I; type O; type Obs; process(); cleanup() }` | Send+Sync，生命周期间 |
+| 机器 $M = (S, I, O, \delta, \rho)$ | `trait Machine { type S; type I; type O; process(); cleanup() }` | Send+Sync，生命周期间 |
 | 实体 $E = (S, name)$ | `trait Entity { type S; fn name() }` | 无 process，无端口 |
 | 端口 $p = (T, d, f)$ | `PortDecl { type_id, dir: PortDir, flow: FlowKind }` | TypeId 连接时检查 |
 | 连接 $\ell$ | `LinkSpec { out, into, kind: LinkKind }` | LinkCompat::check |

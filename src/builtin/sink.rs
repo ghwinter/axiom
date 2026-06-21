@@ -10,7 +10,7 @@ impl<I: Send + Sync + 'static> Machine for Sink<I> {
     type State = ();
     type Input = I;
     type Output = ();
-    type Observe = ();
+
 
     fn name() -> &'static str { "builtin.Sink" }
     fn port_schema() -> PortSchema { PortSchema::new()

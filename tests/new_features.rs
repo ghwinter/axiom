@@ -16,7 +16,7 @@ impl Machine for ObserveAwareMachine {
     type State = ObserveState;
     type Input = i32;
     type Output = i32;
-    type Observe = String;
+
 
     fn name() -> &'static str { "observe_aware" }
     fn port_schema() -> PortSchema { PortSchema::new()
@@ -192,7 +192,7 @@ impl FuncWithScratch for Triple {
         type State = SnState;
         type Input = i32;
         type Output = i32;
-        type Observe = ();
+    
         fn name() -> &'static str { "snap" }
         fn port_schema() -> PortSchema { PortSchema::new()
             .with(PortDecl::input::<i32>("in"))

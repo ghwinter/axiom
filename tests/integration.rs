@@ -72,7 +72,7 @@ impl Machine for SimpleCounter {
     type State = CounterState;
     type Input = i32;
     type Output = i32;
-    type Observe = ();
+
 
     fn name() -> &'static str { "counter" }
 
@@ -324,7 +324,7 @@ impl Machine for ObservableCounter {
     type State = ObsState;
     type Input = i32;
     type Output = i32;
-    type Observe = String;  // ← has observation data
+
 
     fn name() -> &'static str { "observable_counter" }
 
@@ -375,7 +375,7 @@ fn test_machine_process_idle() {
         type State = ();
         type Input = i32;
         type Output = i32;
-        type Observe = ();
+    
         fn name() -> &'static str { "idler" }
         fn port_schema() -> PortSchema { PortSchema::new() }
         fn config_schema() -> ConfigSchema { ConfigSchema::new() }
@@ -399,7 +399,7 @@ fn test_machine_process_done() {
         type State = bool;
         type Input = i32;
         type Output = i32;
-        type Observe = ();
+    
         fn name() -> &'static str { "oneshot" }
         fn port_schema() -> PortSchema { PortSchema::new() }
         fn config_schema() -> ConfigSchema { ConfigSchema::new() }

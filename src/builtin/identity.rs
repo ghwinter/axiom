@@ -14,7 +14,7 @@ impl<I: Send + Sync + 'static> Machine for Identity<I> {
     type State = ();
     type Input = I;
     type Output = I;
-    type Observe = ();
+
 
     fn name() -> &'static str { "builtin.Identity" }
     fn port_schema() -> PortSchema { PortSchema::new()

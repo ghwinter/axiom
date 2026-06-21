@@ -3,16 +3,19 @@
 /// # Architecture
 ///
 /// ```text
-/// Layer 0: Entity         = (S, physical_spec, checkpoint)
-/// Layer 1: (ports)         implicit via port_schema() + PortDecl
-/// Layer 2: Machine        = Entity + port_schema + process(I) -> O + Observe
+/// IO-Object = (S, I, O, δ)        ← the minimal model
+/// Entity    = (S, name)            ← persistent existence
+/// Machine   = Entity + ports + δ  ← Entity with typed I/O and process()
 /// ```
 ///
 /// A Machine has everything an Entity has, plus:
-/// - Typed input/output/observe ports (in `port_schema()`)
+/// - Typed input/output ports (in `port_schema()`, annotated with FlowKind)
 /// - A computation function `process(state, input) -> output`
-/// - An observation type `Observe` for push-based metrics
 /// - Configurable parameters (via `config_schema()`)
+///
+/// There is no separate `Observe` type. Observation data is just `Output`
+/// flowing through ports labelled with `FlowKind::Observe`. This keeps the
+/// model at exactly (S, I, O, δ) — nothing more, nothing less.
 ///
 /// # Sync design
 /// All methods are synchronous. The runtime adapter is responsible for
@@ -33,10 +36,8 @@ pub trait Machine: Send + Sync + 'static {
     type Input: Send + 'static;
 
     /// The type of data produced on the primary output port.
+    /// Observation data is just `Output` sent through FlowKind::Observe ports.
     type Output: Send + Sync + 'static;
-
-    /// The type of structured observation data pushed via observe ports.
-    type Observe: Send + Sync + 'static;
 
     /// Declare the machine's port interface.
     fn port_schema() -> PortSchema

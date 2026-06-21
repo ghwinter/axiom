@@ -99,7 +99,7 @@ impl Machine for Sensor {
     type State = SensorState;
     type Input = u64;
     type Output = ();
-    type Observe = String;
+
 
     fn name() -> &'static str { "sensor" }
     fn port_schema() -> PortSchema {
@@ -169,7 +169,7 @@ impl Machine for Controller {
     type State = CtrlState;
     type Input = u64;
     type Output = Aggregate;
-    type Observe = String;
+
 
     fn name() -> &'static str { "controller" }
     fn port_schema() -> PortSchema {
@@ -237,7 +237,7 @@ impl Machine for SafetyMonitor {
     type State = SafetyState;
     type Input = Aggregate;
     type Output = String;
-    type Observe = String;
+
 
     fn name() -> &'static str { "safety" }
     fn port_schema() -> PortSchema {
@@ -293,7 +293,7 @@ impl Machine for PersistentStore {
     type State = StoreState;
     type Input = String;
     type Output = ();
-    type Observe = String;
+
 
     fn name() -> &'static str { "store" }
     fn port_schema() -> PortSchema {
@@ -347,7 +347,7 @@ impl Machine for Reporter {
     type State = RepState;
     type Input = u64;
     type Output = String;
-    type Observe = ();
+
 
     fn name() -> &'static str { "reporter" }
     fn port_schema() -> PortSchema {

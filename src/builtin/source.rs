@@ -19,7 +19,7 @@ impl<O: Clone + Default + Send + Sync + 'static> Machine for Source<O> {
     type State = SourceState<O>;
     type Input = ();
     type Output = O;
-    type Observe = ();
+
 
     fn name() -> &'static str { "builtin.Source" }
     fn port_schema() -> PortSchema { PortSchema::new()

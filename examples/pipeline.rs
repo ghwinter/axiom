@@ -38,7 +38,7 @@ impl Machine for Splitter {
     type State = SplitState;
     type Input = Vec<String>;
     type Output = (String, String);
-    type Observe = ();
+
 
     fn name() -> &'static str { "splitter" }
 
@@ -87,7 +87,7 @@ impl Machine for Merger {
     type State = MergeState;
     type Input = (String, String);
     type Output = String;
-    type Observe = ();
+
 
     fn name() -> &'static str { "merger" }
 
