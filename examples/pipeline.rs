@@ -5,27 +5,7 @@
 extern crate axiom;
 
 use axiom::prelude_all::*;
-
-// ── Inline runtime (minimal, synchronous) ─────────────────
-
-fn run_machine<M: Machine>(
-    name: &'static str,
-    inputs: Vec<M::Input>,
-) -> Vec<M::Output> {
-    let ctx = MachineContext::new(name);
-    let mut state = M::init(&ctx).expect("init failed");
-    let mut outputs = Vec::new();
-
-    for input in inputs {
-        match M::process(&mut state, &ctx, input) {
-            ProcessOutput::Yield(out) => outputs.push(out),
-            ProcessOutput::Idle => {}
-            ProcessOutput::Done => break,
-        }
-    }
-    let _ = M::cleanup(state, &ctx);
-    outputs
-}
+use axiom::runtime::LinearRuntime;
 
 // ── Machine: Splitter ──────────────────────────────────────
 
@@ -131,10 +111,12 @@ fn main() {
     ];
 
     // Run splitter
-    let split = run_machine::<Splitter>("splitter", batches);
+    let split = LinearRuntime::run::<Splitter>("splitter", batches)
+        .expect("linear runtime failed");
     println!("[splitter] → {} pairs", split.len());
 
     // Pipe into merger
-    let merged = run_machine::<Merger>("merger", split);
+    let merged = LinearRuntime::run::<Merger>("merger", split)
+        .expect("linear runtime failed");
     println!("═══ {} strings produced ═══", merged.len());
 }

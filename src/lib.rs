@@ -7,6 +7,7 @@ pub mod link;
 pub mod machine;
 pub mod port;
 pub mod resource;
+pub mod runtime;
 pub mod time;
 
 /// Core prelude for typical use.

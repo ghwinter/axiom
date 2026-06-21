@@ -1,0 +1,10 @@
+[package]
+name = "axiom-tokio"
+version = "0.1.0"
+edition = "2024"
+description = "Tokio runtime adapter for axiom — spawn Machines as blocking tasks, connect ports via tokio channels."
+license = "MIT"
+
+[dependencies]
+axiom = { path = "../../" }
+tokio = { version = "1", features = ["full"] }

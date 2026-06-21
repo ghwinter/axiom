@@ -5,29 +5,7 @@
 extern crate axiom;
 
 use axiom::prelude_all::*;
-
-// ── Inline runtime (minimal, synchronous) ─────────────────
-
-fn run_machine<M: Machine>(
-    name: &'static str,
-    inputs: Vec<M::Input>,
-) -> Vec<M::Output> {
-    let ctx = MachineContext::new(name);
-    let mut state = M::init(&ctx).expect("init failed");
-    let mut outputs = Vec::new();
-
-    for input in inputs {
-        match M::process(&mut state, &ctx, input) {
-            ProcessOutput::Yield(out) => outputs.push(out),
-            ProcessOutput::Idle => {}
-            ProcessOutput::Done => break,
-        }
-    }
-    let _ = M::cleanup(state, &ctx);
-    outputs
-}
-
-// ── Func: ParseInt ─────────────────────────────────────────
+use axiom::runtime::LinearRuntime;
 
 struct ParseInt;
 
@@ -105,7 +83,8 @@ fn main() {
     println!("[parse_int] {:?}", parsed);
 
     // Stage 2: Machine — accumulate
-    let outputs = run_machine::<Accumulator>("counter", parsed);
+    let outputs = LinearRuntime::run::<Accumulator>("counter", parsed)
+        .expect("linear runtime failed");
     println!("[accumulator] outputs: {:?}", outputs);
     println!("═══ final: {} ═══", outputs.last().map(|(t,_)| t).unwrap_or(&0));
 }
