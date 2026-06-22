@@ -1,0 +1,48 @@
+# 训练服务器配置
+
+[training]
+# 数据集大小（合成数据）
+dataset_size = 10000
+# 训练集比例
+train_ratio = 0.8
+# 批大小
+batch_size = 32
+# 学习率
+learning_rate = 0.01
+# 动量
+momentum = 0.9
+# 训练轮数
+epochs = 10
+# 评估频率（每 N 个 batch 评估一次）
+eval_interval = 100
+# 检查点频率（每 N 个 batch 保存一次）
+checkpoint_interval = 500
+
+[network]
+# 网络层结构：input → hidden1 → hidden2 → output
+input_size = 2
+hidden1_size = 16
+hidden2_size = 8
+output_size = 1
+
+[observe]
+# 采样频率（毫秒）
+sample_interval_ms = 200
+# 指标输出文件（Checkpointer 写入）
+metrics_file = "output/metrics.jsonl"
+# 快照输出文件（Observer 写入）
+snapshots_file = "output/snapshots.jsonl"
+# 摘要输出到 stdout
+stdout_summary = true
+
+[persist]
+# 模型保存路径
+model_file = "output/model.bin"
+# 数据文件（如果不存在，运行时生成）
+data_file = "output/synthetic_data.csv"
+
+[runtime]
+# CPU 线程数（0 = 自动）
+cpu_threads = 0
+# IO 线程数
+io_threads = 2

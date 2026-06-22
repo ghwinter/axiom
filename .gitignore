@@ -2,6 +2,13 @@
 /target/
 **/*.rs.bk
 /tmp
+/output/
+
+# Runtime artifacts (training runs, persisted state, logs)
+**/output/
+*.jsonl
+*.bin
+*.csv
 
 # IDE / editor
 .idea/
@@ -13,3 +20,6 @@
 # OS garbage
 .DS_Store
 Thumbs.db
+
+# Cargo build artifacts (non-standard)
+**/target/
