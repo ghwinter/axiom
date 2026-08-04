@@ -1,0 +1,76 @@
+[package]
+name = "axiom"
+version = "0.1.0"
+edition = "2024"
+# Edition 2024 was stabilized in Rust 1.85 (Feb 2025). All code also compiles
+# on later stable releases; bump only when adopting newer language features.
+rust-version = "1.85"
+description = "Func + Machine: typed ports, explicit topology, deploy-time physics. Zero-dependency computation primitives for observable, controllable systems. // 函数与状态机：类型化端口、显式拓扑、部署时物理决策。零依赖计算原语，构建可观测、可控制的软件系统。"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/ghwinter/axiom"
+homepage = "https://github.com/ghwinter/axiom"
+documentation = "https://docs.rs/axiom"
+keywords = ["actor-model", "session-types", "topology", "reactive", "deployment"]
+categories = ["concurrency", "rust-patterns"]
+
+# docs.rs builds documentation with all non-default features enabled so that
+# the published reference covers Serde support and the std-only APIs.
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+# Used only by the serde round-trip test (tests/serde_roundtrip.rs) to prove
+# that a DeploySpec declared in JSON can be loaded. Dev-only; does not affect
+# the crate's zero-dependency guarantee.
+serde_json = "1"
+
+# ── Feature graph ────────────────────────────────────────────────────────────
+#
+#   default ──► std ──► (std::sync, std::collections, std::error::Error impls)
+#
+#   serialize ──► dep:serde   (Serde derive on pure-data types)
+#
+# `std` is the default. A `no_std + alloc` configuration is also supported:
+# build with `--no-default-features` for embedded/WASM. The pure-data +
+# `alloc` subset compiles without std; `std::error::Error` impls, the
+# RwLock-backed `ConfigCell`/`MigrateRegistry`, and `RealClock` wall-clock
+# access are gated behind `std`. Collection types come from `crate::compat`
+# (std::collections under std, alloc::collections::BTree* under no_std) so the
+# crate stays zero-dependency in both configurations. `serialize` is
+# independent of `std` and enables full `DeploySpec` round-trip: every
+# deploy-time type uses `Cow<'static, str>` for names, so a topology declared
+# in TOML/JSON can be deserialized directly into a `DeploySpec`.
+[features]
+default = ["std"]
+std = []
+serialize = ["dep:serde"]
+
+# ── Performance benchmarks ───────────────────────────────────────────────────
+# Run with: cargo bench
+# Uses a built-in minimal harness — zero external dev-dependencies,
+# consistent with axiom's zero-dependency philosophy.
+[[bench]]
+name = "session"
+harness = false
+
+[[bench]]
+name = "topology"
+harness = false
+
+[[bench]]
+name = "port"
+harness = false
+
+# ── Examples ────────────────────────────────────────────────────────────────
+# `examples/psql/main.rs` is a multi-file example (a directory with a main.rs);
+# cargo auto-discovers it, but we declare it explicitly so the example name is
+# stable and the feature requirements are documented.
+[[example]]
+name = "psql"
+path = "examples/psql/main.rs"
+

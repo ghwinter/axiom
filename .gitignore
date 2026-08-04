@@ -1,0 +1,46 @@
+# Generated output
+/target/
+**/*.rs.bk
+/tmp
+/output/
+
+# Runtime artifacts (training runs, persisted state, logs)
+**/output/
+*.jsonl
+*.bin
+*.csv
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS garbage
+.DS_Store
+Thumbs.db
+
+# Debug output
+l9_debug.txt
+**/l9_debug.txt
+
+# Cargo build artifacts (non-standard)
+**/target/
+
+# Evidence: verification corpus stays local, not in git
+#
+# The evidence/ tree (E01–E124 contracts, probes, results) is the project's
+# verification corpus. Per evidence/README.md it must be preserved locally,
+# but it is deliberately NOT tracked by git: probes and build artifacts are
+# regenerable verification noise, and keeping the whole tree out of the
+# repository keeps it focused on the crate itself. The contracts
+# (evidence/README.md, evidence/contracts.md) describe what was verified and
+# how to re-run the probes.
+/evidence/
+
+# Reasonix desktop session metadata (local tool state)
+.reasonix/
+world_events.log
+redis_like.aof
+packets.pcap
