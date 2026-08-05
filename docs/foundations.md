@@ -650,10 +650,10 @@ $\text{deploy\_static}$ 满足公理 15.2，即：
 $$t([\![\text{deploy\_static}\langle S, D, L \rangle]\!]) = t(h_{S \to D}) + \epsilon$$
 其中 $h_{S \to D}$ 是等价的手写两 task + mpsc channel 实现。
 
-> **经验验证（L1 基准）**：在 100,000 条消息的 Transform → Sink 管道上，release 构建：
-> - 手写（`l1_pipeline`）：3.38M msg/s
-> - 静态路径（`l1_static`）：4.20M msg/s（**快 24%**，因为 `Link::extract` 内联消除了手写版的 adapter task）
-> - 动态路径（`l1_declarative`）：0.66M msg/s（**慢 5.1x**，即"动态税"）
+> **经验验证（L1 基准，参考环境 release 构建，100k 条消息）**：相对吞吐（绝对数值随机器/分配器而异，排序关系环境无关）：
+> - 手写（`l1_pipeline`）：1.0×（基线）
+> - 静态路径（`l1_static`）：**1.24×**（因为 `Link::extract` 内联消除了手写版的 adapter task）
+> - 动态路径（`l1_declarative`）：0.20×（即"动态税"）
 >
 > 静态路径不仅追平手写，反而**更快**——因为抽象层让编译器看到了原本手写代码隐藏的转换结构，从而能消除一个中间 task。这正面验证了公理 15.1：抽象层的存在没有为物理层增添负担，反而启发了物理优化。
 

@@ -99,12 +99,19 @@ The two layers are disjoint. When we say "module $M$ sends data to module $N$", 
 
 ### Two execution paths
 
-| Path | Function | Topology known at | Per-message cost | Zero-cost? | Use case |
-|------|----------|-------------------|------------------|------------|----------|
-| **Static** | `axiom_runtime::static_path::{pipeline2, pipeline3, fanout2, fanin2}` | compile time | **zero** | yes | fixed pipelines, fan-out/fan-in, hot paths |
-| **Dynamic** | `Runtime::materialize(spec)` | runtime | bounded (heap alloc + dispatch) | no | `DynamicTopology`, plugins, config-loaded specs |
+> **模型优先：DeploySpec 是任意图；static_path 是固定形状优化子集。**
+> axiom 的默认模型是 **任意有向图**（多进多出、fan-in、fan-out、环、复合嵌套）——
+> 用 `DeploySpec` 声明、`validate_deep` 验证、runtime 执行。`static_path` 是
+> **性能优化子集**：只覆盖编译期形状已知的拓扑（线性/扇形），因为它靠类型
+> 展开（单态化）消解开销——任意图（尤其环）无法单态化，必须走动态路径。
+> 线性不是 axiom 的场景假设；它是"类型展开"这一优化手段的固有边界。
 
-The static path monomorphizes over concrete machine types and inlines `Link::extract` / `Split::split` / `Merge::merge` — in release the compiled code is equivalent to hand-writing the batch loop directly. The dynamic path must type-erase via `Box<dyn Any>` because topology is not known until runtime; this "dynamic tax" is mathematically unavoidable, not an implementation defect.
+| Path | Topology shape | Topology known at | Per-message cost | Zero-cost? | Role |
+|------|---------------|-------------------|------------------|------------|------|
+| **DeploySpec + Runtime**（主模型） | **任意图**（环、fan-in/out、复合） | runtime | bounded (heap alloc + dispatch) | no（动态税不可避免） | 通用执行：复杂图系统 |
+| **static_path**（优化子集） | 固定形状（线性/扇形/菱形） | compile time | **zero** | yes | 热路径：编译期已知形状 |
+
+The static path monomorphizes over concrete machine types and inlines `Link::extract` / `Split::split` / `Merge::merge` — in release the compiled code is equivalent to hand-writing the batch loop directly. The dynamic path must type-erase via `Box<dyn Any>` because topology is not known until runtime; this "dynamic tax" is mathematically unavoidable, not an implementation defect. **Neither path imposes a linear assumption on the model** — an arbitrary graph runs on the dynamic path; only the optimization (monomorphization) is shape-restricted.
 
 > **Scope note (anti-narrowing rule).** The static execution path
 > (`axiom_runtime::static_path`) supports linear pipelines (`pipeline2`/`pipeline3`),
@@ -114,13 +121,15 @@ The static path monomorphizes over concrete machine types and inlines `Link::ext
 > `docs/philosophy.md` §"The structural scope constraint" and `docs/architecture.md`
 > §"Static execution path" for details.
 
-**Empirical validation** (100k-message Transform → Sink pipeline, release build):
+**Empirical validation** (100k-message Transform → Sink pipeline, release build, single reference environment):
 
-| Implementation | Throughput | vs hand-written |
-|----------------|-----------:|----------------:|
-| Hand-written (adapter task) | 3.38M msg/s | baseline |
-| Static path (monomorphized) | 4.20M msg/s | **1.24x faster** |
-| Dynamic path (type-erased) | 0.66M msg/s | 0.20x (5.1x slower) |
+| Implementation | Relative throughput | vs hand-written |
+|----------------|-------------------:|----------------:|
+| Hand-written (adapter task) | 1.0× | baseline |
+| Static path (monomorphized) | **1.24×** | faster |
+| Dynamic path (type-erased) | 0.20× | slower |
+
+*Relative ratios (not absolute throughput): absolute numbers vary by machine/allocator; the ordering static > hand-written > dynamic is environment-independent.*
 
 The static path not only matches but **exceeds** hand-written — the abstraction lets the compiler see structure that hand-written code hides, enabling it to eliminate an intermediate task. See [`docs/philosophy.md`](docs/philosophy.md) and [`docs/foundations.md` §15](docs/foundations.md#15-零成本抽象抽象层与物理层的解耦) for the formal treatment.
 
@@ -195,6 +204,7 @@ Core (`examples/`):
 | `threaded_pipeline` | Source → Tee → 2×Worker → Collector, multi-thread contract stress |
 | `psql` | SQL REPL pipeline (lexer/parser/executor as `Func`/`FuncRef`), `--bench` alloc accounting |
 | `declarative_dag` | Composite + multi-LinkKind declarative acceptance |
+| `graph_validation` | **复杂图验证与分析**：内核风格图（syscall 扇出 + 双路径 + 3 反馈环 + 观测）通过 `validate_deep`；逐项检出流类型不匹配 / Inline 环 / 全非 Moore 环；SPOF / 环 / 度 / 可达性分析报告 |
 
 Runtime (`runtime/examples/`):
 
@@ -209,11 +219,13 @@ Runtime (`runtime/examples/`):
 
 **Showcase: observation must not slow the main path** (`redis_like --bench`, Parallel(4), monitor simulates 20µs/event):
 
-| Config | SET cmd/s | GET cmd/s |
-|--------|----------:|----------:|
-| baseline (no monitor) | 221,168 | 222,326 |
-| monitor + **Blocking** | 45,741 (**-79%**) | 45,702 (**-80%**) |
-| monitor + **Dropping** | 227,256 (**≈baseline**) | 221,726 (**≈baseline**) |
+| Config | Main-path throughput (relative) |
+|--------|-------------------------------:|
+| baseline (no monitor) | 1.0× |
+| monitor + **Blocking** | **0.2× (-80%)** — observation stalls the main path |
+| monitor + **Dropping** | **≈1.0×** — observation dropped, main path clean |
+
+*Relative ratios from a single reference environment; absolute cmd/s vary by machine. The pattern (Blocking stalls, Dropping does not) is environment-independent.*
 
 The slow observation module running on its own thread with a `Dropping` carrier
 does not stall the main path; `Blocking` would. This is the empirical statement

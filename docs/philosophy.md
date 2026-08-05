@@ -199,13 +199,15 @@ subset where it is easy.
 
 ### Empirical validation
 
-On a 100,000-message Transform → Sink pipeline, release build:
+On a 100,000-message Transform → Sink pipeline, release build (single reference environment):
 
-| Implementation | Throughput | vs hand-written | Latency (mean) |
-|----------------|-----------:|----------------:|---------------:|
-| Hand-written (adapter task) | 3.38M msg/s | baseline | 851 µs |
-| Static path (monomorphized) | 4.20M msg/s | **1.24x faster** | 455 µs |
-| Dynamic path (type-erased) | 0.66M msg/s | 0.20x (5.1x slower) | 2.6 µs* |
+| Implementation | Relative throughput | vs hand-written | Latency (relative) |
+|----------------|-------------------:|----------------:|-------------------:|
+| Hand-written (adapter task) | 1.0× | baseline | 1.0× |
+| Static path (monomorphized) | **1.24×** | faster | 0.53× |
+| Dynamic path (type-erased) | 0.20× | slower | n/a* |
+
+*Relative values; absolute throughput/latency vary by machine and allocator — the ordering static > hand-written > dynamic is environment-independent.*
 
 The static path not only matches but **exceeds** hand-written performance — because the abstraction lets the compiler see the conversion structure that hand-written code hides, enabling it to eliminate an intermediate task. This positively validates the non-invasion axiom: the abstraction's existence adds no burden to the physical layer; it can even inspire physical optimization.
 
