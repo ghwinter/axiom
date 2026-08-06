@@ -45,12 +45,25 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
+// 过程宏生成的代码用 `::axiom::` 绝对路径引用 core 类型。
+// 在 axiom crate 自身内部，需要 `extern crate self` 让这个路径可用。
+// 这只在 `derive` feature 启用时需要（过程宏生成的代码才存在）。
+#[cfg(feature = "derive")]
+extern crate self as axiom;
+
+// 过程宏入口——当 `derive` feature 启用时，`#[axiom::ports]` 可用。
+// 过程宏在编译期运行，生成的代码引用 `::axiom::` 路径，因此与 no_std 兼容。
+#[cfg(feature = "derive")]
+pub use axiom_derive::ports;
+
 // axiom core targets `std` by default. A `no_std` + `alloc` configuration is
 // available for embedded/edge use — the error types below gate their
 // `std::error::Error` impls behind `#[cfg(feature = "std")]`. See
 // docs/foundations.md §14.2 (future work).
 pub mod analysis;
 pub mod backpressure;
+#[cfg(feature = "serialize")]
+pub mod blueprint;
 pub mod builtin;
 pub mod compat;
 pub mod composite;
@@ -62,12 +75,14 @@ pub mod flow;
 pub mod func;
 pub mod hybrid;
 pub mod link;
+pub mod lint;
 pub mod machine;
 #[cfg(feature = "std")]
 pub mod migrate;
 pub mod port;
 pub mod portset;
 pub mod resource;
+pub mod runtime_contract;
 pub mod session;
 pub mod static_exec;
 pub mod stream;

@@ -36,7 +36,7 @@
 
 use crate::machine::Machine;
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 
 // ════════════════════════════════════════════════════════════════════════════
 // Section 1: Link — 线性类型转换契约
@@ -223,6 +223,167 @@ impl core::fmt::Display for StaticExecError {
 
 #[cfg(feature = "std")]
 impl std::error::Error for StaticExecError {}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Section 4.5: Chain — 编译期任意深度线性链
+// ════════════════════════════════════════════════════════════════════════════
+
+use crate::machine::{FusedCompatible, FusedInline, MachineOutput, ProcessOutput};
+use crate::port::MachineContext;
+use alloc::vec::Vec;
+use core::marker::PhantomData;
+
+/// 编译期线性链组合子：`Chain<A, B>` 表达 `A → B`，可嵌套任意深度。
+///
+/// `Chain<A, Chain<B, C>>` 即 3 阶段流水线。链的深度由类型嵌套决定，
+/// 由 [`StaticChain`] 在编译期递归展开——无需为每个 N 手写 `pipelineN`。
+///
+/// # 为什么不是 const 泛型 DAG
+///
+/// 稳定 Rust 无法用 const 泛型表达"任意边表"并保持端口类型安全：边表
+/// `(usize, usize)` 是值级信息，而端点的端口类型是类型级信息——两者之间
+/// 的映射需要 GAT / `generic_const_exprs`。`Chain` 用递归嵌套类型达到同一
+/// 目标（任意深度链），fan-out/fan-in 由 `Split`/`Merge` 组合，构成任意
+/// DAG 的编译期表达。
+///
+/// # 零成本
+///
+/// `StaticChain::run_all` 全单态化：每级 `process` 与 `Link::extract` 都是
+/// 具体函数，`--release` + `#[inline]` 下融合为单一循环。无 `Box<dyn Any>`、
+/// 无 trait dispatch。与 `pipeline2`/`pipeline3` 相同的保证，深度任意。
+pub struct Chain<Head, Tail, L> {
+    _marker: PhantomData<(Head, Tail, L)>,
+}
+
+impl<Head, Tail, L> Chain<Head, Tail, L> {
+    /// 构造一个链类型值（纯类型标记，无运行时表示）。
+    pub fn new() -> Self {
+        Self {
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<Head, Tail, L> Default for Chain<Head, Tail, L> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 编译期线性链的递归执行契约。
+///
+/// - 单机器 `M: FusedInline` 自动实现（基例）。
+/// - `Chain<Head, Tail>` 实现为"跑 Head → `Link::extract` 转换 → 递归
+///   `Tail::run_all`"（递归步），编译期展开到任意深度。
+///
+/// `run_all` 消费全部输入并返回最终输出；任一级返回 `Done` 即提前停机
+/// （`StaticExecError::MachineDone`），语义与 `pipelineN` 一致。
+pub trait StaticChain: Sized {
+    /// 链首机器类型（递归步需要：`Link<Prev, Self::Head>`）。
+    type Head: crate::machine::Machine;
+    /// 链尾输出类型。
+    type Output;
+
+    /// 一次性执行整个链。输入类型即 `Self::Head::Input`。
+    fn run_all(
+        inputs: Vec<<<Self as StaticChain>::Head as crate::machine::Machine>::Input>,
+    ) -> Result<Vec<Self::Output>, StaticExecError>;
+}
+
+// 基例：单机器（任何 FusedInline 机器都是一条单级链）。
+impl<M> StaticChain for M
+where
+    M: FusedInline,
+    M::ProcessOutput: FusedCompatible,
+{
+    type Head = M;
+    type Output = M::Output;
+
+    fn run_all(inputs: Vec<M::Input>) -> Result<Vec<M::Output>, StaticExecError> {
+        let ctx = MachineContext::new(M::name());
+        let mut state = M::init(&ctx).map_err(|e| StaticExecError::InitFailed {
+            machine: M::name(),
+            reason: e.to_string(),
+        })?;
+        let mut outputs = Vec::new();
+        let done = drive_machine::<M>(&mut state, &ctx, inputs, &mut outputs);
+        M::cleanup(state, &ctx).map_err(|e| StaticExecError::CleanupFailed {
+            machine: M::name(),
+            reason: e.to_string(),
+        })?;
+        if done {
+            return Err(StaticExecError::MachineDone {
+                machine: M::name(),
+                processed: outputs.len(),
+            });
+        }
+        Ok(outputs)
+    }
+}
+
+// 递归步：Head → Tail。
+impl<Head, Tail, L> StaticChain for Chain<Head, Tail, L>
+where
+    Head: FusedInline,
+    Head::ProcessOutput: FusedCompatible,
+    Tail: StaticChain,
+    L: Link<Head, Tail::Head>,
+{
+    type Head = Head;
+    type Output = Tail::Output;
+
+    fn run_all(inputs: Vec<Head::Input>) -> Result<Vec<Tail::Output>, StaticExecError> {
+        let ctx = MachineContext::new(Head::name());
+        let mut state = Head::init(&ctx).map_err(|e| StaticExecError::InitFailed {
+            machine: Head::name(),
+            reason: e.to_string(),
+        })?;
+        let mut head_out = Vec::new();
+        let done = drive_machine::<Head>(&mut state, &ctx, inputs, &mut head_out);
+        Head::cleanup(state, &ctx).map_err(|e| StaticExecError::CleanupFailed {
+            machine: Head::name(),
+            reason: e.to_string(),
+        })?;
+
+        // 经 Link 转换为 Tail 的输入，递归执行。
+        let tail_inputs: Vec<<Tail::Head as crate::machine::Machine>::Input> = head_out
+            .into_iter()
+            .filter_map(L::extract)
+            .collect();
+        if done {
+            return Err(StaticExecError::MachineDone {
+                machine: Head::name(),
+                processed: tail_inputs.len(),
+            });
+        }
+        Tail::run_all(tail_inputs)
+    }
+}
+
+/// 驱动单台机器消费输入、产出输出。返回是否提前 `Done`。
+///
+/// 与 runtime `static_path` 内部驱动等价，但定义在 core 使 `StaticChain`
+/// 自包含（core 不依赖 runtime）。
+fn drive_machine<M: FusedInline>(
+    state: &mut M::State,
+    ctx: &MachineContext,
+    inputs: impl IntoIterator<Item = M::Input>,
+    outputs: &mut Vec<M::Output>,
+) -> bool
+where
+    M::ProcessOutput: FusedCompatible,
+{
+    for input in inputs {
+        let proc_out = M::process(state, ctx, input).into_process_output();
+        match proc_out {
+            ProcessOutput::Yield(o) => outputs.push(o),
+            ProcessOutput::YieldMulti(os) => outputs.extend(os),
+            ProcessOutput::Idle => {}
+            ProcessOutput::Done => return true,
+        }
+    }
+    false
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // Section 5: 单元测试

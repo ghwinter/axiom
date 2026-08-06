@@ -159,6 +159,30 @@ where
     Ok(b_outputs)
 }
 
+/// 任意深度线性流水线（编译期递归链）。
+///
+/// 与 `pipeline2`/`pipeline3` 语义一致，但深度由类型决定而非手写函数：
+/// 用 `Chain` 组合子嵌套即可得到任意 N 阶段链（roadmap C1）：
+///
+/// ```ignore
+/// use axiom::static_exec::Chain;
+/// use axiom_runtime::static_path::pipeline_chain;
+///
+/// // 4 阶段链：Doubler → Tripler → Adder → Negater
+/// type MyChain = Chain<Doubler, Chain<Tripler, Chain<Adder, Negater>>, DToT>;
+/// let outputs = pipeline_chain::<MyChain>(vec![/* inputs */])?;
+/// ```
+///
+/// 由 [`StaticChain`] 在编译期递归展开——无 `Box<dyn Any>`、无 trait
+/// dispatch，与固定 `pipelineN` 相同的零成本保证。
+pub fn pipeline_chain<C: axiom::static_exec::StaticChain>(
+    inputs: Vec<
+        <<C as axiom::static_exec::StaticChain>::Head as axiom::machine::Machine>::Input,
+    >,
+) -> Result<Vec<C::Output>, StaticExecError> {
+    C::run_all(inputs)
+}
+
 /// 3 阶段线性流水线：`A → B → C`。
 ///
 /// A 的输出经 `L1` 转换为 B 的输入，B 的输出经 `L2` 转换为 C 的输入。
@@ -369,7 +393,7 @@ mod tests {
     use axiom::declare_ports;
     use axiom::machine::{FusedInline, Machine, SingleOutput};
     use axiom::port::MachineContext;
-    use axiom::static_exec::{CloneSplit, Link, Merge};
+    use axiom::static_exec::{Chain, CloneSplit, Link, Merge};
 
     // ── 测试机器 ──────────────────────────────────────────────────────────
 
@@ -529,6 +553,55 @@ mod tests {
                 TriplerOutput::y(n) => Some(AdderInput::x(n)),
             }
         }
+    }
+
+    struct AdderToDoubler;
+    impl Link<Adder, Doubler> for AdderToDoubler {
+        fn extract(out: AdderOutput) -> Option<DoublerInput> {
+            match out {
+                AdderOutput::y(n) => Some(DoublerInput::x(n)),
+            }
+        }
+    }
+
+    // ── pipeline_chain 测试（编译期递归链）───────────────────────────────
+
+    #[test]
+    fn pipeline_chain_4_stage_recursive() {
+        // Doubler → Adder → Doubler → Adder（4 级递归链，任意深度）
+        type Chain4 = Chain<
+            Doubler,
+            Chain<Adder, Chain<Doubler, Adder, DoublerToAdder>, AdderToDoubler>,
+            DoublerToAdder,
+        >;
+        // 输入 1: 1 → D(2) → A1(2) → D(4) → A2(4)
+        // 输入 2: 2 → D(4) → A1(2+4=6) → D(12) → A2(4+12=16)
+        // （Adder 是跨输入累加器；A1/A2 是链中两个独立实例）
+        let inputs = vec![DoublerInput::x(1), DoublerInput::x(2)];
+        let outputs = pipeline_chain::<Chain4>(inputs).expect("chain4");
+        assert_eq!(outputs.len(), 2);
+        assert_eq!(outputs[0], AdderOutput::y(4));
+        assert_eq!(outputs[1], AdderOutput::y(16));
+    }
+
+    #[test]
+    fn pipeline_chain_3_stage_recursive() {
+        // Doubler → Tripler → Adder（3 级，混合 Link 类型）
+        type Chain3 = Chain<Doubler, Chain<Tripler, Adder, TriplerToAdder>, DoublerToTripler>;
+        // 输入 2: 2 → D(4) → T(12) → A(12)
+        let outputs = pipeline_chain::<Chain3>(vec![DoublerInput::x(2)]).expect("chain3");
+        assert_eq!(outputs, vec![AdderOutput::y(12)]);
+    }
+
+    #[test]
+    fn pipeline_chain_empty_inputs() {
+        type Chain4 = Chain<
+            Doubler,
+            Chain<Adder, Chain<Doubler, Adder, DoublerToAdder>, AdderToDoubler>,
+            DoublerToAdder,
+        >;
+        let outputs = pipeline_chain::<Chain4>(vec![]).expect("chain4 empty");
+        assert!(outputs.is_empty());
     }
 
     // ── pipeline2 测试 ───────────────────────────────────────────────────

@@ -9,6 +9,14 @@ use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
+// 注：本文件未采用 `#[crate::ports]` 宏。FuncMachine 的端口枚举基于关联类型
+// `F::Input` / `F::Output`，且手写的 `Clone`/`PartialEq` impl 刻意只要求
+// `F::Input: Clone` / `F::Output: Clone`，而非 `F: Clone`（见下方各 impl 注释）。
+// `#[ports]` 宏对生成的枚举统一使用 `#[derive(Debug, Clone, PartialEq)]`，
+// 这会向泛型参数 `F` 强加 `Clone`/`PartialEq` 约束（std derive 的保守行为），
+// 收紧了 `Func` trait（仅 `Send + Sync + 'static`）所允许的边界，属于语义回归。
+// 因此保留手写。
+
 pub struct FuncMachinePorts<F>(PhantomData<F>);
 
 #[derive(Debug)]

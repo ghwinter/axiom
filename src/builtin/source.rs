@@ -8,6 +8,14 @@ use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
+// 注：本文件未采用 `#[crate::ports]` 宏。Source 的端口签名是不对称泛型：
+// `SourceInput` 无泛型（tick 端口承载 `()`），而 `SourceOutput<O>` 带泛型 `O`。
+// `#[ports]` 宏会把 struct 的全部泛型统一传播到 Input/Output 两个枚举，
+// 这将产生 `SourceInput<O>`——给一个会被实际构造（`Tick(())`）的输入枚举
+// 强加无意义的幻影泛型 `O`，破坏构造人机工程学与既有公开 API。因此保留手写。
+//
+// 其余对称泛型的 builtin（Identity/Tee/Latch/Collector/Sink）均已迁移到宏。
+
 pub struct SourcePorts<O>(PhantomData<O>);
 
 #[derive(Debug, Clone, PartialEq)]

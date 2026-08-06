@@ -9,66 +9,87 @@ use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
-pub struct TeePorts<I>(PhantomData<I>);
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum TeeInput<I> {
-    Input(I),
+// 当 `derive` feature 启用时，用 `#[ports]` 宏自动生成端口样板；
+// 否则手写（保持零依赖能力）。
+#[cfg(feature = "derive")]
+#[crate::ports]
+pub struct TeePorts<I> {
+    #[input] input: I,
+    #[output] output_a: I,
+    #[output] output_b: I,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum TeeOutput<I> {
-    OutputA(I),
-    OutputB(I),
-}
+#[cfg(not(feature = "derive"))]
+mod manual_ports {
+    #[cfg(not(feature = "std"))]
+    use crate::compat::prelude::*;
+    use core::marker::PhantomData;
+    use crate::prelude_all::*;
 
-impl<I: Send + 'static> HasPortInfo for TeeInput<I> {
-    fn port_name(&self) -> &'static str { match self { Self::Input(_) => "input" } }
-    fn flow_kind(&self) -> FlowKind { match self { Self::Input(_) => FlowKind::Data } }
-    fn payload_type_id(&self) -> core::any::TypeId { match self { Self::Input(_) => core::any::TypeId::of::<I>() } }
-    fn payload_type_name(&self) -> &'static str { match self { Self::Input(_) => core::any::type_name::<I>() } }
-    fn from_port_name(name: &str, payload: Box<dyn core::any::Any + Send>) -> Option<Self> {
-        match name { "input" => { let v: Box<I> = payload.downcast().ok()?; Some(Self::Input(*v)) } _ => None }
-    }
-    fn into_any(self) -> Box<dyn core::any::Any + Send> { match self { Self::Input(v) => Box::new(v) } }
-}
+    pub struct TeePorts<I>(PhantomData<I>);
 
-impl<I: Send + Sync + 'static> HasPortInfo for TeeOutput<I> {
-    fn port_name(&self) -> &'static str {
-        match self { Self::OutputA(_) => "output_a", Self::OutputB(_) => "output_b" }
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum TeeInput<I> {
+        Input(I),
     }
-    fn flow_kind(&self) -> FlowKind {
-        match self { Self::OutputA(_) | Self::OutputB(_) => FlowKind::Data }
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum TeeOutput<I> {
+        OutputA(I),
+        OutputB(I),
     }
-    fn payload_type_id(&self) -> core::any::TypeId {
-        match self { Self::OutputA(_) | Self::OutputB(_) => core::any::TypeId::of::<I>() }
+
+    impl<I: Send + 'static> HasPortInfo for TeeInput<I> {
+        fn port_name(&self) -> &'static str { match self { Self::Input(_) => "input" } }
+        fn flow_kind(&self) -> FlowKind { match self { Self::Input(_) => FlowKind::Data } }
+        fn payload_type_id(&self) -> core::any::TypeId { match self { Self::Input(_) => core::any::TypeId::of::<I>() } }
+        fn payload_type_name(&self) -> &'static str { match self { Self::Input(_) => core::any::type_name::<I>() } }
+        fn from_port_name(name: &str, payload: Box<dyn core::any::Any + Send>) -> Option<Self> {
+            match name { "input" => { let v: Box<I> = payload.downcast().ok()?; Some(Self::Input(*v)) } _ => None }
+        }
+        fn into_any(self) -> Box<dyn core::any::Any + Send> { match self { Self::Input(v) => Box::new(v) } }
     }
-    fn payload_type_name(&self) -> &'static str {
-        match self { Self::OutputA(_) | Self::OutputB(_) => core::any::type_name::<I>() }
-    }
-    fn from_port_name(name: &str, payload: Box<dyn core::any::Any + Send>) -> Option<Self> {
-        match name {
-            "output_a" => { let v: Box<I> = payload.downcast().ok()?; Some(Self::OutputA(*v)) }
-            "output_b" => { let v: Box<I> = payload.downcast().ok()?; Some(Self::OutputB(*v)) }
-            _ => None,
+
+    impl<I: Send + Sync + 'static> HasPortInfo for TeeOutput<I> {
+        fn port_name(&self) -> &'static str {
+            match self { Self::OutputA(_) => "output_a", Self::OutputB(_) => "output_b" }
+        }
+        fn flow_kind(&self) -> FlowKind {
+            match self { Self::OutputA(_) | Self::OutputB(_) => FlowKind::Data }
+        }
+        fn payload_type_id(&self) -> core::any::TypeId {
+            match self { Self::OutputA(_) | Self::OutputB(_) => core::any::TypeId::of::<I>() }
+        }
+        fn payload_type_name(&self) -> &'static str {
+            match self { Self::OutputA(_) | Self::OutputB(_) => core::any::type_name::<I>() }
+        }
+        fn from_port_name(name: &str, payload: Box<dyn core::any::Any + Send>) -> Option<Self> {
+            match name {
+                "output_a" => { let v: Box<I> = payload.downcast().ok()?; Some(Self::OutputA(*v)) }
+                "output_b" => { let v: Box<I> = payload.downcast().ok()?; Some(Self::OutputB(*v)) }
+                _ => None,
+            }
+        }
+        fn into_any(self) -> Box<dyn core::any::Any + Send> {
+            match self { Self::OutputA(v) => Box::new(v), Self::OutputB(v) => Box::new(v) }
         }
     }
-    fn into_any(self) -> Box<dyn core::any::Any + Send> {
-        match self { Self::OutputA(v) => Box::new(v), Self::OutputB(v) => Box::new(v) }
+
+    impl<I: Send + Sync + 'static> PortSet for TeePorts<I> {
+        type Input = TeeInput<I>;
+        type Output = TeeOutput<I>;
+
+        fn port_schema() -> PortSchema {
+            PortSchema::new()
+                .with(PortDecl::input::<I>("input"))
+                .with(PortDecl::output::<I>("output_a"))
+                .with(PortDecl::output::<I>("output_b"))
+        }
     }
 }
 
-impl<I: Send + Sync + 'static> PortSet for TeePorts<I> {
-    type Input = TeeInput<I>;
-    type Output = TeeOutput<I>;
-
-    fn port_schema() -> PortSchema {
-        PortSchema::new()
-            .with(PortDecl::input::<I>("input"))
-            .with(PortDecl::output::<I>("output_a"))
-            .with(PortDecl::output::<I>("output_b"))
-    }
-}
+#[cfg(not(feature = "derive"))]
+pub use manual_ports::{TeePorts, TeeInput, TeeOutput};
 
 // ── Machine impl ────────────────────────────────────────────
 

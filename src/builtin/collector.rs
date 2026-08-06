@@ -14,55 +14,78 @@ use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
-pub struct CollectorPorts<I>(PhantomData<I>);
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum CollectorInput<I> {
-    Input(I),
+// 当 `derive` feature 启用时，用 `#[ports]` 宏自动生成端口样板；
+// 否则手写（保持零依赖能力）。
+// observe 端口用 `#[output(Observe)]` 表达——宏会生成
+// `PortDecl::new::<Vec<I>>("snapshots", Out, Observe)`，与手写的
+// `PortDecl::observe::<Vec<I>>("snapshots")` 完全等价（见 port.rs）。
+#[cfg(feature = "derive")]
+#[crate::ports]
+pub struct CollectorPorts<I> {
+    #[input] input: I,
+    #[output(Observe)] snapshots: Vec<I>,
 }
 
-/// Collector has no data output, only an observe port.
-/// The observe variant carries the accumulated snapshots.
-#[derive(Debug, Clone, PartialEq)]
-pub enum CollectorOutput<I> {
-    Snapshots(Vec<I>),
-}
+#[cfg(not(feature = "derive"))]
+mod manual_ports {
+    #[cfg(not(feature = "std"))]
+    use crate::compat::prelude::*;
+    use core::marker::PhantomData;
+    use crate::prelude_all::*;
 
-impl<I: Send + 'static> HasPortInfo for CollectorInput<I> {
-    fn port_name(&self) -> &'static str { match self { Self::Input(_) => "input" } }
-    fn flow_kind(&self) -> FlowKind { match self { Self::Input(_) => FlowKind::Data } }
-    fn payload_type_id(&self) -> core::any::TypeId { match self { Self::Input(_) => core::any::TypeId::of::<I>() } }
-    fn payload_type_name(&self) -> &'static str { match self { Self::Input(_) => core::any::type_name::<I>() } }
-    fn from_port_name(name: &str, payload: Box<dyn core::any::Any + Send>) -> Option<Self> {
-        match name { "input" => { let v: Box<I> = payload.downcast().ok()?; Some(Self::Input(*v)) } _ => None }
+    pub struct CollectorPorts<I>(PhantomData<I>);
+
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum CollectorInput<I> {
+        Input(I),
     }
-    fn into_any(self) -> Box<dyn core::any::Any + Send> { match self { Self::Input(v) => Box::new(v) } }
-}
 
-impl<I: Send + Sync + 'static> HasPortInfo for CollectorOutput<I> {
-    fn port_name(&self) -> &'static str { match self { Self::Snapshots(_) => "snapshots" } }
-    fn flow_kind(&self) -> FlowKind { match self { Self::Snapshots(_) => FlowKind::Observe } }
-    fn payload_type_id(&self) -> core::any::TypeId { match self { Self::Snapshots(_) => core::any::TypeId::of::<Vec<I>>() } }
-    fn payload_type_name(&self) -> &'static str { match self { Self::Snapshots(_) => core::any::type_name::<Vec<I>>() } }
-    fn from_port_name(name: &str, payload: Box<dyn core::any::Any + Send>) -> Option<Self> {
-        match name {
-            "snapshots" => { let v: Box<Vec<I>> = payload.downcast().ok()?; Some(Self::Snapshots(*v)) }
-            _ => None,
+    /// Collector has no data output, only an observe port.
+    /// The observe variant carries the accumulated snapshots.
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum CollectorOutput<I> {
+        Snapshots(Vec<I>),
+    }
+
+    impl<I: Send + 'static> HasPortInfo for CollectorInput<I> {
+        fn port_name(&self) -> &'static str { match self { Self::Input(_) => "input" } }
+        fn flow_kind(&self) -> FlowKind { match self { Self::Input(_) => FlowKind::Data } }
+        fn payload_type_id(&self) -> core::any::TypeId { match self { Self::Input(_) => core::any::TypeId::of::<I>() } }
+        fn payload_type_name(&self) -> &'static str { match self { Self::Input(_) => core::any::type_name::<I>() } }
+        fn from_port_name(name: &str, payload: Box<dyn core::any::Any + Send>) -> Option<Self> {
+            match name { "input" => { let v: Box<I> = payload.downcast().ok()?; Some(Self::Input(*v)) } _ => None }
+        }
+        fn into_any(self) -> Box<dyn core::any::Any + Send> { match self { Self::Input(v) => Box::new(v) } }
+    }
+
+    impl<I: Send + Sync + 'static> HasPortInfo for CollectorOutput<I> {
+        fn port_name(&self) -> &'static str { match self { Self::Snapshots(_) => "snapshots" } }
+        fn flow_kind(&self) -> FlowKind { match self { Self::Snapshots(_) => FlowKind::Observe } }
+        fn payload_type_id(&self) -> core::any::TypeId { match self { Self::Snapshots(_) => core::any::TypeId::of::<Vec<I>>() } }
+        fn payload_type_name(&self) -> &'static str { match self { Self::Snapshots(_) => core::any::type_name::<Vec<I>>() } }
+        fn from_port_name(name: &str, payload: Box<dyn core::any::Any + Send>) -> Option<Self> {
+            match name {
+                "snapshots" => { let v: Box<Vec<I>> = payload.downcast().ok()?; Some(Self::Snapshots(*v)) }
+                _ => None,
+            }
+        }
+        fn into_any(self) -> Box<dyn core::any::Any + Send> { match self { Self::Snapshots(v) => Box::new(v) } }
+    }
+
+    impl<I: Send + Sync + 'static> PortSet for CollectorPorts<I> {
+        type Input = CollectorInput<I>;
+        type Output = CollectorOutput<I>;
+
+        fn port_schema() -> PortSchema {
+            PortSchema::new()
+                .with(PortDecl::input::<I>("input"))
+                .with(PortDecl::observe::<Vec<I>>("snapshots"))
         }
     }
-    fn into_any(self) -> Box<dyn core::any::Any + Send> { match self { Self::Snapshots(v) => Box::new(v) } }
 }
 
-impl<I: Send + Sync + 'static> PortSet for CollectorPorts<I> {
-    type Input = CollectorInput<I>;
-    type Output = CollectorOutput<I>;
-
-    fn port_schema() -> PortSchema {
-        PortSchema::new()
-            .with(PortDecl::input::<I>("input"))
-            .with(PortDecl::observe::<Vec<I>>("snapshots"))
-    }
-}
+#[cfg(not(feature = "derive"))]
+pub use manual_ports::{CollectorPorts, CollectorInput, CollectorOutput};
 
 // ── Machine impl ────────────────────────────────────────────
 

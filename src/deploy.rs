@@ -40,6 +40,8 @@
 #[cfg(not(feature = "std"))]
 use crate::compat::prelude::*;
 use crate::compat::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::format;
 use crate::link::LinkSpec;
 use crate::port::{PortSchema, PortDir, LinkCompat};
 use crate::resource::{MachinePhysicalSpec, ExecutionHint};
@@ -257,6 +259,24 @@ impl DeploySpec {
             }
         }
 
+        // 2.5 隐式 fan-out 拒绝：一个输出端口只能链接一个目标。
+        // 动态路径的路由是 1 对 1（route_target 取第一个）；fan-out 是
+        // **机器的职责**（Split / CloneSplit / Tee 契约）——蓝图必须用
+        // 显式 Tee 机器表达广播。此检查把"路由静默丢弃第二个目标"的
+        // 未定义行为提前到验证期拒绝。
+        let mut fanout_seen: crate::compat::HashSet<(&str, &str)> =
+            crate::compat::HashSet::new();
+        for link in &self.links {
+            let src_name: &str = link.out.0.as_ref();
+            let src_port: &str = link.out.1.as_ref();
+            if !fanout_seen.insert((src_name, src_port)) {
+                return Err(ValidationError::FanOutViaTee {
+                    src_machine: src_name.to_string(),
+                    src_port: src_port.to_string(),
+                });
+            }
+        }
+
         // 3. 循环依赖: cycles are structurally ALLOWED here.
         //
         // foundations.md §1.2a defines Moore delay to break algebraic cycles.
@@ -455,6 +475,212 @@ impl DeploySpec {
         crate::analysis::analyze(self, schemas)
     }
 
+    /// Collect **all** structural and deep violations (not fail-fast).
+    ///
+    /// Each violation is a structured [`RuleViolation`] with a stable
+    /// `rule_id`, a JSON-path-like `path`, and `expected`/`actual` —
+    /// machine-readable feedback for AI-driven blueprint iteration. The checks
+    /// mirror [`validate_deep`](Self::validate_deep) but **append** instead of
+    /// returning on the first error.
+    ///
+    /// `Migrate` compatibility is reported as a **warning** (a runtime
+    /// migrator is still required), matching the advisory note in
+    /// `validate_deep`.
+    pub fn validate_report(
+        &self,
+        schemas: &HashMap<&str, PortSchema>,
+    ) -> ValidationReport {
+        let mut report = ValidationReport::default();
+
+        // 1. Name uniqueness.
+        let mut seen_machines: crate::compat::HashSet<&str> = crate::compat::HashSet::new();
+        for (i, m) in self.machines.iter().enumerate() {
+            if !seen_machines.insert(m.name.as_ref()) {
+                report.push(RuleViolation::new(
+                    "name-unique",
+                    format!("machines[{i}].name"),
+                    "machine names unique within deployment",
+                    format!("duplicate '{}'", m.name),
+                ));
+            }
+        }
+        let mut seen_funcs: crate::compat::HashSet<&str> = crate::compat::HashSet::new();
+        for (i, f) in self.funcs.iter().enumerate() {
+            if !seen_funcs.insert(f.name.as_ref()) {
+                report.push(RuleViolation::new(
+                    "name-unique",
+                    format!("funcs[{i}].name"),
+                    "func names unique within deployment",
+                    format!("duplicate '{}'", f.name),
+                ));
+            }
+        }
+
+        // 2. Link endpoint resolution + self-loop (every link, not fail-fast).
+        let known = |name: &str| {
+            self.machines.iter().any(|m| m.name.as_ref() == name)
+                || self.funcs.iter().any(|f| f.name.as_ref() == name)
+        };
+        for (i, link) in self.links.iter().enumerate() {
+            let src: &str = link.out.0.as_ref();
+            let dst: &str = link.into.0.as_ref();
+            if src == dst {
+                report.push(RuleViolation::new(
+                    "link-self-loop",
+                    format!("links[{i}]"),
+                    "source and target machines distinct",
+                    format!("'{}' links to itself", src),
+                ));
+            }
+            if !known(src) {
+                report.push(RuleViolation::new(
+                    "link-resolve-machine",
+                    format!("links[{i}].out[0]"),
+                    "source machine declared in machines or funcs",
+                    format!("'{}' not found", src),
+                ));
+            }
+            if !known(dst) {
+                report.push(RuleViolation::new(
+                    "link-resolve-machine",
+                    format!("links[{i}].into[0]"),
+                    "target machine declared in machines or funcs",
+                    format!("'{}' not found", dst),
+                ));
+            }
+        }
+
+        // 3. Per-link port existence / direction / type compatibility.
+        for (i, link) in self.links.iter().enumerate() {
+            let src_machine: &str = link.out.0.as_ref();
+            let dst_machine: &str = link.into.0.as_ref();
+            let src_port_name: &str = link.out.1.as_ref();
+            let dst_port_name: &str = link.into.1.as_ref();
+
+            let src_schema = match schemas.get(src_machine) {
+                Some(s) => s,
+                None => continue, // already reported by link-resolve-machine
+            };
+            let dst_schema = match schemas.get(dst_machine) {
+                Some(s) => s,
+                None => continue,
+            };
+
+            let src_port = match src_schema.find(src_port_name) {
+                Some(p) => p,
+                None => {
+                    report.push(RuleViolation::new(
+                        "link-resolve-port",
+                        format!("links[{i}].out[1]"),
+                        format!("'{src_machine}' declares port '{src_port_name}'"),
+                        "port not found",
+                    ));
+                    continue;
+                }
+            };
+            let dst_port = match dst_schema.find(dst_port_name) {
+                Some(p) => p,
+                None => {
+                    report.push(RuleViolation::new(
+                        "link-resolve-port",
+                        format!("links[{i}].into[1]"),
+                        format!("'{dst_machine}' declares port '{dst_port_name}'"),
+                        "port not found",
+                    ));
+                    continue;
+                }
+            };
+
+            if src_port.dir != PortDir::Out {
+                report.push(RuleViolation::new(
+                    "link-direction",
+                    format!("links[{i}].out[1]"),
+                    "source port is an output",
+                    format!("'{src_port_name}' is {:?}", src_port.dir),
+                ));
+            }
+            if dst_port.dir != PortDir::In {
+                report.push(RuleViolation::new(
+                    "link-direction",
+                    format!("links[{i}].into[1]"),
+                    "target port is an input",
+                    format!("'{dst_port_name}' is {:?}", dst_port.dir),
+                ));
+            }
+
+            match src_port.can_link_to(dst_port) {
+                LinkCompat::Compatible => {}
+                LinkCompat::Migrate { from_ver, to_ver } => {
+                    report.warn(RuleViolation::new(
+                        "link-migrate",
+                        format!("links[{i}]"),
+                        "compatible via schema migration",
+                        format!("version {from_ver} → {to_ver} (runtime migrator required)"),
+                    ));
+                }
+                LinkCompat::Incompatible { reason } => {
+                    report.push(RuleViolation::new(
+                        "link-type",
+                        format!("links[{i}]"),
+                        "source port can link to target port",
+                        reason.to_string(),
+                    ));
+                }
+            }
+        }
+
+        // 4. Resource budget.
+        let mut total: usize = 0;
+        for m in &self.machines {
+            match &m.physical.execution {
+                ExecutionHint::CpuBound => total += 1,
+                ExecutionHint::CpuBoundN(n) => total += n,
+                ExecutionHint::ThreadPool(spec) => total += spec.max_threads,
+                ExecutionHint::Async | ExecutionHint::Subprocess(_) => {}
+            }
+        }
+        if total > self.settings.cpu_threads {
+            report.push(RuleViolation::new(
+                "resource-budget",
+                "settings.cpu_threads",
+                format!("at least {total} threads available"),
+                format!("cpu_threads = {}", self.settings.cpu_threads),
+            ));
+        }
+
+        // 5. Non-Moore cycle safety (first unsafe cycle).
+        if let Some(cycle) = self.find_non_moore_cycle() {
+            report.push(RuleViolation::new(
+                "cycle-no-moore",
+                "links",
+                "every cycle passes through ≥1 Moore machine",
+                format!("cycle without Moore machine: {}", cycle.join(" → ")),
+            ));
+        }
+
+        // 6. Degree constraints (all violations).
+        for v in crate::analysis::degree_violations(self) {
+            report.push(RuleViolation::new(
+                "degree-limit",
+                format!("{}.{}", v.machine, v.port),
+                format!("{} degree ≤ {}", v.direction, v.limit),
+                format!("actual {}", v.actual),
+            ));
+        }
+
+        // 7. Inline acyclicity (first Inline cycle).
+        if let Some(cycle) = crate::analysis::inline_cycle(self) {
+            report.push(RuleViolation::new(
+                "inline-cycle",
+                "links",
+                "Inline-edge subgraph is a DAG (no synchronous-call deadlock)",
+                format!("Inline cycle: {}", cycle.join(" → ")),
+            ));
+        }
+
+        report
+    }
+
     /// Find a cycle in the subgraph induced by non-Moore machines.
     ///
     /// Returns the machine names along the cycle (in traversal order) if one
@@ -568,6 +794,11 @@ pub enum ValidationError {
     DuplicateName(String),
     /// 机器链接到自身。
     SelfLoop(String),
+    /// 隐式 fan-out：一个输出端口链接了多个目标。
+    ///
+    /// 动态路径路由是 1 对 1；fan-out 必须是机器的职责（`Split`/
+    /// `CloneSplit`/Tee）。修复：插入显式 Tee 机器，每端口一条链接。
+    FanOutViaTee { src_machine: String, src_port: String },
     UnknownPort {
         machine: String,
         port: String,
@@ -616,6 +847,10 @@ impl core::fmt::Display for ValidationError {
             Self::UnknownMachine(n) => write!(f, "unknown machine: {}", n),
             Self::DuplicateName(n) => write!(f, "duplicate name: {}", n),
             Self::SelfLoop(n) => write!(f, "machine '{}' links to itself", n),
+            Self::FanOutViaTee { src_machine, src_port } => write!(
+                f,
+                "output port '{src_port}' on machine '{src_machine}' links to multiple targets — fan-out must be explicit (Split/CloneSplit/Tee machine)"
+            ),
             Self::UnknownPort { machine, port } => {
                 write!(f, "unknown port '{}' on machine '{}'", port, machine)
             }
@@ -1037,6 +1272,7 @@ mod tests {
     #[test]
     fn validate_deep_rejects_degree_violation_inline_fanout() {
         // Two Inline links from a::out → outdeg 2, limit 1.
+        // 结构层现在**提前**拦截：FanOutViaTee（fan-out 必须显式 Tee）。
         let spec = DeploySpec::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
@@ -1048,23 +1284,158 @@ mod tests {
         schemas.insert("b", PortSchema::new().with(PortDecl::input::<i32>("in")));
         schemas.insert("c", PortSchema::new().with(PortDecl::input::<i32>("in")));
         let err = spec.validate_deep(&schemas).unwrap_err();
+        // 验证错误信息引导用户用 Tee
+        assert!(
+            err.to_string().contains("fan-out must be explicit"),
+            "error should guide the user to an explicit Tee: {err}"
+        );
         match err {
-            ValidationError::DegreeConstraintViolated {
-                machine,
-                port,
-                link_kind,
-                direction,
-                limit,
-                actual,
-            } => {
-                assert_eq!(machine, "a");
-                assert_eq!(port, "out");
-                assert_eq!(link_kind, "Inline");
-                assert_eq!(direction, "output");
-                assert_eq!(limit, 1);
-                assert_eq!(actual, 2);
+            ValidationError::FanOutViaTee { src_machine, src_port } => {
+                assert_eq!(src_machine, "a");
+                assert_eq!(src_port, "out");
             }
-            other => panic!("expected DegreeConstraintViolated, got: {:?}", other),
+            other => panic!(
+                "expected FanOutViaTee (fan-out must be explicit), got: {:?}",
+                other
+            ),
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // validate_report() — structured, collect-all violations
+    // ══════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn validate_report_collects_all_violations() {
+        // Three links with distinct problems: unknown machine, unknown port,
+        // wrong direction (target is an Out port).
+        let spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(LinkSpec::new(("ghost", "out"), ("b", "in"), LinkKind::Inline))
+            .with_link(LinkSpec::new(("a", "nope"), ("b", "in"), LinkKind::Inline))
+            .with_link(LinkSpec::new(("a", "out"), ("b", "out"), LinkKind::Inline));
+        let mut schemas = HashMap::new();
+        schemas.insert("a", schema_io_i32());
+        schemas.insert("b", schema_io_i32());
+        let report = spec.validate_report(&schemas);
+        assert!(!report.is_ok());
+        let ids: Vec<&str> = report.violations.iter().map(|v| v.rule_id).collect();
+        assert!(
+            ids.contains(&"link-resolve-machine"),
+            "unknown machine expected: {ids:?}"
+        );
+        assert!(
+            ids.contains(&"link-resolve-port"),
+            "unknown port expected: {ids:?}"
+        );
+        assert!(
+            ids.contains(&"link-direction"),
+            "direction violation expected: {ids:?}"
+        );
+        // fail-fast validate_deep stops at the first error; the report sees all.
+        assert!(ids.len() >= 3, "expected ≥3 violations, got {ids:?}");
+    }
+
+    #[test]
+    fn validate_report_ok_on_clean_spec() {
+        let spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(LinkSpec::new(("a", "out"), ("b", "in"), LinkKind::Inline));
+        let mut schemas = HashMap::new();
+        schemas.insert("a", schema_io_i32());
+        schemas.insert("b", schema_io_i32());
+        let report = spec.validate_report(&schemas);
+        assert!(report.is_ok(), "{:?}", report.violations);
+    }
+
+    #[test]
+    fn validate_report_rule_violation_display() {
+        let v = RuleViolation::new(
+            "link-type",
+            "links[0]",
+            "source port can link to target port",
+            "i32 vs String",
+        );
+        let s = v.to_string();
+        assert!(s.contains("[link-type]"), "{s}");
+        assert!(s.contains("links[0]"), "{s}");
+    }
+}
+
+// ── Structured validation report ────────────────────────────────────────────────
+
+/// A single rule violation, structured for programmatic (AI) consumption.
+///
+/// Unlike a bare error string, each violation carries enough structure to be
+/// located and fixed automatically: a stable `rule_id` (the rule that fired),
+/// a JSON-path-like `path` (where in the blueprint), and `expected`/`actual`
+/// (what the blueprint should look like vs. what it contains).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuleViolation {
+    /// Stable identifier of the violated rule (e.g. `"link-type"`).
+    pub rule_id: &'static str,
+    /// JSON-path-like location of the offending element (e.g. `links[3].into[1]`).
+    pub path: String,
+    /// What the deployment should look like.
+    pub expected: String,
+    /// What the deployment actually contains.
+    pub actual: String,
+}
+
+impl RuleViolation {
+    /// Construct a violation.
+    pub fn new(
+        rule_id: &'static str,
+        path: impl Into<String>,
+        expected: impl Into<String>,
+        actual: impl Into<String>,
+    ) -> Self {
+        Self {
+            rule_id,
+            path: path.into(),
+            expected: expected.into(),
+            actual: actual.into(),
         }
     }
 }
+
+impl core::fmt::Display for RuleViolation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "[{}] {}: expected {}, got {}",
+            self.rule_id, self.path, self.expected, self.actual
+        )
+    }
+}
+
+/// All violations (and advisory warnings) found by [`DeploySpec::validate_report`].
+///
+/// - `violations` — hard failures: the blueprint is invalid.
+/// - `warnings` — advisory: valid, but may require runtime support
+///   (e.g. schema migration).
+#[derive(Debug, Clone, Default)]
+pub struct ValidationReport {
+    /// Hard violations — the blueprint is invalid.
+    pub violations: Vec<RuleViolation>,
+    /// Advisory warnings — valid, but may need runtime support.
+    pub warnings: Vec<RuleViolation>,
+}
+
+impl ValidationReport {
+    /// True when there are no hard violations (warnings are allowed).
+    pub fn is_ok(&self) -> bool {
+        self.violations.is_empty()
+    }
+
+    pub fn push(&mut self, v: RuleViolation) {
+        self.violations.push(v);
+    }
+
+    pub fn warn(&mut self, v: RuleViolation) {
+        self.warnings.push(v);
+    }
+}
+

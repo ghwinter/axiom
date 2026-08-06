@@ -8,6 +8,16 @@ use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
+// 注：本文件未采用 `#[crate::ports]` 宏。Sink 的端口签名是不对称泛型：
+// `SinkInput<I>` 带泛型 `I`，而 `SinkOutput` 无泛型（零变体枚举，uninhabited）。
+// `#[ports]` 宏会把 struct 的全部泛型统一传播到 Input/Output 两个枚举，
+// 这将产生 `SinkOutput<I>`——一个零变体却带泛型 `I` 的枚举。由于零变体枚举
+// 没有任何变体引用 `I`，rustc 报 E0392（type parameter `I` is never used）。
+// 因此保留手写，`SinkOutput` 维持无泛型。
+//
+// 其余对称泛型且 Output 非零变体的 builtin（Identity/Tee/Latch/Collector）
+// 均已迁移到宏。
+
 pub struct SinkPorts<I>(PhantomData<I>);
 
 #[derive(Debug, Clone, PartialEq)]

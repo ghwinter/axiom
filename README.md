@@ -166,6 +166,9 @@ on its own thread with a `Dropping` carrier without stalling the main path
 | **Hybrid Systems** | `axiom::hybrid` | Continuous dynamics via `HybridMachine` (`flow`/`guard`/`reset`) with `TimeTick` integration |
 | **Lifecycle Typestate** | `axiom::machine` | Compile-time enforcement of `Init → Running → Stopping → Stopped` via `MachineHandle<M, S>` |
 | **Composite Machines** | `axiom::composite` | `CompositeSpec` + `expand_composites`: subsystem nesting (recursive, depth-limited) |
+| **AI Blueprint** | `axiom::blueprint` *(serialize)* | JSON Schema export of `DeploySpec` + strict reverse parser: an AI writes JSON, gets structured errors, iterates |
+| **Structured Validation** | `axiom::deploy` | `validate_report`: collects **all** violations as `RuleViolation {rule_id, path, expected, actual}` (not fail-fast) |
+| **Architecture Lint** | `axiom::lint` | Anti-narrowing axioms as executable rules: `no-observation`, `default-physical`, `uniform-link-kind`, … |
 
 ### Static-first worldview
 
