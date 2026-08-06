@@ -185,6 +185,141 @@ fn base_blueprint() -> DeploySpec {
         ))
 }
 
+/// 分片集群蓝图（复杂拓扑验证）：
+///
+/// ```text
+/// conn_reader → resp_parser → sharder ─┬─► data_store_0 ─┬─► resp_encoder → conn_writer
+///                                      └─► data_store_1 ─┘        │
+///                                           │   │                ├─► monitor(观测)
+///                                           └───┴──► aof_writer_0 / aof_writer_1
+/// debugger ──(Control 广播)──► data_store_0.ctrl / data_store_1.ctrl
+/// ```
+///
+/// 与单 DataStore 版不同的结构特性：
+/// - **fan-out**：`sharder` 按 key 哈希把命令路由到 2 个分片（确定性）；
+///   `FLUSHALL` 广播两分片。
+/// - **fan-in**：两分片的 `reply` 汇聚回 `resp_encoder`（按 conn_id 写回）；
+///   两分片的 `observe` 汇聚回 `monitor`。
+/// - **并行分片**：`Parallel(n)` 下两个 DataStore 可各占一线程（真实多核）。
+/// - **双 AOF**：每分片独立日志（写命令无跨分片依赖 → 重放顺序安全）。
+pub fn blueprint_sharded() -> DeploySpec {
+    DeploySpec::new()
+        .with_machine(MachineInstance::new(
+            "conn_reader",
+            "conn_reader",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "resp_parser",
+            "resp_parser",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "sharder",
+            "sharder",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "data_store_0",
+            "data_store",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "data_store_1",
+            "data_store",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "resp_encoder",
+            "resp_encoder",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "conn_writer",
+            "conn_writer",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "aof_writer_0",
+            "aof_writer",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "aof_writer_1",
+            "aof_writer",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "monitor",
+            "monitor",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "debugger",
+            "debugger",
+            MachinePhysicalSpec::default(),
+        ))
+        .with_machine(MachineInstance::new(
+            "broadcast_tee",
+            "broadcast_tee",
+            MachinePhysicalSpec::default(),
+        ))
+        // ── 数据流 ────────────────────────────────────────────────────
+        .with_link(link_buf("conn_reader", "raw", "resp_parser", "raw"))
+        .with_link(link_buf("resp_parser", "cmd", "sharder", "cmd"))
+        // fan-out：分片路由
+        .with_link(link_buf("sharder", "shard0", "data_store_0", "cmd"))
+        .with_link(link_buf("sharder", "shard1", "data_store_1", "cmd"))
+        // fan-in：两分片回复汇聚
+        .with_link(link_buf("data_store_0", "reply", "resp_encoder", "reply"))
+        .with_link(link_buf("data_store_1", "reply", "resp_encoder", "reply"))
+        .with_link(link_buf("resp_encoder", "out", "conn_writer", "resp"))
+        // 双 AOF：每分片独立日志
+        .with_link(link_buf("data_store_0", "log", "aof_writer_0", "log"))
+        .with_link(link_buf("data_store_1", "log", "aof_writer_1", "log"))
+        // 观测：两分片汇聚（低速观测，可丢）
+        .with_link(LinkSpec::new(
+            ("data_store_0", "observe"),
+            ("monitor", "log"),
+            LinkKind::BoundedBuf {
+                capacity: 16,
+                write_policy: WritePolicy::Dropping,
+                read_policy: ReadPolicy::Blocking,
+            },
+        ))
+        .with_link(LinkSpec::new(
+            ("data_store_1", "observe"),
+            ("monitor", "log"),
+            LinkKind::BoundedBuf {
+                capacity: 16,
+                write_policy: WritePolicy::Dropping,
+                read_policy: ReadPolicy::Blocking,
+            },
+        ))
+        // 控制流：debugger → broadcast_tee（显式 fan-out）→ 两分片 ctrl
+        .with_link(link_buf("debugger", "out", "broadcast_tee", "cmd"))
+        .with_link(link_buf("broadcast_tee", "out0", "data_store_0", "ctrl"))
+        .with_link(link_buf("broadcast_tee", "out1", "data_store_1", "ctrl"))
+}
+
+/// BoundedBuf（Blocking/Blocking）链接的简写。
+fn link_buf(
+    src_m: &'static str,
+    src_p: &'static str,
+    dst_m: &'static str,
+    dst_p: &'static str,
+) -> LinkSpec {
+    LinkSpec::new(
+        (src_m, src_p),
+        (dst_m, dst_p),
+        LinkKind::BoundedBuf {
+            capacity: 1024,
+            write_policy: WritePolicy::Blocking,
+            read_policy: ReadPolicy::Blocking,
+        },
+    )
+}
+
 
 
 

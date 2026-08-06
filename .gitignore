@@ -44,3 +44,5 @@ l9_debug.txt
 world_events.log
 redis_like.aof
 packets.pcap
+
+redis_like_aof_writer_*.aof

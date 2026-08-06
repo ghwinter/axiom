@@ -247,6 +247,142 @@ pub enum DebugCmd {
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// 模块 8.5：BroadcastTee — 显式 fan-out（动态路径广播）
+// ════════════════════════════════════════════════════════════════════════
+//
+// axiom 动态路径的路由是 1 对 1：一个输出端口只能链接一个目标。fan-out
+// 是**机器的职责**（Split/CloneSplit 契约）——本机器把一条 Control 命令
+// 克隆广播到两个分片（debugger → tee → data_store_0.ctrl + data_store_1.ctrl）。
+// 蓝图里直接"一个输出端口链接两个目标"会被 validate_deep 拒绝
+// （FanOutViaTee）——fan-out 必须显式。
+
+declare_ports! {
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct BroadcastTeePorts {
+        input type BroadcastTeeInput {
+            cmd [Data] => DebugCmd,
+        }
+        output type BroadcastTeeOutput {
+            out0 [Control] => DebugCmd,
+            out1 [Control] => DebugCmd,
+        }
+    }
+}
+
+pub struct BroadcastTee;
+
+impl Machine for BroadcastTee {
+    type State = ();
+    type Input = BroadcastTeeInput;
+    type Output = BroadcastTeeOutput;
+    type Ports = BroadcastTeePorts;
+    type ProcessOutput = MultiOutput<BroadcastTeeOutput>;
+
+    fn name() -> &'static str { "broadcast_tee" }
+    fn config_schema() -> ConfigSchema { ConfigSchema::new() }
+    fn init(_: &MachineContext) -> Result<(), InitError> { Ok(()) }
+    fn cleanup(_: (), _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
+    #[inline]
+    fn process(
+        _: &mut (),
+        _: &MachineContext,
+        input: BroadcastTeeInput,
+    ) -> MultiOutput<BroadcastTeeOutput> {
+        let BroadcastTeeInput::cmd(cmd) = input;
+        MultiOutput::YieldMulti(vec![
+            BroadcastTeeOutput::out0(cmd.clone()),
+            BroadcastTeeOutput::out1(cmd),
+        ])
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 模块 2.5：Sharder — 分片路由（复杂拓扑：fan-out 到 N 个 DataStore）
+// ════════════════════════════════════════════════════════════════════════
+
+declare_ports! {
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct SharderPorts {
+        input type SharderInput {
+            cmd [Data] => ParsedCommand,
+        }
+        output type SharderOutput {
+            shard0 [Data] => ParsedCommand,
+            shard1 [Data] => ParsedCommand,
+        }
+    }
+}
+
+/// 分片路由目标。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShardTarget {
+    Zero,
+    One,
+    /// 全局命令（FLUSHALL）需广播到所有分片。
+    Both,
+}
+
+/// 按 key 哈希决定分片（确定性：同一 key 永远同一分片）。
+///
+/// 无 key 命令：
+/// - `FLUSHALL` → 广播（Both）——两分片都要清空；
+/// - `PING` / `QUIT` / `INFO` → 单发 shard0（回复唯一性：一条命令
+///   只产生一条回复，避免同一 conn_id 被写两次 socket）。
+pub fn shard_of(cmd: &ParsedCommand) -> ShardTarget {
+    match cmd.name.as_str() {
+        "FLUSHALL" => ShardTarget::Both,
+        "PING" | "QUIT" | "INFO" | "DEBUG" => ShardTarget::Zero,
+        _ => {
+            // 有 key 命令：args[0] 是 key。FNV-1a 风格哈希 → 2 分片。
+            let key = cmd.args.first().map(|k| k.as_slice()).unwrap_or(b"");
+            let h = key.iter().fold(0u64, |h, b| {
+                (h ^ *b as u64).wrapping_mul(0x100000001b3)
+            });
+            if h & 1 == 0 { ShardTarget::Zero } else { ShardTarget::One }
+        }
+    }
+}
+
+pub struct Sharder;
+
+impl Machine for Sharder {
+    type State = ();
+    type Input = SharderInput;
+    type Output = SharderOutput;
+    type Ports = SharderPorts;
+    type ProcessOutput = MultiOutput<SharderOutput>;
+
+    fn name() -> &'static str { "sharder" }
+    fn cleanup(_: (), _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
+    fn config_schema() -> ConfigSchema { ConfigSchema::new() }
+    fn init(_: &MachineContext) -> Result<(), InitError> { Ok(()) }
+    #[inline]
+    fn process(
+        _: &mut (),
+        _: &MachineContext,
+        input: SharderInput,
+    ) -> MultiOutput<SharderOutput> {
+        match input {
+            SharderInput::cmd(cmd) => match shard_of(&cmd) {
+                ShardTarget::Zero => {
+                    MultiOutput::YieldMulti(vec![SharderOutput::shard0(cmd)])
+                }
+                ShardTarget::One => {
+                    MultiOutput::YieldMulti(vec![SharderOutput::shard1(cmd)])
+                }
+                ShardTarget::Both => {
+                    // 广播：两分片各一份（克隆）。
+                    MultiOutput::YieldMulti(vec![
+                        SharderOutput::shard0(cmd.clone()),
+                        SharderOutput::shard1(cmd),
+                    ])
+                }
+            },
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // 模块 3：DataStore — KV / List / Hash 数据语义（Redis 单线程数据层）
 // ════════════════════════════════════════════════════════════════════════
 
@@ -687,7 +823,7 @@ declare_ports! {
     }
 }
 
-/// AOF 状态：惰性打开的文件句柄（路径固定为 `redis_like.aof`）。
+/// AOF 状态：惰性打开的文件句柄（路径由实例名派生，支持多实例分片日志）。
 pub struct AofState {
     pub file: Option<std::fs::File>,
 }
@@ -709,16 +845,23 @@ impl Machine for AofWriter {
     #[inline]
     fn process(
         state: &mut AofState,
-        _: &MachineContext,
+        ctx: &MachineContext,
         input: AofWriterInput,
     ) -> SingleOutput<AofWriterOutput> {
         let AofWriterInput::log(line) = input;
         if let Some(line) = line {
             let f = state.file.get_or_insert_with(|| {
+                // 实例名派生路径：aof_writer → redis_like.aof，
+                // aof_writer_0/1 → redis_like_aof_writer_0.aof（分片集群各自日志）。
+                let path = if ctx.name() == "aof_writer" {
+                    "redis_like.aof".to_string()
+                } else {
+                    format!("redis_like_{}.aof", ctx.name())
+                };
                 std::fs::OpenOptions::new()
                     .create(true)
                     .append(true)
-                    .open("redis_like.aof")
+                    .open(path)
                     .expect("open AOF")
             });
             let _ = f.write_all(&line);
