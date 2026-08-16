@@ -645,8 +645,122 @@ fn main() {
     match std::env::args().nth(1).as_deref() {
         Some("--bench") => bench(),
         Some("--replay") => replay(),
+        Some("--timetravel") => timetravel(),
         _ => server(),
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 模式 4：时间旅行调试（D1 事件溯源回放器 showcase）
+// ════════════════════════════════════════════════════════════════════════
+//
+// 执行命令序列时录下输入事件流（journal）；之后从**干净状态**回放到
+// 任意时点查询状态——"系统出错后回放到崩溃前一刻看状态"（因果推理）。
+// 分片集群蓝图（fan-out/fan-in）下同样成立——回放是整图重放。
+
+fn timetravel() {
+    use axiom_runtime::{ReplayJournal, Replayer};
+
+    // 1. 执行命令序列（分片集群），同时录 journal（RESP 字节输入，Clone）。
+    let mut rt = build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded());
+    let mut journal = ReplayJournal::new();
+
+    let cmds: Vec<&[&[u8]]> = vec![
+        &[b"SET", b"k1", b"v1"],
+        &[b"INCR", b"k2"],
+        &[b"INCR", b"k2"],
+        &[b"INCR", b"k2"],
+        &[b"LPUSH", b"lst", b"a"],
+        &[b"LPUSH", b"lst", b"b"],
+        &[b"HSET", b"h", b"f", b"v"],
+    ];
+    for c in &cmds {
+        let bytes = encode_resp(*c);
+        journal.end_batch();
+        let _ = rt
+            .tick(vec![(
+                "resp_parser".to_string(),
+                "raw".to_string(),
+                Box::new(RawBytes(0, bytes.clone())) as Box<dyn std::any::Any + Send>,
+            )])
+            .expect("tick");
+        journal.record("resp_parser", "raw", &RawBytes(0, bytes));
+    }
+    assert_eq!(journal.len(), 7, "7 批命令全部录下");
+
+    // 2. 时间旅行：回放到任意时点（每次从干净状态）。
+    let replayer = Replayer::new(&journal);
+    let get = |rt: &mut Runtime, key: &str| -> String {
+        let out = rt
+            .tick(vec![(
+                "resp_parser".to_string(),
+                "raw".to_string(),
+                Box::new(RawBytes(0, encode_resp(&[b"GET", key.as_bytes()])))
+                    as Box<dyn std::any::Any + Send>,
+            )])
+            .expect("tick");
+        for r in out {
+            if let ProcessResult::Yield { value, .. } = r {
+                if let Ok(boxed) = value.downcast::<(usize, String)>() { let (_, summary) = *boxed;
+                    return summary;
+                }
+            }
+        }
+        unreachable!()
+    };
+
+    // 时点 3：SET + INCR×2 之后——k2 应 = "2"，lst 还不存在。
+    let (mut rt3, _) = replayer.forward_to(3, || {
+        build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded())
+    }).expect("replay to 3");
+    let k2_at_3 = get(&mut rt3, "k2");
+    assert!(
+        k2_at_3.contains("Bulk(Some([50]))"),
+        "时点 3：k2 应 = \"2\"（INCR×2 已执行）, got {k2_at_3}"
+    );
+    let lst_at_3 = get(&mut rt3, "lst");
+    assert!(
+        lst_at_3.contains("Bulk(None)"),
+        "时点 3：lst 尚未创建（LPUSH 未执行）, got {lst_at_3}"
+    );
+
+    // 时点 4：INCR×3 之后——k2 = "3"（时间旅行到任意中间时点）。
+    let (mut rt4, _) = replayer.forward_to(4, || {
+        build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded())
+    }).expect("replay to 4");
+    let k2_at_4 = get(&mut rt4, "k2");
+    assert!(
+        k2_at_4.contains("Bulk(Some([51]))"),
+        "时点 4：k2 应 = \"3\"（INCR×3 已执行）, got {k2_at_4}"
+    );
+
+    // 时点 5：LPUSH×2 之后——lst 存在（WRONGTYPE 是 GET 列表的回复）。
+    let (mut rt5, _) = replayer.forward_to(5, || {
+        build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded())
+    }).expect("replay to 5");
+    let lst_at_5 = get(&mut rt5, "lst");
+    assert!(
+        lst_at_5.contains("WRONGTYPE"),
+        "时点 5：lst 已创建（LPUSH×2 已执行）, got {lst_at_5}"
+    );
+
+    // 时点 7：全部命令后——h.f = v。
+    let (mut rt7, _) = replayer.forward_to(7, || {
+        build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded())
+    }).expect("replay to 7");
+    let h_at_7 = get(&mut rt7, "h");
+    assert!(
+        h_at_7.contains("WRONGTYPE"),
+        "时点 7：h 已创建（HSET 已执行）, got {h_at_7}"
+    );
+
+    println!("=== timetravel OK（D1 事件溯源回放器）===");
+    println!("7 批命令录为 journal；回放到时点 3/4/5/7 查询状态全部符合因果：");
+    println!("  t=3: k2=\"2\"（INCR×2 后）、lst 不存在（LPUSH 前）");
+    println!("  t=4: k2=\"3\"（INCR×3 后）");
+    println!("  t=5: lst 已创建（LPUSH×2 后）");
+    println!("  t=7: h 已创建（HSET 后）");
+    println!("分片集群（fan-out/fan-in）下时间旅行同样成立——回放是整图重放");
 }
 
 

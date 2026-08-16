@@ -95,12 +95,12 @@
 //! form — the channel IS the delay element. Feedback loops (thermostats,
 //! PID controllers, autoregressive models) are first-class supported.
 //!
-//! Users who want strict acyclic enforcement can call [`detect_cycle()`]
+//! Users who want strict acyclic enforcement can call [`crate::topology::DynamicTopology::detect_cycle`]
 //! (Kahn's algorithm) manually — it is `pub` for opt-in strict mode.
 //!
 //! # Batch operations
 //!
-//! [`apply_batch()`] applies multiple operations atomically — either all
+//! [`crate::topology::DynamicTopology::apply_batch`] applies multiple operations atomically — either all
 //! succeed, or none do (rollback on first failure). This is essential for
 //! reconfigurations that must be atomic, e.g., "replace machine A with B
 //! and rewire 3 links".
@@ -329,7 +329,7 @@ impl std::error::Error for TopologyError {}
 /// introduces a one-tick delay (Moore delay), making feedback loops safe.
 /// Self-loops (a machine linking to itself) are rejected.
 ///
-/// For opt-in strict acyclic enforcement, call [`detect_cycle()`] manually
+/// For opt-in strict acyclic enforcement, call [`crate::topology::DynamicTopology::detect_cycle`] manually
 /// after `apply_link()`.
 ///
 /// # Thread safety
@@ -1064,3 +1064,5 @@ mod tests {
         assert!(names.contains(&"b".to_string()));
     }
 }
+
+

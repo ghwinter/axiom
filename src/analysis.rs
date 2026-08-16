@@ -1,4 +1,4 @@
-//! Graph-theoretic topology analysis for [`DeploySpec`](crate::deploy::DeploySpec).
+//! Graph-theoretic topology analysis for [`DeploySpec`].
 //!
 //! A `DeploySpec` is a labeled directed multigraph $\Sigma = (V, E, \ell)$
 //! (see `docs/architecture.md` §1). This module provides the static analysis
@@ -1315,3 +1315,4 @@ mod tests {
         assert!(report.warnings.iter().any(|w| matches!(w, TopologyWarning::Orphan { .. })));
     }
 }
+

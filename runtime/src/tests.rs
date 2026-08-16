@@ -1690,3 +1690,243 @@ fn io_kqueue_reactor_writable() {
 
     reactor.deregister(raw as crate::io::RawIo).expect("deregister");
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// CasFreeRing 载体端到端（SPSC 无锁环）
+// ════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn runtime_casfree_ring_parallel_preserves_semantics() {
+    // d1 → d2 用 CasFreeRing（真无锁 SPSC 环）；Parallel 下消息经环传输。
+    // 语义必须与 Inline/Channel 等价：每输入恰好一次、按序。
+    use axiom::link::{LinkKind, LinkSpec};
+    let spec = DeploySpec::new()
+        .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
+        .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
+        .with_link(LinkSpec::new(
+            ("d1", "y"),
+            ("d2", "x"),
+            LinkKind::CasFreeRing {
+                capacity: 4,
+                storage: axiom::link::MemoryRegion::Heap { size: 1024 },
+            },
+        ));
+    let mut rt = Runtime::new(RuntimeConfig::parallel(2));
+    rt.register::<Doubler>("doubler");
+    rt.materialize(&spec).expect("materialize");
+
+    let inputs: Vec<(String, String, Box<dyn std::any::Any + Send>)> =
+        (1..=10).map(|n| {
+            (
+                "d1".to_string(),
+                "x".to_string(),
+                Box::new(n) as Box<dyn std::any::Any + Send>,
+            )
+        }).collect();
+    let results = rt.tick(inputs).expect("tick");
+    // d2 输出 = 4,8,...,40（d1 翻倍再 d2 翻倍）。
+    let mut outs: Vec<i32> = Vec::new();
+    for r in results {
+        if let ProcessResult::Yield { value, .. } = r {
+            if let Some(v) = value.downcast_ref::<i32>() {
+                outs.push(*v);
+            }
+        }
+    }
+    outs.sort_unstable();
+    let expected: Vec<i32> = (1..=10).map(|n| n * 4).collect();
+    assert_eq!(outs, expected, "CasFreeRing 必须恰好一次、不丢不重");
+}
+
+#[test]
+fn runtime_casfree_ring_sequential_same_as_channel() {
+    // Sequential 下单线程：CasFreeRing 语义与 Channel（Blocking）一致。
+    use axiom::link::{LinkKind, LinkSpec};
+    let ring_spec = DeploySpec::new()
+        .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
+        .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
+        .with_link(LinkSpec::new(
+            ("d1", "y"),
+            ("d2", "x"),
+            LinkKind::CasFreeRing {
+                capacity: 4,
+                storage: axiom::link::MemoryRegion::Heap { size: 1024 },
+            },
+        ));
+    let mut rt_ring = Runtime::new(RuntimeConfig::sequential());
+    rt_ring.register::<Doubler>("doubler");
+    rt_ring.materialize(&ring_spec).expect("materialize");
+
+    let ch_spec = DeploySpec::new()
+        .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
+        .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
+        .with_link(LinkSpec::new(
+            ("d1", "y"),
+            ("d2", "x"),
+            LinkKind::Channel { capacity: 4, drop_when_full: false },
+        ));
+    let mut rt_ch = Runtime::new(RuntimeConfig::sequential());
+    rt_ch.register::<Doubler>("doubler");
+    rt_ch.materialize(&ch_spec).expect("materialize");
+
+    let inject = |rt: &mut Runtime| -> Vec<i32> {
+        let inputs: Vec<(String, String, Box<dyn std::any::Any + Send>)> =
+            (1..=5).map(|n| {
+                ("d1".to_string(), "x".to_string(), Box::new(n) as Box<dyn std::any::Any + Send>)
+            }).collect();
+        let mut outs = Vec::new();
+        for r in rt.tick(inputs).expect("tick") {
+            if let ProcessResult::Yield { value, .. } = r {
+                if let Some(v) = value.downcast_ref::<i32>() {
+                    outs.push(*v);
+                }
+            }
+        }
+        outs.sort_unstable();
+        outs
+    };
+
+    let from_ring = inject(&mut rt_ring);
+    let from_channel = inject(&mut rt_ch);
+    assert_eq!(from_ring, from_channel, "CasFreeRing 与 Channel 语义必须一致");
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// 事件溯源回放器（D1）——确定性回放 + 时间旅行
+// ════════════════════════════════════════════════════════════════════════
+
+use crate::replay::{ReplayJournal, Replayer};
+
+/// 构建一个 Doubler 链 runtime（d1 → d2，Inline 链接）。
+fn doubler_chain_runtime() -> Runtime {
+    use axiom::link::{LinkKind, LinkSpec};
+    let spec = DeploySpec::new()
+        .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
+        .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
+        .with_link(LinkSpec::new(("d1", "y"), ("d2", "x"), LinkKind::Inline));
+    let mut rt = Runtime::new(RuntimeConfig::sequential());
+    rt.register::<Doubler>("doubler");
+    rt.materialize(&spec).expect("materialize");
+    rt
+}
+
+/// 执行 n 批输入（录 journal + 收集每批输出）。
+fn run_with_journal(
+    build: impl Fn() -> Runtime,
+    n: usize,
+) -> (Vec<Vec<ProcessResult>>, ReplayJournal) {
+    let mut rt = build();
+    let mut journal = ReplayJournal::new();
+    let mut outputs = Vec::new();
+    for i in 0..n {
+        journal.end_batch();
+        let out = rt
+            .tick(vec![(
+                "d1".to_string(),
+                "x".to_string(),
+                Box::new(i as i32 + 1) as Box<dyn std::any::Any + Send>,
+            )])
+            .expect("tick");
+        journal.record("d1", "x", &(i as i32 + 1));
+        outputs.push(out);
+    }
+    (outputs, journal)
+}
+
+#[test]
+fn runtime_replay_forward_matches_original() {
+    // 执行 10 批 → 录 journal → 重放到第 10 批 → 输出逐批与原始一致。
+    let (original, journal) = run_with_journal(doubler_chain_runtime, 10);
+    let replayer = Replayer::new(&journal);
+    let (_, replayed) = replayer
+        .forward_to(10, doubler_chain_runtime)
+        .expect("replay");
+    assert_eq!(replayed.len(), 10);
+    for i in 0..10 {
+        assert_eq!(
+            replayed[i].len(),
+            original[i].len(),
+            "第 {i} 批输出数应一致"
+        );
+    }
+    // 逐批逐值（Doubler 链：i → 4i）。
+    let last_replayed = &replayed[9];
+    let mut vals: Vec<i32> = Vec::new();
+    for r in last_replayed {
+        if let ProcessResult::Yield { value, .. } = r {
+            if let Some(v) = value.downcast_ref::<i32>() {
+                vals.push(*v);
+            }
+        }
+    }
+    assert_eq!(vals, vec![40], "重放第 10 批输出 = 40（10*4）");
+}
+
+#[test]
+fn runtime_replay_timetravel_state_continuation() {
+    // 时间旅行：重放到第 3 批 → 继续注入 4..10 → 终态与原始一致。
+    let (original, journal) = run_with_journal(doubler_chain_runtime, 10);
+    let replayer = Replayer::new(&journal);
+
+    // 1. 跳到时点 3（重放前 3 批）。
+    let (mut rt3, _) = replayer.forward_to(3, doubler_chain_runtime).expect("replay to 3");
+
+    // 2. 继续注入第 4..10 批（与原始相同的输入）。
+    let mut continuation = Vec::new();
+    for i in 3..10 {
+        let out = rt3
+            .tick(vec![(
+                "d1".to_string(),
+                "x".to_string(),
+                Box::new(i as i32 + 1) as Box<dyn std::any::Any + Send>,
+            )])
+            .expect("tick continuation");
+        continuation.push(out);
+    }
+
+    // 3. 终态一致性：续接输出 == 原始 3..10 批输出（值相等）。
+    for (i, (a, b)) in continuation.iter().zip(original.iter().skip(3)).enumerate() {
+        let va: Vec<i32> = a.iter().filter_map(|r| {
+            if let ProcessResult::Yield { value, .. } = r {
+                value.downcast_ref::<i32>().map(|v| *v)
+            } else { None }
+        }).collect();
+        let vb: Vec<i32> = b.iter().filter_map(|r| {
+            if let ProcessResult::Yield { value, .. } = r {
+                value.downcast_ref::<i32>().map(|v| *v)
+            } else { None }
+        }).collect();
+        assert_eq!(va, vb, "时间旅行续接第 {} 批应一致", i + 3);
+    }
+}
+
+#[test]
+fn runtime_replay_verify_api() {
+    // verify：结构级快查（type_id + 端口 + 变体 + 数量）。精确值验证见
+    // runtime_replay_timetravel_state_continuation（downcast 值比较）。
+    let (original, journal) = run_with_journal(doubler_chain_runtime, 5);
+    let replayer = Replayer::new(&journal);
+    let mismatch = replayer.verify(5, doubler_chain_runtime, original.iter());
+    assert_eq!(mismatch, None, "未篡改 journal 应完全一致");
+
+    // 结构篡改：第 2 批注入错误类型（String 而非 i32）→ from_port_name
+    // downcast 失败 → 该批输出为 Idle（runtime 既定语义）→ 与原始的
+    // Yield 结构不同（discriminant）→ verify 捕获 Some(1)。
+    let mut tampered = ReplayJournal::new();
+    for i in 0..5 {
+        tampered.end_batch();
+        if i == 1 {
+            tampered.record("d1", "x", &"WRONG_TYPE".to_string());
+        } else {
+            tampered.record("d1", "x", &(i as i32 + 1));
+        }
+    }
+    let replayer2 = Replayer::new(&tampered);
+    let mismatch = replayer2.verify(5, doubler_chain_runtime, original.iter());
+    assert_eq!(
+        mismatch,
+        Some(1),
+        "类型篡改 → Idle 输出 vs 原始 Yield → 结构不一致被捕获"
+    );
+}
+

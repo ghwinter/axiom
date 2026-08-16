@@ -43,12 +43,11 @@
 //!   边界融合
 //!
 //! 未覆盖（后续增量）：
-//! - `CasFreeRing` 的无锁固定地址载体（嵌入式场景；runtime 迁移为无界
-//!   channel）；`SharedState` 的多读者语义（当前单消费者近似）
-//! - 编译期 `pipelineN` 泛型函数（彻底消除 Box，需具体类型；当前
-//!   runtime 融合在类型擦除层，保留 Box<dyn Any>）
+//! - `SharedState` 的多读者语义（当前单消费者近似）
 //! - Windows 大规模 IO 的 IOCP completion 模型（当前 WSAEventSelect
 //!   readiness 模型支持 ≤64 源；生产级数千连接需 IOCP）
+//! - 每 tick 重建线程 scope 的批量注入形态（并行收益依赖命令持续到达，
+//!   而非一次性批量注入）
 //!
 //! ## 模块结构
 //!
@@ -76,6 +75,7 @@ mod error;
 mod fusion;
 mod io;
 mod registry;
+mod replay;
 mod routing;
 mod runtime;
 mod static_path;
@@ -89,6 +89,7 @@ mod tests;
 // 复合是结构定义能力，属于 axiom core；runtime 只在物化时调用 expand_composites。
 pub use axiom::composite::{CompositeSpec, CompositeError, expand_composites};
 pub use axiom::static_exec::{CloneSplit, IdLink, Link, Merge, Split, StaticExecError};
+pub use replay::{ReplayJournal, Replayer};
 pub use config::{ExecMode, RuntimeConfig};
 pub use erasure::{ProcessResult, RunningMachine};
 pub use error::RuntimeError;
@@ -98,5 +99,8 @@ pub use io::{
 };
 pub use registry::{RegisterFn, Registry};
 pub use runtime::Runtime;
-pub use static_path::{fanin2, fanout2, pipeline2, pipeline3};
+pub use static_path::{fanin2, fanout2, pipeline2, pipeline3, pipeline_chain};
 pub use topology::{LiveTopology, PhysicalLink};
+
+
+

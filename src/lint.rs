@@ -6,7 +6,7 @@
 //! - **Observability is a contract** — a system without any [`FlowKind::Observe`]
 //!   port cannot be observed; the graph hides its state.
 //! - **Physical decisions must be explicit** — a blueprint where every
-//!   [`MachinePhysicalSpec`] is left at `default()` has not made its physical
+//!   [`crate::resource::MachinePhysicalSpec`] is left at `default()` has not made its physical
 //!   decisions visible; the runtime will silently choose for you.
 //! - **Link kinds express traffic shape** — using one `LinkKind` for every
 //!   link ignores whether a channel should block, drop, or overwrite.
@@ -22,7 +22,7 @@
 //! report is not required for a valid deployment, but each finding names an
 //! axiom the blueprint is drifting away from.
 //!
-//! Each rule is data (see [`RULE`]): a stable `id`, a `severity`, a
+//! Each rule is data (see [`RULES`]): a stable `id`, a `severity`, a
 //! human `description`, and a pure check function. AI tooling can run a
 //! single rule by id or the whole set, and map `RuleViolation::rule_id`
 //! straight back to the documented axiom.
