@@ -141,6 +141,40 @@ pub trait HasPortInfo: Send + Sized + 'static {
 /// - `OutputEnumName` enum with variant `port_c(TypeC)`, `port_d(TypeD)`, etc.
 /// - `impl PortSet for PortSetName` with associated types and `port_schema()`.
 /// - `impl HasPortInfo` for both enums.
+/// # Compile-fail guarantees
+///
+/// Wrong usage is rejected at compile time — the macro generates enums from
+/// the declared ports, so malformed flows or duplicate port names surface as
+/// compile errors rather than runtime surprises (bevy-style macro diagnostics):
+///
+/// ```compile_fail
+/// // 流类型拼写错误：`Dta` 不是 `FlowKind` 变体 → 编译失败
+/// axiom::declare_ports! {
+///     pub struct BadFlowPorts {
+///         input type BadFlowInput {
+///             x[Dta] => i32,
+///         }
+///         output type BadFlowOutput {
+///             y[Data] => i32,
+///         }
+///     }
+/// }
+/// ```
+///
+/// ```compile_fail
+/// // 重复端口名：生成重复枚举变体 → 编译失败
+/// axiom::declare_ports! {
+///     pub struct DupPorts {
+///         input type DupInput {
+///             x[Data] => i32,
+///             x[Data] => i32,
+///         }
+///         output type DupOutput {
+///             y[Data] => i32,
+///         }
+///     }
+/// }
+/// ```
 #[macro_export]
 macro_rules! declare_ports {
     // ── Public struct with explicit enum names ──────────────

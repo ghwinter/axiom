@@ -105,6 +105,23 @@ pub trait Machine: Send + Sync + 'static {
     where
         Self: Sized;
 
+    /// Is the machine ready to be driven? Defaults to `true`.
+    ///
+    /// Override for machines whose initialization requires an asynchronous
+    /// step (e.g. a runtime adapter backend that must connect before it can
+    /// process). This mirrors the "async-ready" lifecycle pattern: a driver
+    /// polls `is_ready` and only starts the machine once it returns `true`.
+    ///
+    /// `axiom-runtime` (synchronous) does not wait — it drives machines
+    /// immediately; asynchronous runtimes (adapter layer) use this as the
+    /// readiness declaration.
+    fn is_ready(_ctx: &MachineContext) -> bool
+    where
+        Self: Sized,
+    {
+        true
+    }
+
     /// Process one unit of work.
     ///
     /// Returns `Self::ProcessOutput`（`SingleOutput` 或 `MultiOutput`）:

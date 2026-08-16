@@ -37,6 +37,11 @@
 // builds are unaffected).
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+// axiom core contains no `unsafe` — make that a compile-time promise (bevy
+// precedent). The runtime's lock-free ring (`CarFreeRing`) and replay entries
+// live in `axiom-runtime`, outside this crate.
+#![forbid(unsafe_code)]
+
 // axiom supports a `no_std + alloc` build. With the default `std` feature the
 // crate uses `std::collections`/`std::sync::RwLock`/`std::time`; without it,
 // the pure-data + `alloc` subset compiles on embedded/WASM targets. The
@@ -86,6 +91,7 @@ pub mod projection;
 pub mod resource;
 pub mod runtime_contract;
 pub mod session;
+pub mod shared;
 pub mod static_exec;
 pub mod stream;
 pub mod time;
@@ -132,6 +138,8 @@ pub mod prelude_all {
         SessionType, SessionOp, SessionState, SessionProtocol, SessionError, is_dual,
         GlobalType, GlobalOp, LocalType, LocalOp, Role, project, is_consistent,
     };
+    #[cfg(feature = "std")]
+    pub use crate::shared::SharedResource;
     pub use crate::stream::StreamingMachine;
     pub use crate::static_exec::{
         Link, IdLink, Split, CloneSplit, Merge, StaticExecError,

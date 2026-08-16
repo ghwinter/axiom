@@ -31,6 +31,9 @@ use crate::compat::{HashMap, HashSet, VecDeque};
 use crate::deploy::DeploySpec;
 use crate::link::LinkKind;
 use crate::port::PortSchema;
+use alloc::collections::BTreeMap;
+#[cfg(not(feature = "std"))]
+use alloc::format;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Section 1: Public types (warnings, report)
@@ -82,6 +85,18 @@ pub enum TopologyWarning {
         has_inbound: bool,
         has_outbound: bool,
     },
+
+    /// Multiple writers to the same shared slot (`SharedState`/`Latest`).
+    ///
+    /// Under parallel execution the write order across writers is undefined —
+    /// this is the deploy-time form of scheduling ambiguity detection (a
+    /// shared slot's writers must be serialized or ordered explicitly).
+    SharedSlotWriteConflict {
+        /// The shared slot, formatted `dst_machine::dst_port`.
+        slot: String,
+        /// The distinct writer machines (sorted).
+        writers: Vec<String>,
+    },
 }
 
 impl core::fmt::Display for TopologyWarning {
@@ -115,6 +130,13 @@ impl core::fmt::Display for TopologyWarning {
                     _ => unreachable!(),
                 };
                 write!(f, "orphan machine '{}': {}", machine, kind)
+            }
+            Self::SharedSlotWriteConflict { slot, writers } => {
+                write!(
+                    f,
+                    "shared slot '{}' has multiple writers {:?} — write order undefined under parallel execution",
+                    slot, writers
+                )
             }
         }
     }
@@ -1041,6 +1063,50 @@ pub fn orphans(spec: &DeploySpec) -> Vec<TopologyWarning> {
     warnings
 }
 
+/// Detect multiple writers to the same shared slot (`SharedState`/`Latest`).
+///
+/// A shared slot is the destination `(dst_machine, dst_port)` of one or more
+/// `SharedState`/`Latest` links. When more than one distinct writer machine
+/// targets the same slot, parallel execution makes the write order undefined —
+/// the deploy-time form of scheduling-ambiguity detection (a slot's writers
+/// must be serialized or ordered explicitly).
+///
+/// # Example
+///
+/// ```text
+/// a → (shared_slot "shared"), b → (shared_slot "shared")  →  conflict (writers [a, b])
+/// a → (shared_slot "shared")                              →  clean (single writer)
+/// ```
+pub fn shared_slot_conflicts(spec: &DeploySpec) -> Vec<TopologyWarning> {
+    // Group `SharedState`/`Latest` links by their destination slot.
+    let mut writers: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
+    for link in &spec.links {
+        if matches!(link.kind, LinkKind::SharedState | LinkKind::Latest { .. }) {
+            let slot = (
+                link.into.0.as_ref().to_string(),
+                link.into.1.as_ref().to_string(),
+            );
+            writers
+                .entry(slot)
+                .or_default()
+                .push(link.out.0.as_ref().to_string());
+        }
+    }
+
+    let mut warnings: Vec<TopologyWarning> = Vec::new();
+    for (slot, mut ws) in writers {
+        ws.sort();
+        ws.dedup();
+        if ws.len() > 1 {
+            warnings.push(TopologyWarning::SharedSlotWriteConflict {
+                slot: format!("{}::{}", slot.0, slot.1),
+                writers: ws,
+            });
+        }
+    }
+    warnings
+}
+
 /// Run all advisory analyses and collect into a [`TopologyReport`].
 ///
 /// `schemas` is needed for observability completeness. Pass `None` to skip
@@ -1073,6 +1139,9 @@ pub fn analyze(
 
     // Orphan detection.
     warnings.extend(orphans(spec));
+
+    // Shared-slot write conflicts (scheduling ambiguity, deploy-time form).
+    warnings.extend(shared_slot_conflicts(spec));
 
     // Observability completeness (optional — needs schemas).
     if let Some(schemas) = schemas {
@@ -1511,6 +1580,66 @@ mod tests {
             .with_link(bounded("a", "out", "b", "in"))
             .with_link(bounded("b", "out", "a", "in"));
         assert!(topological_levels(&spec).is_err());
+    }
+
+    // ── 共享槽写者互斥（bevy ambiguity 检测的部署期形态）───────────────
+
+    /// SharedState 链接。
+    fn shared(a: &'static str, pa: &'static str, b: &'static str, pb: &'static str) -> LinkSpec {
+        LinkSpec::new((a, pa), (b, pb), LinkKind::SharedState)
+    }
+
+    #[test]
+    fn shared_slot_single_writer_is_clean() {
+        // 单写者共享槽：a → (shared 槽) → b，无冲突。
+        let spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(shared("a", "out", "b", "status"));
+        assert!(shared_slot_conflicts(&spec).is_empty());
+    }
+
+    #[test]
+    fn shared_slot_multi_writer_conflicts() {
+        // 多写者共享槽：a、b 都写 "shared" 槽 → 冲突（并行写顺序不确定）。
+        let spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_machine(machine("c"))
+            .with_link(shared("a", "out", "c", "status"))
+            .with_link(shared("b", "out", "c", "status"));
+        let conflicts = shared_slot_conflicts(&spec);
+        assert_eq!(conflicts.len(), 1);
+        match &conflicts[0] {
+            TopologyWarning::SharedSlotWriteConflict { slot, writers } => {
+                assert_eq!(slot, "c::status");
+                assert_eq!(writers, &vec!["a".to_string(), "b".to_string()]);
+            }
+            other => panic!("expected SharedSlotWriteConflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn shared_slot_non_shared_links_ignored() {
+        // 非共享载体（BoundedBuf）不受检查——即使多源指向同一端口。
+        let spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_machine(machine("c"))
+            .with_link(bounded("a", "out", "c", "in"))
+            .with_link(bounded("b", "out", "c", "in"));
+        assert!(shared_slot_conflicts(&spec).is_empty());
+    }
+
+    #[test]
+    fn shared_slot_conflict_display() {
+        let w = TopologyWarning::SharedSlotWriteConflict {
+            slot: "c::status".into(),
+            writers: vec!["a".into(), "b".into()],
+        };
+        let s = format!("{w}");
+        assert!(s.contains("c::status"));
+        assert!(s.contains("multiple writers"));
     }
 }
 
