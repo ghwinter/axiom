@@ -50,7 +50,7 @@
 //! ```
 //!
 //! where `Δt` is the time elapsed since the last transition, obtained from
-//! the runtime's [`TimeTick`](crate::time::TimeTick).
+//! the runtime's [`TimeTick`].
 //!
 //! # Usage
 //!
@@ -412,3 +412,4 @@ where
             .finish()
     }
 }
+

@@ -152,7 +152,7 @@ on its own thread with a `Dropping` carrier without stalling the main path
 
 ## Built-in modules
 
-`Identity<I>`, `Sink<I>`, `Source<O>`, `Tee<I>`, `Latch<T>`, `Collector<I>`, `EntityRoot`
+`Identity<I>`, `Sink<I>`, `Source<O>`, `Tee<I>`, `Latch<T>`, `Collector<I>`, `EntityRoot`, `FuncMachine`
 
 ## Advanced features
 
@@ -169,6 +169,7 @@ on its own thread with a `Dropping` carrier without stalling the main path
 | **AI Blueprint** | `axiom::blueprint` *(serialize)* | JSON Schema export of `DeploySpec` + strict reverse parser: an AI writes JSON, gets structured errors, iterates |
 | **Structured Validation** | `axiom::deploy` | `validate_report`: collects **all** violations as `RuleViolation {rule_id, path, expected, actual}` (not fail-fast) |
 | **Architecture Lint** | `axiom::lint` | Anti-narrowing axioms as executable rules: `no-observation`, `default-physical`, `uniform-link-kind`, … |
+| **Runtime Contract** | `axiom::runtime_contract` | `RuntimeContract` trait + `Guarantees` (link carriers / exec modes / memory order / IO / delay) — audit a blueprint against an adapter's physical capabilities |
 
 ### Static-first worldview
 
@@ -237,8 +238,8 @@ dictate physics, the carrier choice does".
 
 ## Tests
 
-- `axiom` core: **291 tests** (174 src unit + 117 integration, 10 suites) — all green
-- `axiom-runtime`: **64 tests** — all green
+- `axiom` core: **305 tests** (193 src unit + 112 integration, 8 suites) — all green
+- `axiom-runtime`: **76 tests** — all green
 - Verification philosophy: evidence corpus `evidence/` (E-contracts + R-benchmarks, local-only, not in git)
 
 ## Further reading

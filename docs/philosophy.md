@@ -367,6 +367,33 @@ type system becomes a proof system: if the code compiles, the lifecycle
 ordering is correct. This is reasoning reliability pushed to its limit:
 the compiler enforces what would otherwise be a runtime convention.
 
+## Modules are ordinary: persistence is not special
+
+The defining property of a Machine is **ordinariness**: any
+"input → state transition → output" is a Machine. There is no privileged
+category. A module that reads a zip is a Machine; a module that reads a
+persisted pack from disk is *the same kind of thing*. This triviality
+dissolves a whole class of traditional machinery:
+
+- **Persistence is not a mechanism.** Restoring state after a restart is
+  not a lifecycle hook or a serialization framework — it is an ordinary
+  module whose function happens to read from disk. In `store-rs`,
+  `pack_loader` (reads the last persisted pack) and `zip_reader` (reads a
+  zip) are indistinguishable at the module-definition level.
+- **Restart is ordinary.** Re-materializing the same blueprint is the only
+  "recovery" operation. State continuity is data-flow continuity: the
+  loader emits the restored state as the first hop of the data flow. The
+  graph never changes shape.
+- **"Where data comes from" is not a special question.** zip, disk,
+  network, keyboard, clock — all are sources, all are ordinary Machines.
+  There is nothing to name, nothing to pattern-match. Naming "patterns"
+  (persistence pattern, recovery pattern) would be an admission that the
+  module is *not* ordinary — which it is.
+
+This is the strongest form of the triviality claim: even state recovery —
+traditionally the most framework-heavy concern — collapses into an ordinary
+module. axiom does not add concepts for it; it proves none are needed.
+
 ---
 
 ## Positioning: a mapping layer

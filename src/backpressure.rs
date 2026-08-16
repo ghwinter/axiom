@@ -19,7 +19,7 @@
 //!
 //! # Relationship to [`crate::link::WritePolicy`]
 //!
-//! [`WritePolicy`](crate::link::WritePolicy) is the **declarative** form:
+//! [`WritePolicy`] is the **declarative** form:
 //! a simple enum (`Blocking` / `Dropping` / `Overwriting`) chosen per-link
 //! in the `DeploySpec`. It covers the three stateless policies.
 //! [`BackpressurePolicy`] is the **extensible** form: a trait with state,
@@ -632,3 +632,4 @@ mod tests {
         assert_eq!(p.decide(full()), BackpressureAction::Block);
     }
 }
+

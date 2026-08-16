@@ -4,7 +4,7 @@
 //!
 //! Zero-dependency computation primitives for observable, controllable systems.
 //! `Func` (stack, stateless) and `Machine` (heap, stateful) are organized around
-//! six core primitives — [`Port`], [`Flow`], [`Session`], [`Topology`],
+//! seven core primitives — [`Func`], [`Port`], [`Flow`], [`Session`], [`Topology`],
 //! [`Lifecycle`], [`Machine`] — with typed I/O, explicit link topology,
 //! deployment specs, and resource classification.
 //!
@@ -25,6 +25,7 @@
 //! Collection types come from `crate::compat` so the crate stays
 //! zero-dependency in both configurations. See `docs/foundations.md` §14.2.
 //!
+//! [`Func`]: crate::func::Func
 //! [`Port`]: crate::port
 //! [`Flow`]: crate::flow
 //! [`Session`]: crate::session
