@@ -622,6 +622,101 @@ pub fn inline_topological_order(spec: &DeploySpec) -> Result<Vec<String>, Vec<St
     }
 }
 
+/// Critical-path latency — the longest per-message latency path through the
+/// topology (acyclic), summing each machine's
+/// [`per_message_latency_us`](crate::resource::MachinePhysicalSpec::per_message_latency_us).
+///
+/// This is a **latency budget** analysis: a blueprint whose declared critical
+/// path exceeds a real-time budget is physically infeasible, regardless of
+/// structural validity. Machines with `0` (undeclared) latency contribute zero.
+///
+/// Returns `Ok(total_us)` for acyclic topologies, or `Err(cycle_nodes)` when a
+/// cycle makes the critical path unbounded (a cycle must be broken by a Moore
+/// machine / channel delay before a finite latency bound exists).
+///
+/// # Algorithm
+///
+/// Longest-path DP over a Kahn topological order:
+/// `dist[v] = latency(v) + max(dist[u] for u → v)`.
+pub fn critical_path_latency(spec: &DeploySpec) -> Result<u64, Vec<String>> {
+    let nodes = machine_names_sorted(spec);
+    let adj = build_adjacency_all(spec);
+
+    let order = kahn_toposort(&adj, &nodes)
+        .map_err(|cycle| cycle.iter().map(|s| s.to_string()).collect::<Vec<String>>())?;
+
+    let latency: HashMap<&str, u64> = spec
+        .machines
+        .iter()
+        .map(|m| (m.name.as_ref(), m.physical.per_message_latency_us))
+        .collect();
+
+    // dist[v] = longest latency path ending at v (inclusive of v's latency).
+    let mut dist: HashMap<&str, u64> = HashMap::new();
+    for &n in &nodes {
+        dist.insert(n, latency.get(n).copied().unwrap_or(0));
+    }
+
+    for &node in &order {
+        let base = dist.get(node).copied().unwrap_or(0);
+        if let Some(neighbors) = adj.get(node) {
+            for &nb in neighbors {
+                let candidate = base + latency.get(nb).copied().unwrap_or(0);
+                let entry = dist.entry(nb).or_insert(0);
+                if candidate > *entry {
+                    *entry = candidate;
+                }
+            }
+        }
+    }
+
+    Ok(dist.values().copied().max().unwrap_or(0))
+}
+
+/// Topological levels — the layer of each machine in the topology (acyclic).
+///
+/// A machine's level is the length (in edges) of the longest path from any
+/// source: sources are `0`, a downstream machine is
+/// `max(level(u) for u → v) + 1`. This is the basis for **wave scheduling**
+/// (dependency-aware execution): machines at the same level are independent
+/// and may execute in parallel; levels must execute in order.
+///
+/// Returns `Ok(levels)` for acyclic topologies, or `Err(cycle_nodes)` when a
+/// cycle makes levels undefined (wave scheduling applies to DAGs).
+///
+/// # Example
+///
+/// ```text
+/// A → (B, C) → D          levels: A=0, B=1, C=1, D=2
+/// ```
+pub fn topological_levels(spec: &DeploySpec) -> Result<HashMap<String, usize>, Vec<String>> {
+    let nodes = machine_names_sorted(spec);
+    let adj = build_adjacency_all(spec);
+
+    let order = kahn_toposort(&adj, &nodes)
+        .map_err(|cycle| cycle.iter().map(|s| s.to_string()).collect::<Vec<String>>())?;
+
+    let mut level: HashMap<String, usize> = HashMap::new();
+    for &n in &nodes {
+        level.insert(n.to_string(), 0);
+    }
+
+    for &node in &order {
+        let lvl = *level.get(node).unwrap_or(&0);
+        if let Some(neighbors) = adj.get(node) {
+            for &nb in neighbors {
+                let candidate = lvl + 1;
+                let entry = level.entry(nb.to_string()).or_insert(0);
+                if candidate > *entry {
+                    *entry = candidate;
+                }
+            }
+        }
+    }
+
+    Ok(level)
+}
+
 /// Detect feedback loops via Tarjan's SCC algorithm.
 ///
 /// Returns all SCCs with size > 1 (feedback loops). Each `FeedbackLoop`
@@ -1003,6 +1098,13 @@ mod tests {
         MachineInstance::new(name, "test", MachinePhysicalSpec::default())
     }
 
+    /// Machine with a declared per-message latency (microseconds).
+    fn machine_lat(name: &'static str, us: u64) -> MachineInstance {
+        let mut physical = MachinePhysicalSpec::default();
+        physical.per_message_latency_us = us;
+        MachineInstance::new(name, "test", physical)
+    }
+
     fn machine_moore(name: &'static str) -> MachineInstance {
         MachineInstance::new(name, "test", MachinePhysicalSpec::default()).moore()
     }
@@ -1313,6 +1415,102 @@ mod tests {
         // a is root (orphan), b is leaf (orphan) — expected warnings
         assert!(!report.is_clean());
         assert!(report.warnings.iter().any(|w| matches!(w, TopologyWarning::Orphan { .. })));
+    }
+
+    // ── Critical-path latency ──────────────────────────────────────────
+
+    #[test]
+    fn critical_path_linear() {
+        // A(1) → B(2) → C(3)：关键路径 = 1 + 2 + 3 = 6
+        let spec = DeploySpec::new()
+            .with_machine(machine_lat("a", 1))
+            .with_machine(machine_lat("b", 2))
+            .with_machine(machine_lat("c", 3))
+            .with_link(bounded("a", "out", "b", "in"))
+            .with_link(bounded("b", "out", "c", "in"));
+        assert_eq!(critical_path_latency(&spec).unwrap(), 6);
+    }
+
+    #[test]
+    fn critical_path_diamond_takes_longer_branch() {
+        // A(1) → (B(2), C(3)) → D(4)：关键路径 = 1 + max(2,3) + 4 = 8
+        let spec = DeploySpec::new()
+            .with_machine(machine_lat("a", 1))
+            .with_machine(machine_lat("b", 2))
+            .with_machine(machine_lat("c", 3))
+            .with_machine(machine_lat("d", 4))
+            .with_link(bounded("a", "out", "b", "in"))
+            .with_link(bounded("a", "out", "c", "in"))
+            .with_link(bounded("b", "out", "d", "in"))
+            .with_link(bounded("c", "out", "d", "in"));
+        assert_eq!(critical_path_latency(&spec).unwrap(), 8);
+    }
+
+    #[test]
+    fn critical_path_undeclared_latency_is_zero() {
+        // 全部 latency=0（默认）：关键路径 = 0
+        let spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(bounded("a", "out", "b", "in"));
+        assert_eq!(critical_path_latency(&spec).unwrap(), 0);
+    }
+
+    #[test]
+    fn critical_path_cycle_is_unbounded() {
+        // A → B → A（环）：关键路径无界，返回 Err
+        let spec = DeploySpec::new()
+            .with_machine(machine_lat("a", 1))
+            .with_machine(machine_lat("b", 1))
+            .with_link(bounded("a", "out", "b", "in"))
+            .with_link(bounded("b", "out", "a", "in"));
+        assert!(critical_path_latency(&spec).is_err());
+    }
+
+    // ── Topological levels（波次调度基础）───────────────────────────────
+
+    #[test]
+    fn levels_linear_chain() {
+        // A → B → C：A=0, B=1, C=2
+        let spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_machine(machine("c"))
+            .with_link(bounded("a", "out", "b", "in"))
+            .with_link(bounded("b", "out", "c", "in"));
+        let levels = topological_levels(&spec).unwrap();
+        assert_eq!(levels["a"], 0);
+        assert_eq!(levels["b"], 1);
+        assert_eq!(levels["c"], 2);
+    }
+
+    #[test]
+    fn levels_diamond() {
+        // A → (B, C) → D：A=0, B=1, C=1, D=2
+        let spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_machine(machine("c"))
+            .with_machine(machine("d"))
+            .with_link(bounded("a", "out", "b", "in"))
+            .with_link(bounded("a", "out", "c", "in"))
+            .with_link(bounded("b", "out", "d", "in"))
+            .with_link(bounded("c", "out", "d", "in"));
+        let levels = topological_levels(&spec).unwrap();
+        assert_eq!(levels["a"], 0);
+        assert_eq!(levels["b"], 1);
+        assert_eq!(levels["c"], 1);
+        assert_eq!(levels["d"], 2);
+    }
+
+    #[test]
+    fn levels_cycle_is_err() {
+        let spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(bounded("a", "out", "b", "in"))
+            .with_link(bounded("b", "out", "a", "in"));
+        assert!(topological_levels(&spec).is_err());
     }
 }
 

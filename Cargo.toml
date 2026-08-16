@@ -69,6 +69,10 @@ harness = false
 name = "port"
 harness = false
 
+[[bench]]
+name = "dag"
+harness = false
+
 # ── Examples ────────────────────────────────────────────────────────────────
 # `examples/psql/main.rs` is a multi-file example (a directory with a main.rs);
 # cargo auto-discovers it, but we declare it explicitly so the example name is

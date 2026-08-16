@@ -99,7 +99,7 @@ pub use io::{
 };
 pub use registry::{RegisterFn, Registry};
 pub use runtime::Runtime;
-pub use static_path::{fanin2, fanout2, pipeline2, pipeline3, pipeline_chain};
+pub use static_path::{diamond, fanin2, fanout2, feedback, pipeline2, pipeline3, pipeline_chain};
 pub use topology::{LiveTopology, PhysicalLink};
 
 

@@ -23,6 +23,13 @@ pub struct LiveTopology {
     /// `mark_stopped` 递减它——克隆是单次分配（与链路数无关），
     /// 保证 R002 的"每链接常数分配"不变量。
     pub in_degree: Vec<usize>,
+    /// 路由索引：src_machine → (src_port → (dst_machine, dst_port))。
+    ///
+    /// 物化期（含融合后）一次性构建，tick 热路径 O(log L) 查找——
+    /// P2：消除 `route_target` 对 `links` 的 O(L) 线性扫描 + 每消息
+    /// String clone（src 是已知编译期拓扑，路由是物化期事实，不应在
+    /// 运行时重复扫描）。
+    pub route_map: BTreeMap<String, BTreeMap<String, (String, String)>>,
 }
 
 pub struct PhysicalLink {

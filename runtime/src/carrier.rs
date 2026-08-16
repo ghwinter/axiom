@@ -221,6 +221,16 @@ impl<T> SlotReceiver<T> {
     }
 }
 
+/// `SlotReceiver` 可多实例化——多个 receiver 共享同一槽（`SharedState`
+/// 多读者语义的基础）。recv 保持"取最新"（竞争式：每个消息被一个
+/// receiver 消费）；真正的广播式多读者（每读者独立见最新值）是 future
+/// work，见 `docs/philosophy.md`。
+impl<T> Clone for SlotReceiver<T> {
+    fn clone(&self) -> Self {
+        SlotReceiver(self.0.clone())
+    }
+}
+
 // ── 载体选择 ─────────────────────────────────────────────────────────────────
 
 /// 按 `LinkKind` 选择 Parallel carrier：
@@ -421,6 +431,32 @@ mod tests {
         assert_eq!(rx.try_recv(), Ok(None));
         drop(tx);
         assert_eq!(rx.try_recv(), Err(()));
+    }
+
+    #[test]
+    fn slot_receiver_clone_shares_slot() {
+        // 多个 receiver 共享同一槽（SharedState 多读者语义的基础）：
+        // send 后，任一 receiver 取走最新值，其余 receiver 见空槽。
+        let (tx, rx) = SlotSender::<i32>::new();
+        let rx2 = rx.clone();
+        tx.send(42);
+        drop(tx);
+        assert_eq!(rx.recv(), Some(42));
+        assert_eq!(rx2.recv(), None, "same slot: value consumed by first receiver");
+    }
+
+    #[test]
+    fn slot_multi_sender_multi_receiver() {
+        // 多 sender + 多 receiver 共享同一槽：最新写覆盖，任一 reader 取走。
+        let (tx1, rx) = SlotSender::<i32>::new();
+        let tx2 = tx1.clone();
+        let rx2 = rx.clone();
+        tx1.send(1);
+        tx2.send(2); // 覆盖 1——读者只见最新
+        drop(tx1);
+        drop(tx2);
+        assert_eq!(rx.recv(), Some(2));
+        assert_eq!(rx2.recv(), None);
     }
 }
 

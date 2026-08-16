@@ -111,8 +111,13 @@ fn run_bench<F: Fn()>(name: &str, f: F) -> BenchResult {
             break;
         }
         if elapsed > Duration::from_micros(10) {
-            iter_count = ((warmup_target.as_nanos() / elapsed.as_nanos().max(1))
-                * iter_count as u128) as u64;
+            // ceil 除法保证下一次迭代总时长 ≥ warmup_target：
+            // 若单次耗时接近 target 的约数倍（如 15ms × 6 = 90ms < 100ms），
+            // 整数除法会收敛到不满足条件的迭代数而死循环——div_ceil 修复。
+            let ratio = warmup_target
+                .as_nanos()
+                .div_ceil(elapsed.as_nanos().max(1));
+            iter_count = (ratio * iter_count as u128) as u64;
             iter_count = iter_count.clamp(1, 1_000_000);
         } else {
             iter_count *= 10;

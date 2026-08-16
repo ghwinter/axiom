@@ -74,6 +74,13 @@ pub struct MachinePhysicalSpec {
 
     /// Maximum acceptable `cleanup()` latency in microseconds.
     pub max_cleanup_latency_us: u64,
+
+    /// Expected per-message processing latency in microseconds.
+    ///
+    /// Used by critical-path / latency-budget analysis
+    /// ([`critical_path_latency`](crate::analysis::critical_path_latency)).
+    /// `0` means "undeclared" — analysis treats it as zero latency.
+    pub per_message_latency_us: u64,
 }
 
 impl Default for MachinePhysicalSpec {
@@ -84,6 +91,7 @@ impl Default for MachinePhysicalSpec {
             cache_line_align: false,
             deterministic: false,
             max_cleanup_latency_us: 10_000,
+            per_message_latency_us: 0,
         }
     }
 }
