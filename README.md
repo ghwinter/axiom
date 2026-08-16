@@ -1,14 +1,15 @@
 # axiom
 
+English | [中文](README.zh.md)
+
 **Func + Machine: typed ports, explicit topology, deploy-time physics.**
-**函数与状态机：类型化端口、显式拓扑、部署时物理决策。**
 
 Zero-dependency computation primitives for observable, controllable systems.
-零依赖计算原语，构建可观测、可控制的软件系统。
 
 `Func` (stack, stateless) and `Machine` (heap, stateful) — with typed ports, explicit link
 topology, deployment specs, resource classification, and an algebraic foundation.
-配套 `axiom-runtime`：把 `DeploySpec` 蓝图施工为可运行系统（单线程/多线程、融合、IO 多路复用）。
+A companion `axiom-runtime` turns a `DeploySpec` blueprint into a running system
+(single/multi-threaded, fusion, IO multiplexing).
 
 ## What it is
 
@@ -99,19 +100,30 @@ The two layers are disjoint. When we say "module $M$ sends data to module $N$", 
 
 ### Two execution paths
 
-> **模型优先：DeploySpec 是任意图；static_path 是固定形状优化子集。**
-> axiom 的默认模型是 **任意有向图**（多进多出、fan-in、fan-out、环、复合嵌套）——
-> 用 `DeploySpec` 声明、`validate_deep` 验证、runtime 执行。`static_path` 是
-> **性能优化子集**：只覆盖编译期形状已知的拓扑（线性/扇形），因为它靠类型
-> 展开（单态化）消解开销——任意图（尤其环）无法单态化，必须走动态路径。
-> 线性不是 axiom 的场景假设；它是"类型展开"这一优化手段的固有边界。
+> **Model-first: `DeploySpec` is an arbitrary graph; `static_path` is a fixed-shape optimization subset.**
+> axiom's default model is an **arbitrary directed graph** (multi-in/out, fan-in,
+> fan-out, cycles, composite nesting) — declared via `DeploySpec`, validated by
+> `validate_deep`, executed by a runtime. `static_path` is a **performance
+> optimization subset**: it covers only topologies whose shape is known at
+> compile time (linear/fan), because it dissolves overhead via type expansion
+> (monomorphization) — arbitrary graphs (especially cycles) cannot be
+> monomorphized and must take the dynamic path. Linearity is not axiom's
+> scenario assumption; it is the inherent boundary of the "type expansion"
+> optimization.
 
 | Path | Topology shape | Topology known at | Per-message cost | Zero-cost? | Role |
 |------|---------------|-------------------|------------------|------------|------|
-| **DeploySpec + Runtime**（主模型） | **任意图**（环、fan-in/out、复合） | runtime | bounded (heap alloc + dispatch) | no（动态税不可避免） | 通用执行：复杂图系统 |
-| **static_path**（优化子集） | 固定形状（线性/扇形/菱形） | compile time | **zero** | yes | 热路径：编译期已知形状 |
+| **DeploySpec + Runtime** (main model) | **arbitrary graph** (cycles, fan-in/out, composite) | runtime | bounded (heap alloc + dispatch) | no (dynamic tax unavoidable) | general execution: complex graph systems |
+| **static_path** (optimization subset) | fixed shape (linear/fan/diamond) | compile time | **zero** | yes | hot paths: compile-time-known shape |
 
-The static path monomorphizes over concrete machine types and inlines `Link::extract` / `Split::split` / `Merge::merge` — in release the compiled code is equivalent to hand-writing the batch loop directly. The dynamic path must type-erase via `Box<dyn Any>` because topology is not known until runtime; this "dynamic tax" is mathematically unavoidable, not an implementation defect. **Neither path imposes a linear assumption on the model** — an arbitrary graph runs on the dynamic path; only the optimization (monomorphization) is shape-restricted.
+The static path monomorphizes over concrete machine types and inlines
+`StraightLink::convert` / `StraightSplit::split` / `StraightMerge::merge` — in
+release the compiled code is equivalent to hand-writing the batch loop
+directly. The dynamic path must type-erase via `Box<dyn Any>` because topology
+is not known until runtime; this "dynamic tax" is mathematically unavoidable,
+not an implementation defect. **Neither path imposes a linear assumption on
+the model** — an arbitrary graph runs on the dynamic path; only the
+optimization (monomorphization) is shape-restricted.
 
 > **Scope note (anti-narrowing rule).** The static execution path
 > (`axiom_runtime::static_path`) supports linear pipelines (`pipeline2`/`pipeline3`,
@@ -142,7 +154,10 @@ The static path monomorphizes over concrete machine types and inlines `Link::ext
 
 *Relative ratios (not absolute throughput): absolute numbers vary by machine/allocator; the ordering static > hand-written > dynamic is environment-independent.*
 
-The static path not only matches but **exceeds** hand-written — the abstraction lets the compiler see structure that hand-written code hides, enabling it to eliminate an intermediate task. See [`docs/philosophy.md`](docs/philosophy.md) and [`docs/foundations.md` §15](docs/foundations.md#15-零成本抽象抽象层与物理层的解耦) for the formal treatment.
+The static path not only matches but **exceeds** hand-written — the abstraction
+lets the compiler see structure that hand-written code hides, enabling it to
+eliminate an intermediate task. See [`docs/philosophy.md`](docs/philosophy.md)
+and [`docs/foundations.md` §15](docs/foundations.md) for the formal treatment.
 
 ## Flow semantics: Data / Control / Observe
 
@@ -172,7 +187,7 @@ on its own thread with a `Dropping` carrier without stalling the main path
 | **Session Types** | `axiom::session` | Binary + Multiparty (MPST) protocols with `GlobalType`/`LocalType` projection, `is_dual`, `is_consistent` |
 | **Streaming** | `axiom::stream` | `StreamingMachine`: pull-model iterator output (first `next()` resets cursor) |
 | **Borrowed Input** | `axiom::func` | `FuncRef::call_ref`: zero-copy input (no per-call allocation) |
-| **Static Execution** | `axiom::static_exec` | `Link`/`Split`/`Merge` type contracts (FusedInline-gated) |
+| **Static Execution** | `axiom::static_exec` | `Chain`/`Diamond` combinators + `StraightMachine` bare-payload pass-through (FusedInline-gated) |
 | **Dynamic Topology** | `axiom::topology` | Optional runtime mutation of the *instance* graph (elastic scaling, hot-swap, session subgraphs) |
 | **Hybrid Systems** | `axiom::hybrid` | Continuous dynamics via `HybridMachine` (`flow`/`guard`/`reset`) with `TimeTick` integration |
 | **Lifecycle Typestate** | `axiom::machine` | Compile-time enforcement of `Init → Running → Stopping → Stopped` via `MachineHandle<M, S>` |
@@ -219,7 +234,7 @@ Core (`examples/`):
 | `threaded_pipeline` | Source → Tee → 2×Worker → Collector, multi-thread contract stress |
 | `psql` | SQL REPL pipeline (lexer/parser/executor as `Func`/`FuncRef`), `--bench` alloc accounting |
 | `declarative_dag` | Composite + multi-LinkKind declarative acceptance |
-| `graph_validation` | **复杂图验证与分析**：内核风格图（syscall 扇出 + 双路径 + 3 反馈环 + 观测）通过 `validate_deep`；逐项检出流类型不匹配 / Inline 环 / 全非 Moore 环；SPOF / 环 / 度 / 可达性分析报告 |
+| `graph_validation` | Complex-graph validation & analysis: kernel-style graph (syscall fan-out + dual path + 3 feedback loops + observation) passes `validate_deep`; itemized detection of flow mismatch / Inline cycle / non-Moore cycle; SPOF / cycle / degree / reachability report |
 
 Runtime (`runtime/examples/`):
 
@@ -249,8 +264,8 @@ dictate physics, the carrier choice does".
 
 ## Tests
 
-- `axiom` core: **305 tests** (193 src unit + 112 integration, 8 suites) — all green
-- `axiom-runtime`: **76 tests** — all green
+- `axiom` core: **314 tests** (209 src unit + 105 integration, incl. source audit) + 21 doctests — all green
+- `axiom-runtime`: **85 tests** — all green
 - Verification philosophy: evidence corpus `evidence/` (E-contracts + R-benchmarks, local-only, not in git)
 
 ## Further reading
@@ -260,6 +275,8 @@ dictate physics, the carrier choice does".
 | [`docs/foundations.md`](docs/foundations.md) | Algebraic foundation — axioms, theorems, proofs |
 | [`docs/philosophy.md`](docs/philosophy.md) | Design philosophy — abstraction vs physics, control/data blur |
 | [`docs/design-principles.md`](docs/design-principles.md) | Meta-problems & design principles — zero-cost as shape isomorphism, verification judgement, physical process as a finite choice set |
+| [`docs/doc-governance.md`](docs/doc-governance.md) | Documentation standards & decision records — tier taxonomy, word budgets, decision log |
+| [`docs/adapters.md`](docs/adapters.md) | Adapter ecosystem rules & runtime-contract certification — Guarantees audit, release tiers |
 | [`docs/architecture.md`](docs/architecture.md) | Architecture details — ports, links, deployment, runtime comparison |
 | [`docs/architecture_diagrams.md`](docs/architecture_diagrams.md) | Diagrams — system layers, link strategies, deployment, roadmap |
 

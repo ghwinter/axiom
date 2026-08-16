@@ -1930,3 +1930,43 @@ fn runtime_replay_verify_api() {
     );
 }
 
+#[test]
+fn runtime_snapshot_replay_deterministic() {
+    // keyless 组装快照（M3）：蓝图（doubler_chain_runtime）+ 输入序列 →
+    // 录制 → 重放两次 → 断言确定性。这是"组装后行为"的 keyless 回归
+    // 门禁——无外部依赖，纯重放，固定蓝图 + 固定输入 ⇒ 固定输出。
+    let (original, journal) = run_with_journal(doubler_chain_runtime, 8);
+
+    // 第一次重放（完整 8 批）。
+    let replayer1 = Replayer::new(&journal);
+    let (_, replay1) = replayer1.forward_to(8, doubler_chain_runtime).expect("replay1");
+
+    // 第二次重放（同 journal）——确定性：两次重放逐批一致。
+    let replayer2 = Replayer::new(&journal);
+    let (_, replay2) = replayer2.forward_to(8, doubler_chain_runtime).expect("replay2");
+
+    // 辅助：提取 i32 Yield 值序列。
+    let values = |batch: &[ProcessResult]| -> Vec<i32> {
+        batch.iter()
+            .filter_map(|r| {
+                if let ProcessResult::Yield { value, .. } = r {
+                    value.downcast_ref::<i32>().map(|v| *v)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    };
+
+    // 1. 两次重放互相一致（确定性）。
+    for (i, (a, b)) in replay1.iter().zip(replay2.iter()).enumerate() {
+        assert_eq!(values(a), values(b), "重放确定性：第 {} 批两次重放应一致", i + 1);
+    }
+
+    // 2. 重放 = 原始执行（组装快照：蓝图 + 输入 ⇒ 固定输出）。
+    for (i, (a, b)) in replay1.iter().zip(original.iter()).enumerate() {
+        assert_eq!(values(a), values(b), "组装快照：第 {} 批重放 == 原始", i + 1);
+    }
+}
+
+
