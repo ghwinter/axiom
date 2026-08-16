@@ -1,5 +1,0 @@
-[permissions]
-allow = ["Bash=Get-ChildItem -Force | Select-Object Mode,Length,Name", "Bash(cargo test:*)", "Edit"]
-
-[sandbox]
-allow_write = ["D:\\Projects\\ICodeV7\\core\\store-rs"]
