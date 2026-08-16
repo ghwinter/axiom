@@ -5,7 +5,7 @@
 //! - `Parallel(n)` → 每机器一个 OS 线程 + channel 载体。
 
 use alloc::boxed::Box;
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -18,7 +18,7 @@ use crate::error::RuntimeError;
 use crate::io::{IoInterest, IoReactor, IoToken, RawIo};
 use crate::registry::Registry;
 use crate::routing::{has_cycle, mark_stopped, route_parallel_outputs, validate_endpoint};
-use crate::topology::{LiveTopology, PhysicalLink};
+use crate::topology::{LiveTopology, PhysicalLink, TopologyIds};
 
 /// axiom 统一 runtime。
 pub struct Runtime {
@@ -56,8 +56,8 @@ impl Runtime {
     pub fn register_fused<M>(&mut self, machine_type: &str)
     where
         M: axiom::machine::Machine + axiom::machine::FusedInline,
-        M::Input: core::any::Any + Send,
-        M::Output: core::any::Any + Send,
+        M::Input: core::any::Any + Send + axiom::portset::Pack,
+        M::Output: core::any::Any + Send + axiom::portset::Unpack,
         M::ProcessOutput: axiom::machine::FusedCompatible,
     {
         self.registry.register_fused::<M>(machine_type);
@@ -159,6 +159,36 @@ impl Runtime {
                 .insert(l.src_port.clone(), (l.dst_machine.clone(), l.dst_port.clone()));
         }
 
+        // P0：ID 化路由索引——tick 热路径免字符串匹配与 String clone。
+        // 机器按 topo_order 序编号（= machine_index 值），端口按 schema 的
+        // inputs()/outputs() 序编号（&'static str，编译期已知）。
+        let mut route_by_src: Vec<Vec<(&'static str, usize, u16)>> =
+            vec![Vec::new(); machines.len()];
+        let mut out_port_names: Vec<Vec<&'static str>> = Vec::with_capacity(machines.len());
+        let mut in_port_names: Vec<Vec<&'static str>> = Vec::with_capacity(machines.len());
+        for name in &topo_order {
+            let schema = machines[name].port_schema();
+            out_port_names.push(schema.outputs().map(|p| p.name).collect());
+            in_port_names.push(schema.inputs().map(|p| p.name).collect());
+        }
+        for l in &links {
+            let src_id = *machine_index.get(&l.src_machine).expect("link src machine indexed");
+            let dst_id = *machine_index.get(&l.dst_machine).expect("link dst machine indexed");
+            // src_port（String）匹配 schema 序的 &'static str（validate_endpoint
+            // 已保证存在）；dst_port 解析为目标机器输入端口 ID。
+            let src_port = out_port_names[src_id]
+                .iter()
+                .copied()
+                .find(|p| *p == l.src_port.as_str())
+                .unwrap_or("");
+            let dst_pid = in_port_names[dst_id]
+                .iter()
+                .position(|p| *p == l.dst_port.as_str())
+                .unwrap_or(0) as u16;
+            route_by_src[src_id].push((src_port, dst_id, dst_pid));
+        }
+        let ids = TopologyIds { route_by_src, out_port_names, in_port_names };
+
         self.topology = Some(LiveTopology {
             machines,
             links,
@@ -166,6 +196,7 @@ impl Runtime {
             machine_index,
             in_degree,
             route_map,
+            ids,
         });
         Ok(())
     }
@@ -211,21 +242,37 @@ impl Runtime {
         })?;
 
         let max_ticks = self.config.max_ticks;
-        let mut queue = std::collections::VecDeque::from(inputs);
+        let ids = &topology.ids;
+        let topo_order = &topology.topo_order;
+
+        // P0：ID 化队列——(machine_id, port_id, payload)，无 String clone。
+        // 外部注入的 (机器名, 端口名) 在入队时一次解析为 ID。
+        let mut queue: std::collections::VecDeque<(usize, u16, Box<dyn core::any::Any + Send>)> =
+            std::collections::VecDeque::with_capacity(inputs.len());
+        for (name, port, payload) in inputs {
+            let mid = *topology
+                .machine_index
+                .get(&name)
+                .ok_or_else(|| RuntimeError::DanglingRef { machine: name.clone(), port: port.clone() })?;
+            let pid = ids.in_port_names[mid]
+                .iter()
+                .position(|p| *p == port.as_str())
+                .ok_or_else(|| RuntimeError::DanglingRef { machine: name.clone(), port: port.clone() })? as u16;
+            queue.push_back((mid, pid, payload));
+        }
+
         let mut outputs: Vec<ProcessResult> = Vec::new();
         let mut ticks: u64 = 0;
 
         // A1 停机传播：pending_sources = in_degree 的克隆副本（按 topo_order
-        // 索引）；stopped = 已停机机器名集合（不再接收新输入）。
-        // 入度表在 materialize 一次性建好——tick 热路径只克隆 Vec<usize>
-        // （单次分配，与链路数无关），mark_stopped 用 machine_index 查表递减。
+        // 索引）；stopped = 已停机机器位集（按 ID，O(1) 检查）。
         let mut pending_sources: Vec<usize> = topology.in_degree.clone();
         let machine_index = &topology.machine_index;
-        let mut stopped: BTreeSet<String> = BTreeSet::new();
+        let mut stopped: Vec<bool> = vec![false; topology.machines.len()];
 
-        while let Some((name, port, payload)) = queue.pop_front() {
+        while let Some((mid, pid, payload)) = queue.pop_front() {
             // 已停机机器：丢弃后续消息（Done 是停机信号，不是 Idle）。
-            if stopped.contains(&name) {
+            if stopped[mid] {
                 continue;
             }
             ticks += 1;
@@ -235,41 +282,41 @@ impl Runtime {
                 }
             }
 
-            let machine = topology.machines.get_mut(&name).ok_or_else(|| {
-                RuntimeError::DanglingRef { machine: name.clone(), port: port.clone() }
+            let name = &topo_order[mid];
+            let machine = topology.machines.get_mut(name).ok_or_else(|| {
+                RuntimeError::DanglingRef { machine: name.clone(), port: String::new() }
             })?;
-            let result = machine.inject(&port, payload);
+            let result = machine.inject(pid, payload);
 
             // Done = 停机信号：本机器停机，并级联停机"所有入边源均已
             // 停机"的下游（显式传播，而非仅忽略）。
             if matches!(result, ProcessResult::Done) {
-                mark_stopped(&name, &mut stopped, &mut pending_sources, machine_index, &topology.links);
+                mark_stopped(mid, name, &mut stopped, &mut pending_sources, machine_index, &topology.links);
                 continue;
             }
 
             // 路由：输出按端口名找下游；无下游则作为终端输出收集。
+            // P0：route_by_src[mid] 线性扫描（输出端口通常 1-2），
+            // Yield 的端口名（&'static str）直接比较，无字符串表查找。
             match result {
                 ProcessResult::Idle => {}
                 ProcessResult::Yield { port, value } => {
-                    // P2：物化期路由索引 O(log L) 查找（替代 O(L) 线性扫描）。
-                    if let Some((dst_machine, dst_port)) = topology
-                        .route_map
-                        .get(name.as_str())
-                        .and_then(|m| m.get(port))
+                    if let Some((_, dst_mid, dst_pid)) = ids.route_by_src[mid]
+                        .iter()
+                        .find(|(sp, _, _)| *sp == port)
                     {
-                        queue.push_back((dst_machine.clone(), dst_port.clone(), value));
+                        queue.push_back((*dst_mid, *dst_pid, value));
                     } else {
                         outputs.push(ProcessResult::Yield { port, value });
                     }
                 }
                 ProcessResult::YieldMulti { outputs: list } => {
                     for (port, value) in list {
-                        if let Some((dst_machine, dst_port)) = topology
-                            .route_map
-                            .get(name.as_str())
-                            .and_then(|m| m.get(port))
+                        if let Some((_, dst_mid, dst_pid)) = ids.route_by_src[mid]
+                            .iter()
+                            .find(|(sp, _, _)| *sp == port)
                         {
-                            queue.push_back((dst_machine.clone(), dst_port.clone(), value));
+                            queue.push_back((*dst_mid, *dst_pid, value));
                         } else {
                             outputs.push(ProcessResult::Yield { port, value });
                         }
@@ -327,6 +374,7 @@ impl Runtime {
             machine: "<none>".into(),
             error: axiom::machine::InitError::Other("runtime not materialized".into()),
         })?;
+        let ids = &topology.ids;
 
         // ── 1. 构建 link channel 载体 ────────────────────────────────────
         // A2：支持 fan-in——每目标机器可有多条入边，各入边一个 receiver，
@@ -485,9 +533,16 @@ impl Runtime {
                 let non_blocking = in_policies.get(name).copied()
                     == Some(axiom::link::ReadPolicy::NonBlocking);
                 let stop = stop_signal.clone();
+                // P0：本机器的输入端口名表（String port → port_id 用）。
+                let mid = topology.machine_index.get(name).copied().unwrap_or(0);
+                let in_names = &ids.in_port_names[mid];
 
                 s.spawn(move || {
                     let handle: &mut Box<dyn RunningMachine> = machine;
+                    // 端口名 → 端口 ID（线性扫描，输入端口通常 1-2）。
+                    let pid_of = |port: &str| -> u16 {
+                        in_names.iter().position(|p| *p == port).unwrap_or(0) as u16
+                    };
 
                     if cyclic {
                         // 有环模式：全局 stop_signal + tick 限制驱动。
@@ -506,7 +561,7 @@ impl Runtime {
                                         stop.store(true, std::sync::atomic::Ordering::Relaxed);
                                         break;
                                     }
-                                    let result = handle.inject(&port, payload);
+                                    let result = handle.inject(pid_of(&port), payload);
                                     if matches!(result, ProcessResult::Done) {
                                         stop.store(true, std::sync::atomic::Ordering::Relaxed);
                                         break;
@@ -523,7 +578,7 @@ impl Runtime {
                         loop {
                             match rx.try_recv() {
                                 Ok(Some((port, payload))) => {
-                                    let result = handle.inject(&port, payload);
+                                    let result = handle.inject(pid_of(&port), payload);
                                     if matches!(result, ProcessResult::Done) {
                                         break;
                                     }
@@ -536,7 +591,7 @@ impl Runtime {
                     } else {
                         // 默认（Blocking）：阻塞 recv。
                         while let Some((port, payload)) = rx.recv() {
-                            let result = handle.inject(&port, payload);
+                            let result = handle.inject(pid_of(&port), payload);
                             // A1：Done = 停机信号——立即退出，不再处理 channel 积压。
                             if matches!(result, ProcessResult::Done) {
                                 break;

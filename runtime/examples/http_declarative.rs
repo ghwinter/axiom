@@ -28,18 +28,18 @@ use axiom_runtime::{ProcessResult, Runtime, RuntimeConfig};
 // ════════════════════════════════════════════════════════════════════════
 
 #[derive(Debug, Clone, PartialEq)]
-struct RawRequest {
+pub struct RawRequest {
     delta: i64,
     src: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct ParsedRequest {
+pub struct ParsedRequest {
     delta: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Balance {
+pub struct Balance {
     value: i64,
 }
 

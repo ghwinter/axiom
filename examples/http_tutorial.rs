@@ -65,20 +65,20 @@ use axiom::prelude_all::*; // DeploySpec / MachineInstance / LinkSpec / LinkKind
 
 /// 模拟从 socket 读到的原始请求（真实世界会是字节流 + 解析）。
 #[derive(Debug, Clone, PartialEq)]
-struct RawRequest {
+pub struct RawRequest {
     delta: i64,
     src: String,
 }
 
 /// Receiver 解析后的请求：只保留操作数。
 #[derive(Debug, Clone, PartialEq)]
-struct ParsedRequest {
+pub struct ParsedRequest {
     delta: i64,
 }
 
 /// Calculator 产出的余额快照。
 #[derive(Debug, Clone, PartialEq)]
-struct Balance {
+pub struct Balance {
     value: i64,
 }
 

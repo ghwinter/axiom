@@ -80,6 +80,7 @@ mod routing;
 mod runtime;
 mod static_path;
 mod topology;
+mod typed_slot;
 
 #[cfg(test)]
 mod tests;

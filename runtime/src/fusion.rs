@@ -33,7 +33,7 @@ use alloc::collections::BTreeMap;
 
 use axiom::port::PortSchema;
 
-use crate::erasure::{ProcessResult, RunningMachine};
+use crate::erasure::{ProcessResult, RunningMachine, ScratchResult};
 use crate::error::RuntimeError;
 use crate::topology::PhysicalLink;
 
@@ -47,7 +47,9 @@ pub(crate) struct FusedPipeline {
     stages: Vec<Box<dyn RunningMachine>>,
     /// `internal_links[i]` = (stage[i] 喂给 stage[i+1] 的输出端口,
     /// stage[i+1] 接收的输入端口)。长度 = stages.len() - 1。
-    internal_links: Vec<(&'static str, String)>,
+    /// 单槽协议下 `chain_port` 判断链内/终端，`next_input_id` 传给下一级
+    /// process_scratch 的端口参数（P0：级间免装箱）。
+    internal_links: Vec<(&'static str, u16)>,
     /// 流水线名称（用链首机器名，外部链接仍按此名引用）。
     name: String,
     schema: PortSchema,
@@ -61,6 +63,20 @@ impl FusedPipeline {
     ) -> Self {
         // schema 取第一级的输入 schema（入口端口）——外部链接按此匹配。
         let schema = stages[0].port_schema().clone();
+        // 构造期把 next_input（String）解析为 stage[i+1] 的端口 ID。
+        // validate_endpoint 已保证端口存在——position 必命中。
+        let internal_links: Vec<(&'static str, u16)> = internal_links
+            .iter()
+            .enumerate()
+            .map(|(i, (chain_port, next_input))| {
+                let pid = stages[i + 1]
+                    .port_schema()
+                    .inputs()
+                    .position(|p| p.name == next_input.as_str())
+                    .expect("fused internal link port must exist") as u16;
+                (*chain_port, pid)
+            })
+            .collect();
         Self { stages, internal_links, name, schema }
     }
 }
@@ -74,63 +90,48 @@ impl RunningMachine for FusedPipeline {
         self.stages[0].process_boxed(input)
     }
 
-    fn inject(&mut self, port: &str, payload: Box<dyn core::any::Any + Send>) -> ProcessResult {
-        let mut result = self.stages[0].inject(port, payload);
+    fn inject(&mut self, port_id: u16, payload: Box<dyn core::any::Any + Send>) -> ProcessResult {
+        // unsafe 破局后的级间免装箱协议：单槽贯穿全链——外部输入 Box 直接
+        // 作槽，每级 process_scratch 从槽取裸值、process、经 put_output
+        // 写回同一槽（同类型级间 0 分配 / 跨类型转换点 1 次）。
+        let mut slot: Option<Box<dyn core::any::Any + Send>> = Some(payload);
         let mut terminal: Vec<(&'static str, Box<dyn core::any::Any + Send>)> = Vec::new();
+        let mut last_port: &'static str = "";
+        let mut broken = false;
 
-        for i in 0..self.internal_links.len() {
-            let (chain_port, next_input) = &self.internal_links[i];
-            match result {
-                ProcessResult::Idle | ProcessResult::Done => {
-                    // 中间级 Idle/Done：链断裂，返回当前结果。
-                    return result;
+        for i in 0..self.stages.len() {
+            // 端口 ID：第一级用外部注入的 port_id，后续级用链内链接指定。
+            let pid = if i == 0 {
+                port_id
+            } else {
+                self.internal_links[i - 1].1
+            };
+            match self.stages[i].process_scratch(pid, &mut slot) {
+                ScratchResult::Idle | ScratchResult::Done => {
+                    // 链断裂：值不在槽（Idle 无输出 / Done 停机），返回已
+                    // 收集的终端输出。
+                    broken = true;
+                    break;
                 }
-                ProcessResult::Yield { port, value } => {
-                    if port == *chain_port {
-                        // 链内端口 → 喂给下一级。
-                        result = self.stages[i + 1].inject(next_input, value);
-                    } else {
-                        // 终端端口 → 收集。
-                        terminal.push((port, value));
-                        result = ProcessResult::Idle;
-                    }
-                }
-                ProcessResult::YieldMulti { outputs } => {
-                    // TupleOutput：分拣链内 vs 终端。
-                    let mut chain_value: Option<Box<dyn core::any::Any + Send>> = None;
-                    for (p, v) in outputs {
-                        if p == *chain_port {
-                            chain_value = Some(v);
-                        } else {
-                            terminal.push((p, v));
-                        }
-                    }
-                    match chain_value {
-                        Some(v) => {
-                            result = self.stages[i + 1].inject(next_input, v);
-                        }
-                        None => {
-                            // 无链内输出——链断裂，返回终端输出。
-                            return if terminal.is_empty() {
-                                ProcessResult::Idle
-                            } else {
-                                ProcessResult::YieldMulti { outputs: terminal }
-                            };
+                ScratchResult::Yield(port) => {
+                    last_port = port;
+                    if i + 1 < self.stages.len() {
+                        // 链内端口 → 值已在槽，继续下一级；否则终端收集。
+                        if port != self.internal_links[i].0 {
+                            if let Some(v) = slot.take() {
+                                terminal.push((port, v));
+                            }
                         }
                     }
                 }
             }
         }
 
-        // 最后一级的输出：非 Idle 的作为终端输出返回。
-        match result {
-            ProcessResult::Yield { port, value } => {
-                terminal.push((port, value));
+        // 链尾（未断裂）的值：move 出槽作为终端输出——无新分配。
+        if !broken {
+            if let Some(v) = slot.take() {
+                terminal.push((last_port, v));
             }
-            ProcessResult::YieldMulti { outputs } => {
-                terminal.extend(outputs);
-            }
-            ProcessResult::Idle | ProcessResult::Done => {}
         }
 
         if terminal.is_empty() {

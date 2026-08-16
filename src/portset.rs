@@ -115,6 +115,72 @@ pub trait HasPortInfo: Send + Sized + 'static {
     fn into_any(self) -> Box<dyn Any + Send>;
 }
 
+/// 从端口 enum 提取裸值（不装箱）——单输出机器的级间免装箱协议
+/// （runtime 类型化值槽的配合契约：级间裸值直传，零分配）。
+///
+/// [`declare_ports!`] 为单输出端口 enum 生成此实现（`Raw` = 唯一负载类型）。
+/// **仅单输出机器（`FusedInline`）使用**——多输出机器不进入融合链。
+pub trait Unpack: Sized {
+    /// 裸值类型（单输出端口 enum 的负载，需可跨线程传递）。
+    type Raw: 'static + Send;
+    /// 解包：`Self` 是单输出端口 enum，返回其负载（move，零分配）。
+    fn unpack(self) -> Self::Raw;
+}
+
+/// 从裸值构造端口 enum（不装箱）——[`Unpack`] 的对偶。
+///
+/// [`declare_ports!`] 为单输入端口 enum 生成此实现。级间免装箱协议用
+/// `Pack::pack(裸值)` 构造输入 variant，避免 `from_port_name` 的 `Box`
+/// 解包消费分配。
+pub trait Pack: Sized {
+    /// 裸值类型（单输入端口 enum 的负载，需可跨线程传递）。
+    type Raw: 'static + Send;
+    /// 打包：从裸值构造 `Self`（move，零分配）。
+    fn pack(raw: Self::Raw) -> Self;
+}
+
+/// 单输出检测 + Unpack 生成（宏辅助）：恰好一个输出端口时生成
+/// [`Unpack`]；多输出/空输出不生成（不进融合链）。
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __declare_unpack {
+    // 单输出：生成 Unpack（裸值 = 唯一负载类型）。
+    ($output_enum:ident, $out_name:ident [ $out_flow:ident ] => $out_ty:ty) => {
+        impl $crate::portset::Unpack for $output_enum {
+            type Raw = $out_ty;
+            fn unpack(self) -> Self::Raw {
+                match self {
+                    $output_enum::$out_name(v) => v,
+                }
+            }
+        }
+    };
+    // 多输出：不生成（多输出机器非 FusedInline，不进融合链）。
+    ($output_enum:ident, $($out_name:ident [ $out_flow:ident ] => $out_ty:ty),+ $(,)?) => {};
+    // 空输出：不生成。
+    ($output_enum:ident $(,)?) => {};
+}
+
+/// 单输入检测 + Pack 生成（宏辅助）：恰好一个输入端口时生成
+/// [`Pack`]；多输入/空输入不生成（级间协议仅服务单输入机器）。
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __declare_pack {
+    // 单输入：生成 Pack（裸值 = 唯一负载类型）。
+    ($input_enum:ident, $in_name:ident [ $in_flow:ident ] => $in_ty:ty) => {
+        impl $crate::portset::Pack for $input_enum {
+            type Raw = $in_ty;
+            fn pack(raw: Self::Raw) -> Self {
+                $input_enum::$in_name(raw)
+            }
+        }
+    };
+    // 多输入：不生成。
+    ($input_enum:ident, $($in_name:ident [ $in_flow:ident ] => $in_ty:ty),+ $(,)?) => {};
+    // 空输入：不生成。
+    ($input_enum:ident $(,)?) => {};
+}
+
 // ── declare_ports! macro ──────────────────────────────────────────────────────
 
 /// Generate Input/Output port enums and PortSchema derivation.
@@ -136,6 +202,14 @@ pub trait HasPortInfo: Send + Sized + 'static {
 /// }
 /// ```
 ///
+/// # 端口负载类型的可见性契约
+///
+/// 端口负载类型（`TypeA`/`TypeB`/`TypeC`/`TypeD` 等）**必须是 `pub`**：
+/// [`Unpack`]/[`Pack`]（单输入单输出机器的级间免装箱协议）公开
+/// `type Raw`，私有负载类型会导致 `E0446`（私有类型泄漏到公开接口）。
+/// 端口是跨机器链接的类型契约（`LinkSpec` 校验类型匹配），公开负载类型
+/// 是 axiom 的接口要求。
+///
 /// Generates:
 /// - `InputEnumName` enum with variant `port_a(TypeA)`, `port_b(TypeB)`, etc.
 /// - `OutputEnumName` enum with variant `port_c(TypeC)`, `port_d(TypeD)`, etc.
@@ -145,7 +219,7 @@ pub trait HasPortInfo: Send + Sized + 'static {
 ///
 /// Wrong usage is rejected at compile time — the macro generates enums from
 /// the declared ports, so malformed flows or duplicate port names surface as
-/// compile errors rather than runtime surprises (bevy-style macro diagnostics):
+/// compile errors rather than runtime surprises (compile-time macro diagnostics):
 ///
 /// ```compile_fail
 /// // 流类型拼写错误：`Dta` 不是 `FlowKind` 变体 → 编译失败
@@ -291,6 +365,9 @@ macro_rules! declare_ports {
             }
         }
 
+        // ── Pack for Input（级间免装箱协议：裸值 → variant，零分配）──────
+        $crate::__declare_pack!($input_enum, $( $in_name [ $in_flow ] => $in_ty ),*);
+
         // ── HasPortInfo for Output ──────────────────────
         impl $crate::portset::HasPortInfo for $output_enum {
             fn port_name(&self) -> &'static str {
@@ -333,6 +410,9 @@ macro_rules! declare_ports {
                 }
             }
         }
+
+        // ── Unpack for Output（级间免装箱协议：variant → 裸值，零分配）────
+        $crate::__declare_unpack!($output_enum, $( $out_name [ $out_flow ] => $out_ty ),*);
     };
 }
 
@@ -388,6 +468,13 @@ impl<T: Send + 'static> HasPortInfo for In<T> {
     fn into_any(self) -> Box<dyn Any + Send> { Box::new(self.0) }
 }
 
+impl<T: Send + 'static> Pack for In<T> {
+    type Raw = T;
+    fn pack(raw: T) -> Self {
+        In(raw)
+    }
+}
+
 /// Single output port wrapper. Use when a Machine has exactly one output port.
 ///
 /// `Debug`/`Clone`/`PartialEq` are **conditional** on `T` — see [`In`].
@@ -423,6 +510,13 @@ impl<T: Send + Sync + 'static> HasPortInfo for Out<T> {
         }
     }
     fn into_any(self) -> Box<dyn Any + Send> { Box::new(self.0) }
+}
+
+impl<T: Send + 'static> Unpack for Out<T> {
+    type Raw = T;
+    fn unpack(self) -> T {
+        self.0
+    }
 }
 
 /// PortSet for a single-input, single-output Machine (both Data flow).

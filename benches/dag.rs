@@ -47,12 +47,14 @@ impl Machine for Doubler {
     type ProcessOutput = SingleOutput<DoublerOutput>;
     fn name() -> &'static str { "doubler" }
     fn config_schema() -> axiom::port::ConfigSchema { axiom::port::ConfigSchema::new() }
+    #[inline]
     fn init(_: &MachineContext) -> Result<(), InitError> { Ok(()) }
     fn process(_: &mut (), _: &MachineContext, input: DoublerInput) -> SingleOutput<DoublerOutput> {
         match input {
             DoublerInput::x(n) => SingleOutput::Yield(DoublerOutput::y(n * 2)),
         }
     }
+    #[inline]
     fn cleanup(_: (), _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
 }
 impl StraightMachine for Doubler {
@@ -83,6 +85,7 @@ impl Machine for Adder {
     type ProcessOutput = SingleOutput<AdderOutput>;
     fn name() -> &'static str { "adder" }
     fn config_schema() -> axiom::port::ConfigSchema { axiom::port::ConfigSchema::new() }
+    #[inline]
     fn init(_: &MachineContext) -> Result<i32, InitError> { Ok(0) }
     fn process(state: &mut i32, _: &MachineContext, input: AdderInput) -> SingleOutput<AdderOutput> {
         match input {
@@ -92,6 +95,7 @@ impl Machine for Adder {
             }
         }
     }
+    #[inline]
     fn cleanup(_: i32, _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
 }
 impl StraightMachine for Adder {
@@ -125,12 +129,14 @@ impl Machine for Tripler {
     type ProcessOutput = SingleOutput<TriplerOutput>;
     fn name() -> &'static str { "tripler" }
     fn config_schema() -> axiom::port::ConfigSchema { axiom::port::ConfigSchema::new() }
+    #[inline]
     fn init(_: &MachineContext) -> Result<(), InitError> { Ok(()) }
     fn process(_: &mut (), _: &MachineContext, input: TriplerInput) -> SingleOutput<TriplerOutput> {
         match input {
             TriplerInput::x(n) => SingleOutput::Yield(TriplerOutput::y(n * 3)),
         }
     }
+    #[inline]
     fn cleanup(_: (), _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
 }
 impl StraightMachine for Tripler {
@@ -238,6 +244,11 @@ fn main() {
     let src: Vec<i32> = (0..100_000).collect();
 
     let mut group = BenchGroup::new("diamond_100k");
+
+    group.bench("static_path (empty, init/cleanup only)", || {
+        let out = DiamondShape::run_all(vec![]).expect("diamond");
+        std::hint::black_box(out);
+    });
 
     group.bench("static_path (Diamond, straight)", || {
         let out = DiamondShape::run_all(src.clone()).expect("diamond");

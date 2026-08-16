@@ -193,9 +193,9 @@ where
 /// dispatch，与固定 `pipelineN` 相同的零成本保证。
 pub fn pipeline_chain<C: axiom::static_exec::StaticChain>(
     inputs: Vec<
-        <<C as axiom::static_exec::StaticChain>::Head as axiom::static_exec::StraightMachine>::StraightIn,
+        <<C as axiom::static_exec::FlowThrough>::Head as axiom::static_exec::StraightMachine>::StraightIn,
     >,
-) -> Result<Vec<C::Output>, StaticExecError> {
+) -> Result<Vec<C::Out>, StaticExecError> {
     C::run_all(inputs)
 }
 
@@ -422,7 +422,7 @@ where
 /// `axiom::static_exec::Diamond`。
 pub fn diamond<A, Left, Right, Down, S, LB, LC, M>(
     inputs: Vec<A::StraightIn>,
-) -> Result<Vec<Down::Output>, StaticExecError>
+) -> Result<Vec<Down::Out>, StaticExecError>
 where
     A: StraightMachine,
     Left: StaticChain,
@@ -432,8 +432,8 @@ where
     LB: StraightLink<A, Left::Head>,
     LC: StraightLink<A, Right::Head>,
     M: StraightMerge<
-        Left::Output,
-        Right::Output,
+        Left::Out,
+        Right::Out,
         Output = <Down::Head as StraightMachine>::StraightIn,
     >,
 {

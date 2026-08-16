@@ -1582,7 +1582,7 @@ mod tests {
         assert!(topological_levels(&spec).is_err());
     }
 
-    // ── 共享槽写者互斥（bevy ambiguity 检测的部署期形态）───────────────
+    // ── 共享槽写者互斥（调度歧义检测的部署期形态）───────────────
 
     /// SharedState 链接。
     fn shared(a: &'static str, pa: &'static str, b: &'static str, pb: &'static str) -> LinkSpec {
