@@ -28,9 +28,22 @@
 //! | 拓扑确定时机 | 编译期 | 运行时（`DeploySpec`） |
 //! | 类型擦除 | 无（具体类型单态化） | `Box<dyn Any>` |
 //! | 每消息成本 | 零（无堆分配） | ~5x（堆分配 + dispatch） |
-//! | 拓扑能力 | 任意 DAG（不含环） | 任意 DAG + 环 |
+//! | 拓扑能力 | 串并联 DAG + 单机器反馈环 | 任意 DAG + 环 |
 //! | IO/异步 | 不支持 | 支持（`IoReactor`） |
 //! | 适用场景 | 固定管道、热路径 | 配置驱动、插件、动态拓扑 |
+//!
+//! # 固定 N 便捷函数 vs 组合子
+//!
+//! 本模块同时提供两类 API：
+//!
+//! - **组合子**（首选）：`Chain`（任意深度线性链）、`Diamond`（分叉-汇合，
+//!   臂与下游可为任意链）、`feedback`（单机器反馈环）。它们递归组合，
+//!   表达串并联 DAG 与反馈环，是静态路径的表达力主体。
+//! - **固定 N 便捷函数**（`pipeline2`/`pipeline3`/`fanout2`/`fanin2`）：
+//!   数字后缀表阶段数（`pipelineN`）或路数（`fanout`/`fanin` 为 2 路）。
+//!   它们是 `Chain`/`Diamond` 的特例别名——`pipeline2::<A, B, L>` 等价于
+//!   `Chain<A, B, L>`，`fanout2`/`fanin2` 是 `Diamond` 的拆开形态。新代码
+//!   优先用组合子；便捷函数保留以服务固定形状的紧凑写法。
 //!
 //! # 安全性
 //!
@@ -42,7 +55,10 @@ use axiom::machine::{
     CleanupError, FusedCompatible, FusedInline, InitError, MachineOutput, ProcessOutput,
 };
 use axiom::port::MachineContext;
-use axiom::static_exec::{Link, Merge, Split, StaticExecError};
+use axiom::static_exec::{
+    Diamond, Link, Merge, Split, StaticChain, StaticExecError,
+    StraightLink, StraightMachine, StraightMerge, StraightSplit,
+};
 
 use alloc::format;
 use alloc::vec::Vec;
@@ -177,7 +193,7 @@ where
 /// dispatch，与固定 `pipelineN` 相同的零成本保证。
 pub fn pipeline_chain<C: axiom::static_exec::StaticChain>(
     inputs: Vec<
-        <<C as axiom::static_exec::StaticChain>::Head as axiom::machine::Machine>::Input,
+        <<C as axiom::static_exec::StaticChain>::Head as axiom::static_exec::StraightMachine>::StraightIn,
     >,
 ) -> Result<Vec<C::Output>, StaticExecError> {
     C::run_all(inputs)
@@ -384,6 +400,112 @@ where
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// 菱形：A → Split → (Left, Right) → Merge → Down
+// ════════════════════════════════════════════════════════════════════════════
+
+/// 菱形执行：`A → Split → (Left, Right) → Merge → Down`。
+///
+/// [`Diamond`] 组合子的便捷入口，等价于
+/// `<Diamond<A, Left, Right, Down, S, LB, LC, M> as StaticChain>::run_all(inputs)`。
+///
+/// 一个上游经 `S::split` 分叉为两条任意深度的链（`Left`/`Right`，可为
+/// 单机器或 [`Chain`]），再经 `M::merge` zip 配对汇合为一条下游链
+/// （`Down`）。此前该形状需要手动衔接 [`fanout2`]（产出 `Vec<Output>`）
+/// 与 [`fanin2`]（接受 `Vec<Input>`），两端类型不匹配；`diamond` 一次
+/// 展开上游 + 两臂 + 下游的拓扑，消除中间衔接。
+///
+/// # 零成本
+///
+/// 全单态化：`A::process`、两臂与下游链内各机器 `process`、`S::split`、
+/// `LB/LC::extract`、`M::merge` 都是具体函数，`--release` + `#[inline]`
+/// 下融合。无 `Box<dyn Any>`、无 trait dispatch。参见
+/// `axiom::static_exec::Diamond`。
+pub fn diamond<A, Left, Right, Down, S, LB, LC, M>(
+    inputs: Vec<A::StraightIn>,
+) -> Result<Vec<Down::Output>, StaticExecError>
+where
+    A: StraightMachine,
+    Left: StaticChain,
+    Right: StaticChain,
+    Down: StaticChain,
+    S: StraightSplit<A::StraightOut, Left = A::StraightOut, Right = A::StraightOut>,
+    LB: StraightLink<A, Left::Head>,
+    LC: StraightLink<A, Right::Head>,
+    M: StraightMerge<
+        Left::Output,
+        Right::Output,
+        Output = <Down::Head as StraightMachine>::StraightIn,
+    >,
+{
+    <Diamond<A, Left, Right, Down, S, LB, LC, M> as StaticChain>::run_all(inputs)
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 反馈环：A 输出经一个 tick 延迟反馈回 A 输入
+// ════════════════════════════════════════════════════════════════════════════
+
+/// 反馈环：`A` 的输出经一个 tick 延迟反馈回 `A` 的输入。
+///
+/// 静态路径从无环 DAG 迈向**确定性有环**的第一步：单机器自反馈环。
+/// 每 tick，`A` 消费"外部输入 + 上一 tick 的输出"，产出新输出——它既是
+/// 本轮结果，也经隐式延迟（等价于 [`Latch`](axiom::builtin::Latch) 的
+/// 一个 tick 延迟）反馈为下一 tick 的输入。
+///
+/// 环的语义（`t` 为 tick 序号）：
+///
+/// ```text
+/// output[0] = A(merge(input[0], initial))
+/// output[t] = A(merge(input[t], output[t-1]))
+/// ```
+///
+/// 环被拆为"无环主体 `A` + 延迟回边"：延迟由内部状态模拟，第一次 tick
+/// 的反馈是调用者显式提供的 `initial`。这是把有环拓扑在无环的同步批量
+/// 模型上表达的关键——显式延迟使环可静态单态化，而无需运行时 channel
+/// 的隐式延迟。
+///
+/// # 零成本
+///
+/// 每 tick 的 `M::merge`、`A::process_straight` 都是裸函数，单态化；无
+/// `Box<dyn Any>`、无 trait dispatch、无端口枚举标签（P0）。与
+/// `Chain`/`Diamond` 的批量模型不同，`feedback` 是逐 tick 交错（每个
+/// tick 的输出立即反馈），这正是环的执行语义。
+///
+/// # 类型参数
+///
+/// - `A`：环上的机器（`StraightMachine`，裸载荷）
+/// - `M: StraightMerge<A::StraightIn, A::StraightOut, Output = A::StraightIn>`：
+///   合并外部输入（`A::StraightIn`）与反馈（`A::StraightOut`）为 `A` 的
+///   新输入
+/// - `initial`：第一次 tick 的反馈值（显式，避免隐式 `Default`）
+pub fn feedback<A, M>(
+    inputs: Vec<A::StraightIn>,
+    initial: A::StraightOut,
+) -> Result<Vec<A::StraightOut>, StaticExecError>
+where
+    A: StraightMachine,
+    A::StraightOut: Clone,
+    M: StraightMerge<A::StraightIn, A::StraightOut, Output = A::StraightIn>,
+{
+    let ctx = MachineContext::new(A::name());
+    let mut state = A::init(&ctx).map_err(|e| init_err(A::name(), e))?;
+
+    let mut prev: A::StraightOut = initial;
+    let mut outputs = Vec::with_capacity(inputs.len());
+
+    for input in inputs {
+        // 裸载荷直传：merge 消费反馈（move），process 无枚举。结果与反馈
+        // 是双消费者——一次 Clone（业务分发，非标签税）。
+        let merged = M::merge(input, prev);
+        let out = A::process_straight(&mut state, merged);
+        outputs.push(out.clone());
+        prev = out;
+    }
+
+    A::cleanup(state, &ctx).map_err(|e| cleanup_err(A::name(), e))?;
+    Ok(outputs)
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // 单元测试
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -393,7 +515,10 @@ mod tests {
     use axiom::declare_ports;
     use axiom::machine::{FusedInline, Machine, SingleOutput};
     use axiom::port::MachineContext;
-    use axiom::static_exec::{Chain, CloneSplit, Link, Merge};
+    use axiom::static_exec::{
+        Chain, CloneSplit, Link, Merge,
+        StraightClone, StraightId, StraightMachine, StraightMerge,
+    };
 
     // ── 测试机器 ──────────────────────────────────────────────────────────
 
@@ -438,6 +563,12 @@ mod tests {
         }
     }
     impl FusedInline for Doubler {}
+    impl StraightMachine for Doubler {
+        type StraightIn = i32;
+        type StraightOut = i32;
+        #[inline]
+        fn process_straight(_: &mut (), n: i32) -> i32 { n * 2 }
+    }
 
     declare_ports! {
         #[derive(Debug, Clone, PartialEq)]
@@ -483,6 +614,15 @@ mod tests {
         }
     }
     impl FusedInline for Adder {}
+    impl StraightMachine for Adder {
+        type StraightIn = i32;
+        type StraightOut = i32;
+        #[inline]
+        fn process_straight(state: &mut i32, n: i32) -> i32 {
+            *state += n;
+            *state
+        }
+    }
 
     declare_ports! {
         #[derive(Debug, Clone, PartialEq)]
@@ -525,6 +665,12 @@ mod tests {
         }
     }
     impl FusedInline for Tripler {}
+    impl StraightMachine for Tripler {
+        type StraightIn = i32;
+        type StraightOut = i32;
+        #[inline]
+        fn process_straight(_: &mut (), n: i32) -> i32 { n * 3 }
+    }
 
     // ── Link 实现 ────────────────────────────────────────────────────────
 
@@ -555,50 +701,36 @@ mod tests {
         }
     }
 
-    struct AdderToDoubler;
-    impl Link<Adder, Doubler> for AdderToDoubler {
-        fn extract(out: AdderOutput) -> Option<DoublerInput> {
-            match out {
-                AdderOutput::y(n) => Some(DoublerInput::x(n)),
-            }
-        }
-    }
-
-    // ── pipeline_chain 测试（编译期递归链）───────────────────────────────
+    // ── pipeline_chain 测试（编译期递归链，Straight 裸载荷）─────────────
 
     #[test]
     fn pipeline_chain_4_stage_recursive() {
         // Doubler → Adder → Doubler → Adder（4 级递归链，任意深度）
         type Chain4 = Chain<
             Doubler,
-            Chain<Adder, Chain<Doubler, Adder, DoublerToAdder>, AdderToDoubler>,
-            DoublerToAdder,
+            Chain<Adder, Chain<Doubler, Adder, StraightId>, StraightId>,
+            StraightId,
         >;
-        // 输入 1: 1 → D(2) → A1(2) → D(4) → A2(4)
-        // 输入 2: 2 → D(4) → A1(2+4=6) → D(12) → A2(4+12=16)
-        // （Adder 是跨输入累加器；A1/A2 是链中两个独立实例）
-        let inputs = vec![DoublerInput::x(1), DoublerInput::x(2)];
-        let outputs = pipeline_chain::<Chain4>(inputs).expect("chain4");
-        assert_eq!(outputs.len(), 2);
-        assert_eq!(outputs[0], AdderOutput::y(4));
-        assert_eq!(outputs[1], AdderOutput::y(16));
+        // 输入 [1, 2]: 1→D(2)→A1(2)→D(4)→A2(4); 2→D(4)→A1(6)→D(12)→A2(16)
+        let outputs = pipeline_chain::<Chain4>(vec![1, 2]).expect("chain4");
+        assert_eq!(outputs, vec![4, 16]);
     }
 
     #[test]
     fn pipeline_chain_3_stage_recursive() {
-        // Doubler → Tripler → Adder（3 级，混合 Link 类型）
-        type Chain3 = Chain<Doubler, Chain<Tripler, Adder, TriplerToAdder>, DoublerToTripler>;
-        // 输入 2: 2 → D(4) → T(12) → A(12)
-        let outputs = pipeline_chain::<Chain3>(vec![DoublerInput::x(2)]).expect("chain3");
-        assert_eq!(outputs, vec![AdderOutput::y(12)]);
+        // Doubler → Tripler → Adder（3 级，StraightId 裸链接）
+        type Chain3 = Chain<Doubler, Chain<Tripler, Adder, StraightId>, StraightId>;
+        // 输入 [2]: 2→D(4)→T(12)→A(12)
+        let outputs = pipeline_chain::<Chain3>(vec![2]).expect("chain3");
+        assert_eq!(outputs, vec![12]);
     }
 
     #[test]
     fn pipeline_chain_empty_inputs() {
         type Chain4 = Chain<
             Doubler,
-            Chain<Adder, Chain<Doubler, Adder, DoublerToAdder>, AdderToDoubler>,
-            DoublerToAdder,
+            Chain<Adder, Chain<Doubler, Adder, StraightId>, StraightId>,
+            StraightId,
         >;
         let outputs = pipeline_chain::<Chain4>(vec![]).expect("chain4 empty");
         assert!(outputs.is_empty());
@@ -788,5 +920,142 @@ mod tests {
             .expect("fanin2");
 
         assert_eq!(outputs.len(), 2, "excess inputs dropped");
+    }
+
+    // ── diamond 测试（Straight 裸载荷）──────────────────────────────────
+
+    /// 裸汇合：求和。
+    struct Sum;
+    impl StraightMerge<i32, i32> for Sum {
+        type Output = i32;
+        #[inline]
+        fn merge(a: i32, b: i32) -> i32 {
+            a + b
+        }
+    }
+
+    #[test]
+    fn diamond_runs_split_then_merge() {
+        // 菱形：Doubler → StraightClone → (Adder, Tripler) → Sum → Adder
+        // 输入 [1, 2]: D(2,4) → split(2,2),(4,4) → A(2,6), T(6,12) → Sum(8,18) → A(8,26)
+        let outputs = diamond::<
+            Doubler,
+            Adder,
+            Tripler,
+            Adder,
+            StraightClone,
+            StraightId,
+            StraightId,
+            Sum,
+        >(vec![1, 2])
+        .expect("diamond");
+        assert_eq!(outputs, vec![8, 26]);
+    }
+
+    #[test]
+    fn diamond_empty_inputs() {
+        let outputs = diamond::<
+            Doubler,
+            Adder,
+            Tripler,
+            Adder,
+            StraightClone,
+            StraightId,
+            StraightId,
+            Sum,
+        >(vec![])
+        .expect("diamond empty");
+        assert!(outputs.is_empty());
+    }
+
+    #[test]
+    fn diamond_downstream_is_chain() {
+        // 菱形下游是 2 级链：Chain<Adder, Doubler, StraightId>。
+        type DownChain = Chain<Adder, Doubler, StraightId>;
+        // 输入 [1]: D(2) → split(2,2) → A(2), T(6) → Sum(8) → DownChain: A(8)→D(16)
+        let outputs = diamond::<
+            Doubler,
+            Adder,
+            Tripler,
+            DownChain,
+            StraightClone,
+            StraightId,
+            StraightId,
+            Sum,
+        >(vec![1])
+        .expect("diamond downstream chain");
+        assert_eq!(outputs, vec![16]);
+    }
+
+    // ── feedback 测试（Straight 裸载荷）─────────────────────────────────
+
+    declare_ports! {
+        #[derive(Debug, Clone, PartialEq)]
+        pub struct PassPorts {
+            input type PassInput {
+                x[Data] => i32,
+            }
+            output type PassOutput {
+                y[Data] => i32,
+            }
+        }
+    }
+
+    pub struct PassThrough;
+    impl Machine for PassThrough {
+        type State = ();
+        type Input = PassInput;
+        type Output = PassOutput;
+        type Ports = PassPorts;
+        type ProcessOutput = SingleOutput<PassOutput>;
+        fn name() -> &'static str { "pass" }
+        fn config_schema() -> axiom::port::ConfigSchema {
+            axiom::port::ConfigSchema::new()
+        }
+        fn init(_ctx: &MachineContext) -> Result<(), axiom::machine::InitError> { Ok(()) }
+        fn process(
+            _: &mut (),
+            _: &MachineContext,
+            input: PassInput,
+        ) -> SingleOutput<PassOutput> {
+            match input {
+                PassInput::x(n) => SingleOutput::Yield(PassOutput::y(n)),
+            }
+        }
+        fn cleanup(
+            _: (),
+            _: &MachineContext,
+        ) -> Result<(), axiom::machine::CleanupError> {
+            Ok(())
+        }
+    }
+    impl FusedInline for PassThrough {}
+    impl StraightMachine for PassThrough {
+        type StraightIn = i32;
+        type StraightOut = i32;
+        #[inline]
+        fn process_straight(_: &mut (), n: i32) -> i32 { n }
+    }
+
+    #[test]
+    fn feedback_prefix_sum() {
+        // 前缀和：output[t] = input[t] + output[t-1]
+        // A = PassThrough（透传），M = Sum（StraightMerge），initial = 0
+        // input [1,2,3] → output [1, 3, 6]
+        let outputs = feedback::<PassThrough, Sum>(vec![1, 2, 3], 0).expect("feedback");
+        assert_eq!(outputs, vec![1, 3, 6]);
+    }
+
+    #[test]
+    fn feedback_empty_inputs() {
+        let outputs = feedback::<PassThrough, Sum>(vec![], 0).expect("feedback empty");
+        assert!(outputs.is_empty());
+    }
+
+    #[test]
+    fn feedback_nonzero_initial() {
+        // 非零初始反馈：output[0] = input[0] + initial
+        let outputs = feedback::<PassThrough, Sum>(vec![5], 100).expect("feedback initial");
+        assert_eq!(outputs, vec![105]);
     }
 }

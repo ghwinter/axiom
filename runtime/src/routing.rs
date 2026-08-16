@@ -13,19 +13,6 @@ use crate::erasure::{ProcessResult, RunningMachine};
 use crate::error::RuntimeError;
 use crate::topology::PhysicalLink;
 
-/// 按 (源机器, 源端口) 查找链接目标，返回 (目标机器, 目标端口)。
-/// O(L) 线性扫描（L = 链接数，拓扑通常很小；规模大时可建索引）。
-pub(crate) fn route_target(
-    links: &[PhysicalLink],
-    src_machine: &str,
-    src_port: &str,
-) -> Option<(String, String)> {
-    links
-        .iter()
-        .find(|l| l.src_machine == src_machine && l.src_port == src_port)
-        .map(|l| (l.dst_machine.clone(), l.dst_port.clone()))
-}
-
 /// Parallel 模式的路由：输出按 (本机器 src_port) 发到下游 carrier；
 /// 无下游（终端机器 / 观察端口）则发到结果收集 channel。
 /// 消息附带 dst_port 名——下游线程用它 inject。

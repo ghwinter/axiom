@@ -141,10 +141,14 @@ The static path encodes topology in type parameters; the compiler monomorphizes 
 > probe** that validated the non-invasion axiom for the linear case $A \to B
 > \to C$. It has been superseded by the general static execution path
 > (`axiom_runtime::static_path`), which extends the probe to fan-out
-> (`fanout2` via `Split`) and fan-in (`fanin2` via `Merge`). The general path
-> still has limitations: it is acyclic (synchronous batch model), and diamond
-> topologies require composing `fanout2` + `fanin2` manually. A `dag`
-> combinator for arbitrary DAGs is future work. See `docs/architecture.md`
+> (`fanout2` via `Split`), fan-in (`fanin2` via `Merge`), and diamonds
+> (`diamond` / `Diamond`, whose arms and downstream may be arbitrary chains).
+> `Chain` (serial) and `Diamond` (split-merge) form a recursive algebra that
+> generates exactly the **series-parallel DAGs**, all monomorphized. Truly
+> arbitrary DAGs (non-series-parallel cross edges) are outside this algebra —
+> stable Rust cannot express an arbitrary edge table while keeping port types
+> type-safe — so they take the dynamic path; like the dynamic tax, this is a
+> type-system boundary, not an implementation gap. See `docs/architecture.md`
 > §"Static execution path" for the current API.
 
 > **Static-first principle.** Static topology is the **default** worldview: a

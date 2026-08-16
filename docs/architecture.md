@@ -296,7 +296,7 @@ let outputs = fanin2::<Doubler, Tripler, Adder, SumMerge>(inputs_a, inputs_b)?;
 - All stages must be `FusedInline` (i.e., `SingleOutput` or `TupleOutput` — no `YieldMulti`). This is a compile-time guarantee, not a runtime check.
 - All stages must be known at compile time (static topology).
 - Acyclic only — the synchronous batch model cannot express cycles. Use the dynamic path (`Runtime`) for cyclic topologies.
-- Diamond topologies (A → (B, C) → D) require composing `fanout2` + `fanin2` — a `dag` combinator is future work.
+- Series-parallel DAGs are first-class via `Chain` (serial) + `Diamond` (split-merge) recursion, whose arms and downstream may be arbitrary chains. Truly arbitrary DAGs (non-series-parallel cross edges) are outside this algebra — stable Rust cannot express an arbitrary edge table with type-safe ports — and take the dynamic path.
 - `Machine::process` implementations **must** be marked `#[inline]` for cross-crate inlining; without it, the compiler cannot fuse the stages.
 
 ---

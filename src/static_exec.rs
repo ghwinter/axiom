@@ -2,31 +2,51 @@
 //!
 //! # 定位（反窄化规则下的归位）
 //!
-//! 本模块是**结构层 + 类型层契约**：它定义静态执行路径所需的类型转换
-//! trait（`Link`/`Split`/`Merge`），但不包含任何执行逻辑。执行逻辑在
-//! `axiom-runtime::static_path` 中，因为执行是 runtime 的职责，不是 core
-//! 的——core 只定义契约。
+//! 本模块是**结构层 + 类型层契约**：它定义静态执行路径所需的契约——
+//! [`StraightMachine`]（单端口裸载荷直传）与 [`Chain`]/[`Diamond`] 组合子
+//! （递归表达串并联 DAG）。旧契约 [`Link`]/[`Split`]/[`Merge`]（枚举端口
+//! 转换）保留给 `axiom-runtime` 的固定 N 便捷函数（`pipelineN`/`fanout2`/
+//! `fanin2`）与动态路径内省；**新代码优先用组合子 + Straight 契约**。
 //!
-//! # 与动态路径的对比
+//! # 零成本（P0：消除端口标签税）
 //!
-//! 动态路径（`Runtime::materialize`）在运行时通过 `Box<dyn Any>` 类型擦除
-//! 消息，每跳付出堆分配 + `from_port_name` 重构的代价（~5x）。
+//! 静态路径用裸载荷执行：`process_straight(state, i) -> o` 无端口枚举、
+//! 无 `match`、无 `MachineContext`、无 `ProcessOutput` 分派。来源/去向由
+//! 类型系统在编译期固定——物理执行零验证（来源/去向错误是业务逻辑错误，
+//! 不是性能开销的正当理由）。对比动态路径（`Box<dyn Any>` 类型擦除，
+//! 每跳堆分配 + downcast，~5x）。
 //!
-//! 静态路径在编译期通过具体类型单态化：
-//! - `Link<Src, Dst>::extract` 是普通函数，单态化后等价于手写的
-//!   `match out { TransformOut::work(i) => SinkIn::work(i) }`
-//! - 无 `Box<dyn Any>`、无 trait dispatch、无堆分配/消息
-//! - 无 `HasPortInfo::into_any` / `from_port_name`——这些动态分派入口根本
-//!   不在静态路径上
+//! `StraightIn`/`StraightOut` 是**纯数据载荷**（P3：不要求 `HasPortInfo`/
+//! 运行时内省）——单端口机器的端口标签从物理层剥离，抽象层（端口/拓扑/
+//! 验证/可观测）保留在 `Machine` 契约中。
 //!
 //! # 拓扑覆盖
 //!
-//! | 拓扑 | trait | 执行函数（runtime） |
+//! | 拓扑 | 契约 | 执行函数（runtime）/ 组合子（core） |
 //! |------|-------|---------------------|
-//! | 线性 A→B→C | `Link` | `pipeline2` / `pipeline3` |
-//! | Fan-out A→(B,C) | `Split` | `fanout2` |
-//! | Fan-in (A,B)→C | `Merge` | `fanin2` |
-//! | 任意 DAG | `Link` + `Split` + `Merge` | 组合 `fanout2` + `fanin2`（`dag` 组合子待建） |
+//! | 线性 A→B→C | `StraightLink` | `Chain` + `pipeline_chain` |
+//! | 任意深度线性链 | `StraightLink` | `Chain` + `pipeline_chain` |
+//! | Fan-out A→(B,C) | `StraightSplit` | `Diamond`（臂可任意链） |
+//! | Fan-in (A,B)→C | `StraightMerge` | `Diamond` |
+//! | 菱形 A→(B,C)→D | `StraightSplit` + `StraightMerge` | `Diamond` |
+//! | 串并联 DAG | Straight 契约递归 | `Chain` + `Diamond` 嵌套 |
+//!
+//! （旧枚举契约 `Link`/`Split`/`Merge` + `pipeline2`/`pipeline3`/`fanout2`/
+//! `fanin2` 保留——见 `axiom-runtime::static_path` 的"固定 N 便捷函数"。）
+//!
+//! # 表达力边界（串并联 DAG，而非任意 DAG）
+//!
+//! `Chain`（串行）与 `Diamond`（分叉-汇合）构成一个递归代数，其生成
+//! 的语言恰是**串并联 DAG**（series-parallel graphs）——串行组合与并行
+//! 组合递归封闭。任何串并联拓扑（流水线、map-reduce、菱形网络、多级
+//! 分叉-汇合树）都可用这两者的嵌套表达，且全单态化。
+//!
+//! 真正的**任意 DAG**（含非串并联的交叉边，如 K4 的传递归约）无法用
+//! 这个代数表达：稳定 Rust 不能用 const 泛型描述"任意边表"并同时保持
+//! 端口类型安全——边表 `(usize, usize)` 是值级信息，端点的端口类型是
+//! 类型级信息，二者之间的映射需要 GAT / `generic_const_exprs`。这是类型
+//! 系统的边界，不是实现缺陷；非串并联拓扑走动态路径（`Runtime`），与
+//! 动态税同理（数学上不可避免）。
 //!
 //! # 安全性
 //!
@@ -225,10 +245,100 @@ impl core::fmt::Display for StaticExecError {
 impl std::error::Error for StaticExecError {}
 
 // ════════════════════════════════════════════════════════════════════════════
+// Section 4.4: Straight — 裸载荷直传契约（消除端口标签税）
+// ════════════════════════════════════════════════════════════════════════════
+//
+// 静态路径的零成本修复（P0）：编译期类型已固定"数据从哪来、到哪去"——
+// 来源/去向的验证是业务逻辑错误（开发者责任），不是物理执行的开销。本
+// 契约让单端口机器以**裸载荷**直传：无端口枚举、无 match、无标签检查。
+// 多端口机器与动态路径保留枚举/内省（拓扑运行时才已知，标签必要）。
+
+/// 单端口机器的免标签直传契约。
+///
+/// 静态路径（`Chain`/`Diamond`/`feedback`）要求机器实现此契约，用裸载荷
+/// 执行：`process_straight(state, input) -> output` 无枚举包装/解包、无
+/// `MachineContext`、无 `ProcessOutput` match。载荷类型 [`StraightIn`]/
+/// [`StraightOut`] 是纯数据（不要求 `HasPortInfo`）——数据去向由类型系统
+/// 在编译期固定，运行时零验证。
+///
+/// 与 `Machine` 的关系：`Machine` 的端口/拓扑/验证/可观测契约保留在抽象
+/// 层（`process_straight` 之外）；`process_straight` 是物理层的直传通道。
+/// 多端口机器（fan-out/多输入）走动态路径（`Runtime`），其标签是必要的。
+pub trait StraightMachine: Machine {
+    /// 单输入端口的载荷类型（去标签，纯数据）。
+    type StraightIn: Send + 'static;
+    /// 单输出端口的载荷类型（去标签，纯数据）。
+    type StraightOut: Send + 'static;
+
+    /// 裸载荷 process：无枚举包装/解包、无 ctx、无标签检查。
+    ///
+    /// 实现必须 `#[inline]`——这是跨 crate 融合（`StaticChain` 单态化）
+    /// 的前提。
+    fn process_straight(state: &mut Self::State, input: Self::StraightIn) -> Self::StraightOut;
+}
+
+/// 裸载荷链接：`fn(StraightOut) -> StraightIn`。
+///
+/// 编译期类型已固定"S 的输出必前往 D 的输入"，无枚举 match、无
+/// `Option` 检查（对比 [`Link`] 的 `extract -> Option`）。
+pub trait StraightLink<S: StraightMachine, D: StraightMachine> {
+    /// 将 `S::StraightOut` 转换为 `D::StraightIn`。
+    fn convert(out: S::StraightOut) -> D::StraightIn;
+}
+
+/// 恒等裸链接——当 `S::StraightOut` 可 `Into<D::StraightIn>` 时（通常
+/// 两台机器载荷类型相同）。
+pub struct StraightId;
+
+impl<S: StraightMachine, D: StraightMachine> StraightLink<S, D> for StraightId
+where
+    S::StraightOut: Into<D::StraightIn>,
+{
+    #[inline]
+    fn convert(out: S::StraightOut) -> D::StraightIn {
+        out.into()
+    }
+}
+
+/// 裸载荷分叉：`fn(T) -> (Left, Right)`。
+///
+/// 无枚举标签——按内容路由/复制是业务逻辑（分发），不是验证。
+pub trait StraightSplit<T> {
+    /// 左侧载荷类型（送往第一个下游）。
+    type Left;
+    /// 右侧载荷类型（送往第二个下游）。
+    type Right;
+
+    /// 将 `input` 拆分为 `(Left, Right)`。
+    fn split(input: T) -> (Self::Left, Self::Right);
+}
+
+/// 复制分叉（Tee 语义）：同一载荷复制两份。
+pub struct StraightClone;
+
+impl<T: Clone> StraightSplit<T> for StraightClone {
+    type Left = T;
+    type Right = T;
+
+    #[inline]
+    fn split(input: T) -> (T, T) {
+        (input.clone(), input.clone())
+    }
+}
+
+/// 裸载荷汇合：`fn(A, B) -> Output`。
+pub trait StraightMerge<A, B> {
+    /// 合并后的载荷类型。
+    type Output;
+
+    /// 将 `a` 和 `b` 合并为一个载荷。
+    fn merge(a: A, b: B) -> Self::Output;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Section 4.5: Chain — 编译期任意深度线性链
 // ════════════════════════════════════════════════════════════════════════════
 
-use crate::machine::{FusedCompatible, FusedInline, MachineOutput, ProcessOutput};
 use crate::port::MachineContext;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
@@ -272,51 +382,49 @@ impl<Head, Tail, L> Default for Chain<Head, Tail, L> {
 
 /// 编译期线性链的递归执行契约。
 ///
-/// - 单机器 `M: FusedInline` 自动实现（基例）。
-/// - `Chain<Head, Tail>` 实现为"跑 Head → `Link::extract` 转换 → 递归
-///   `Tail::run_all`"（递归步），编译期展开到任意深度。
+/// - 单机器 `M: StraightMachine` 自动实现（基例）。
+/// - `Chain<Head, Tail>` 实现为"跑 Head → `StraightLink::convert` 转换 →
+///   递归 `Tail::run_all`"（递归步），编译期展开到任意深度。
 ///
-/// `run_all` 消费全部输入并返回最终输出；任一级返回 `Done` 即提前停机
-/// （`StaticExecError::MachineDone`），语义与 `pipelineN` 一致。
+/// `run_all` 消费全部输入并返回最终输出。载荷是**裸数据**（`StraightIn`/
+/// `StraightOut`），无端口枚举、无标签检查——来源/去向由类型系统在编译期
+/// 固定，物理执行零验证（P0：消除端口标签税）。
 pub trait StaticChain: Sized {
-    /// 链首机器类型（递归步需要：`Link<Prev, Self::Head>`）。
-    type Head: crate::machine::Machine;
-    /// 链尾输出类型。
-    type Output;
+    /// 链首机器类型（递归步需要：`StraightLink<Prev, Self::Head>`）。
+    type Head: StraightMachine;
+    /// 链尾裸输出类型。
+    type Output: Send + 'static;
 
-    /// 一次性执行整个链。输入类型即 `Self::Head::Input`。
+    /// 一次性执行整个链。输入类型即 `Self::Head::StraightIn`。
     fn run_all(
-        inputs: Vec<<<Self as StaticChain>::Head as crate::machine::Machine>::Input>,
+        inputs: Vec<<Self::Head as StraightMachine>::StraightIn>,
     ) -> Result<Vec<Self::Output>, StaticExecError>;
 }
 
-// 基例：单机器（任何 FusedInline 机器都是一条单级链）。
+// 基例：单机器（任何 StraightMachine 机器都是一条单级链）。
 impl<M> StaticChain for M
 where
-    M: FusedInline,
-    M::ProcessOutput: FusedCompatible,
+    M: StraightMachine,
 {
     type Head = M;
-    type Output = M::Output;
+    type Output = M::StraightOut;
 
-    fn run_all(inputs: Vec<M::Input>) -> Result<Vec<M::Output>, StaticExecError> {
+    fn run_all(inputs: Vec<M::StraightIn>) -> Result<Vec<M::StraightOut>, StaticExecError> {
         let ctx = MachineContext::new(M::name());
         let mut state = M::init(&ctx).map_err(|e| StaticExecError::InitFailed {
             machine: M::name(),
             reason: e.to_string(),
         })?;
-        let mut outputs = Vec::new();
-        let done = drive_machine::<M>(&mut state, &ctx, inputs, &mut outputs);
+        // 预分配（P1）：输入长度已知，避免逐输入 realloc。
+        let mut outputs = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            // 裸载荷直传：无枚举 match、无 ctx、无 ProcessOutput 分派。
+            outputs.push(M::process_straight(&mut state, input));
+        }
         M::cleanup(state, &ctx).map_err(|e| StaticExecError::CleanupFailed {
             machine: M::name(),
             reason: e.to_string(),
         })?;
-        if done {
-            return Err(StaticExecError::MachineDone {
-                machine: M::name(),
-                processed: outputs.len(),
-            });
-        }
         Ok(outputs)
     }
 }
@@ -324,65 +432,170 @@ where
 // 递归步：Head → Tail。
 impl<Head, Tail, L> StaticChain for Chain<Head, Tail, L>
 where
-    Head: FusedInline,
-    Head::ProcessOutput: FusedCompatible,
+    Head: StraightMachine,
     Tail: StaticChain,
-    L: Link<Head, Tail::Head>,
+    L: StraightLink<Head, Tail::Head>,
 {
     type Head = Head;
     type Output = Tail::Output;
 
-    fn run_all(inputs: Vec<Head::Input>) -> Result<Vec<Tail::Output>, StaticExecError> {
+    fn run_all(inputs: Vec<Head::StraightIn>) -> Result<Vec<Tail::Output>, StaticExecError> {
         let ctx = MachineContext::new(Head::name());
         let mut state = Head::init(&ctx).map_err(|e| StaticExecError::InitFailed {
             machine: Head::name(),
             reason: e.to_string(),
         })?;
-        let mut head_out = Vec::new();
-        let done = drive_machine::<Head>(&mut state, &ctx, inputs, &mut head_out);
+        let mut head_out = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            head_out.push(Head::process_straight(&mut state, input));
+        }
         Head::cleanup(state, &ctx).map_err(|e| StaticExecError::CleanupFailed {
             machine: Head::name(),
             reason: e.to_string(),
         })?;
 
-        // 经 Link 转换为 Tail 的输入，递归执行。
-        let tail_inputs: Vec<<Tail::Head as crate::machine::Machine>::Input> = head_out
+        // 经 StraightLink 裸转换（无枚举 match、无 Option 检查），递归执行。
+        let tail_inputs: Vec<<Tail::Head as StraightMachine>::StraightIn> = head_out
             .into_iter()
-            .filter_map(L::extract)
+            .map(L::convert)
             .collect();
-        if done {
-            return Err(StaticExecError::MachineDone {
-                machine: Head::name(),
-                processed: tail_inputs.len(),
-            });
-        }
         Tail::run_all(tail_inputs)
     }
 }
 
-/// 驱动单台机器消费输入、产出输出。返回是否提前 `Done`。
+// ════════════════════════════════════════════════════════════════════════════
+// Section 4.6: Diamond — 编译期菱形组合子（分叉 → 两路 → 汇合）
+// ════════════════════════════════════════════════════════════════════════════
+
+/// 编译期菱形组合子：`A → Split → (Left, Right) → Merge → Down`。
 ///
-/// 与 runtime `static_path` 内部驱动等价，但定义在 core 使 `StaticChain`
-/// 自包含（core 不依赖 runtime）。
-fn drive_machine<M: FusedInline>(
-    state: &mut M::State,
-    ctx: &MachineContext,
-    inputs: impl IntoIterator<Item = M::Input>,
-    outputs: &mut Vec<M::Output>,
-) -> bool
-where
-    M::ProcessOutput: FusedCompatible,
-{
-    for input in inputs {
-        let proc_out = M::process(state, ctx, input).into_process_output();
-        match proc_out {
-            ProcessOutput::Yield(o) => outputs.push(o),
-            ProcessOutput::YieldMulti(os) => outputs.extend(os),
-            ProcessOutput::Idle => {}
-            ProcessOutput::Done => return true,
+/// 这是静态路径从"线性 + 独立分叉/汇合"迈向"任意 DAG"的核心积木：一个
+/// 上游 `A` 经 [`Split`] 分叉为两条**任意深度的链**（[`StaticChain`]），
+/// 再经 [`Merge`] zip 配对汇合为一条下游链。左右臂与下游都可是单机器
+/// （`FusedInline` 自动实现 `StaticChain`），也可是任意嵌套的 [`Chain`]。
+///
+/// 菱形是 fan-out + fan-in 的最小完整组合。此前这一形状需要用户手动
+/// 衔接 `fanout2`（产出 `Vec<Output>`）与 `fanin2`（接受 `Vec<Input>`），
+/// 两端的类型不匹配使衔接成为摩擦点；`Diamond` 在编译期把上游 + 两臂 +
+/// 下游的拓扑一次展开，消除了中间衔接的类型摩擦。
+///
+/// # 组合性
+///
+/// `Diamond` 实现 [`StaticChain`]，因此与单机器同级：可作为 [`Chain`]
+/// 的一节嵌入任意深度的链——
+///
+/// ```text
+/// Chain<X, Diamond<A, Left, Right, Down, S, LB, LC, M>, LX>   // X → 菱形
+/// Chain<Diamond<A, Left, Right, Down, S, LB, LC, M>, Y, LD>   // 菱形 → Y
+/// ```
+///
+/// 而菱形的臂本身又可以是 `Chain`（甚至是另一个 `Diamond`），因此
+/// "分叉 → 两路链 → 汇合 → 下游链"可以递归嵌套，逼近任意 DAG。
+///
+/// # 零成本
+///
+/// `run_all` 全单态化：`A::process_straight`、臂内各机器
+/// `process_straight`、`S::split`、`LB/LC::convert`、`M::merge` 都是具体
+/// 裸函数，`--release` + `#[inline]` 下融合为单一循环。无 `Box<dyn Any>`、
+/// 无 trait dispatch、无端口枚举标签（P0）。
+///
+/// # 类型参数
+///
+/// - `A` 上游（单机器 `StraightMachine`），`Left`/`Right` 两条臂
+///   （`StaticChain`），`Down` 下游（`StaticChain`）
+/// - `S: StraightSplit<A::StraightOut, Left = A::StraightOut, Right = A::StraightOut>`：
+///   分叉（裸载荷，无枚举标签）
+/// - `LB: StraightLink<A, Left::Head>`、`LC: StraightLink<A, Right::Head>`：
+///   分叉后的裸载荷转换（目标分别是两臂的首机器）
+/// - `M: StraightMerge<Left::Output, Right::Output, Output = Down::Head::StraightIn>`：
+///   汇合（两臂尾裸输出 zip 配对，合并为下游首机器裸输入）
+pub struct Diamond<A, Left, Right, Down, S, LB, LC, M> {
+    _marker: PhantomData<(A, Left, Right, Down, S, LB, LC, M)>,
+}
+
+impl<A, Left, Right, Down, S, LB, LC, M> Diamond<A, Left, Right, Down, S, LB, LC, M> {
+    /// 构造一个菱形类型值（纯类型标记，无运行时表示）。
+    pub fn new() -> Self {
+        Self {
+            _marker: PhantomData,
         }
     }
-    false
+}
+
+impl<A, Left, Right, Down, S, LB, LC, M> Default for Diamond<A, Left, Right, Down, S, LB, LC, M> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<A, Left, Right, Down, S, LB, LC, M> StaticChain for Diamond<A, Left, Right, Down, S, LB, LC, M>
+where
+    A: StraightMachine,
+    Left: StaticChain,
+    Right: StaticChain,
+    Down: StaticChain,
+    S: StraightSplit<A::StraightOut, Left = A::StraightOut, Right = A::StraightOut>,
+    LB: StraightLink<A, Left::Head>,
+    LC: StraightLink<A, Right::Head>,
+    M: StraightMerge<
+        Left::Output,
+        Right::Output,
+        Output = <Down::Head as StraightMachine>::StraightIn,
+    >,
+{
+    type Head = A;
+    type Output = Down::Output;
+
+    fn run_all(inputs: Vec<A::StraightIn>) -> Result<Vec<Down::Output>, StaticExecError> {
+        let ctx_a = MachineContext::new(A::name());
+        let mut state_a = A::init(&ctx_a).map_err(|e| StaticExecError::InitFailed {
+            machine: A::name(),
+            reason: e.to_string(),
+        })?;
+
+        // Stage A：上游（裸载荷直传）。
+        let mut a_outputs = Vec::with_capacity(inputs.len());
+        for input in inputs {
+            a_outputs.push(A::process_straight(&mut state_a, input));
+        }
+
+        // Split + Link：分叉后裸转换为两臂首机器的输入。
+        let mut left_inputs: Vec<<Left::Head as StraightMachine>::StraightIn> =
+            Vec::with_capacity(a_outputs.len());
+        let mut right_inputs: Vec<<Right::Head as StraightMachine>::StraightIn> =
+            Vec::with_capacity(a_outputs.len());
+        for o in a_outputs {
+            let (left, right) = S::split(o);
+            left_inputs.push(LB::convert(left));
+            right_inputs.push(LC::convert(right));
+        }
+
+        // 左右臂：各自是任意深度的 `StaticChain`，独立执行（其机器的
+        // init/cleanup 由各自的 `run_all` 保证）。
+        let left_result = Left::run_all(left_inputs);
+        let right_result = Right::run_all(right_inputs);
+
+        // A 已完成使命，无论左右臂结果如何都 cleanup。
+        A::cleanup(state_a, &ctx_a).map_err(|e| StaticExecError::CleanupFailed {
+            machine: A::name(),
+            reason: e.to_string(),
+        })?;
+
+        let left_outputs = left_result?;
+        let right_outputs = right_result?;
+
+        // Merge：两臂尾裸输出 zip 配对后合并为下游首机器裸输入。
+        let down_inputs: Vec<<Down::Head as StraightMachine>::StraightIn> = left_outputs
+            .into_iter()
+            .zip(right_outputs.into_iter())
+            .map(|(l, r)| M::merge(l, r))
+            .collect();
+
+        // 下游链。
+        let down_outputs = Down::run_all(down_inputs)?;
+
+        Ok(down_outputs)
+    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -393,14 +606,13 @@ where
 mod tests {
     use super::*;
     use crate::declare_ports;
-    use crate::machine::{
-        CleanupError, FusedInline, InitError, Machine, SingleOutput,
-    };
+    use crate::machine::{CleanupError, InitError, Machine, SingleOutput};
     use crate::port::MachineContext;
 
-    // ── 测试机器 ──────────────────────────────────────────────────────────
+    // ── 测试机器（Machine 枚举契约 + StraightMachine 裸载荷契约）────────
 
     declare_ports! {
+        #[derive(Debug, Clone, PartialEq)]
         pub struct DoublerPorts {
             input type DoublerInput {
                 x[Data] => i32,
@@ -419,24 +631,24 @@ mod tests {
         type Ports = DoublerPorts;
         type ProcessOutput = SingleOutput<DoublerOutput>;
         fn name() -> &'static str { "doubler" }
-        fn config_schema() -> crate::port::ConfigSchema {
-            crate::port::ConfigSchema::new()
-        }
-        fn init(_ctx: &MachineContext) -> Result<(), InitError> { Ok(()) }
-        fn process(
-            _: &mut (),
-            _: &MachineContext,
-            input: DoublerInput,
-        ) -> SingleOutput<DoublerOutput> {
+        fn config_schema() -> crate::port::ConfigSchema { crate::port::ConfigSchema::new() }
+        fn init(_: &MachineContext) -> Result<(), InitError> { Ok(()) }
+        fn process(_: &mut (), _: &MachineContext, input: DoublerInput) -> SingleOutput<DoublerOutput> {
             match input {
                 DoublerInput::x(n) => SingleOutput::Yield(DoublerOutput::y(n * 2)),
             }
         }
         fn cleanup(_: (), _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
     }
-    impl FusedInline for Doubler {}
+    impl StraightMachine for Doubler {
+        type StraightIn = i32;
+        type StraightOut = i32;
+        #[inline]
+        fn process_straight(_: &mut (), n: i32) -> i32 { n * 2 }
+    }
 
     declare_ports! {
+        #[derive(Debug, Clone, PartialEq)]
         pub struct AdderPorts {
             input type AdderInput {
                 x[Data] => i32,
@@ -455,15 +667,9 @@ mod tests {
         type Ports = AdderPorts;
         type ProcessOutput = SingleOutput<AdderOutput>;
         fn name() -> &'static str { "adder" }
-        fn config_schema() -> crate::port::ConfigSchema {
-            crate::port::ConfigSchema::new()
-        }
-        fn init(_ctx: &MachineContext) -> Result<i32, InitError> { Ok(0) }
-        fn process(
-            state: &mut i32,
-            _: &MachineContext,
-            input: AdderInput,
-        ) -> SingleOutput<AdderOutput> {
+        fn config_schema() -> crate::port::ConfigSchema { crate::port::ConfigSchema::new() }
+        fn init(_: &MachineContext) -> Result<i32, InitError> { Ok(0) }
+        fn process(state: &mut i32, _: &MachineContext, input: AdderInput) -> SingleOutput<AdderOutput> {
             match input {
                 AdderInput::x(n) => {
                     *state += n;
@@ -473,94 +679,232 @@ mod tests {
         }
         fn cleanup(_: i32, _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
     }
-    impl FusedInline for Adder {}
+    impl StraightMachine for Adder {
+        type StraightIn = i32;
+        type StraightOut = i32;
+        #[inline]
+        fn process_straight(state: &mut i32, n: i32) -> i32 {
+            *state += n;
+            *state
+        }
+    }
 
-    // ── Link 测试 ────────────────────────────────────────────────────────
-
-    /// DoublerOutput → AdderInput 的手动链接。
-    struct DoublerToAdder;
-    impl Link<Doubler, Adder> for DoublerToAdder {
-        fn extract(out: DoublerOutput) -> Option<AdderInput> {
-            match out {
-                DoublerOutput::y(n) => Some(AdderInput::x(n)),
+    declare_ports! {
+        #[derive(Debug, Clone, PartialEq)]
+        pub struct TriplerPorts {
+            input type TriplerInput {
+                x[Data] => i32,
+            }
+            output type TriplerOutput {
+                y[Data] => i32,
             }
         }
     }
 
+    pub struct Tripler;
+    impl Machine for Tripler {
+        type State = ();
+        type Input = TriplerInput;
+        type Output = TriplerOutput;
+        type Ports = TriplerPorts;
+        type ProcessOutput = SingleOutput<TriplerOutput>;
+        fn name() -> &'static str { "tripler" }
+        fn config_schema() -> crate::port::ConfigSchema { crate::port::ConfigSchema::new() }
+        fn init(_: &MachineContext) -> Result<(), InitError> { Ok(()) }
+        fn process(_: &mut (), _: &MachineContext, input: TriplerInput) -> SingleOutput<TriplerOutput> {
+            match input {
+                TriplerInput::x(n) => SingleOutput::Yield(TriplerOutput::y(n * 3)),
+            }
+        }
+        fn cleanup(_: (), _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
+    }
+    impl StraightMachine for Tripler {
+        type StraightIn = i32;
+        type StraightOut = i32;
+        #[inline]
+        fn process_straight(_: &mut (), n: i32) -> i32 { n * 3 }
+    }
+
+    // ── 裸载荷汇合（StraightMerge）──────────────────────────────────────
+
+    struct Sum;
+    impl StraightMerge<i32, i32> for Sum {
+        type Output = i32;
+        #[inline]
+        fn merge(a: i32, b: i32) -> i32 { a + b }
+    }
+
+    // ══ Straight 契约单元测试 ═══════════════════════════════════════════
+
+    #[test]
+    fn straight_machine_single() {
+        // 单机器直传：裸载荷，无枚举。
+        let outputs = Doubler::run_all(vec![1, 2, 3]).expect("doubler");
+        assert_eq!(outputs, vec![2, 4, 6]);
+    }
+
+    #[test]
+    fn straight_machine_empty() {
+        let outputs = Doubler::run_all(vec![]).expect("empty");
+        assert!(outputs.is_empty());
+    }
+
+    #[test]
+    fn straight_id_convert() {
+        // StraightId：载荷类型相同（i32 Into i32）时恒等转换。
+        let x: i32 = <StraightId as StraightLink<Doubler, Adder>>::convert(7);
+        assert_eq!(x, 7);
+    }
+
+    #[test]
+    fn straight_clone_split_duplicates() {
+        let (a, b) = StraightClone::split(42i32);
+        assert_eq!(a, 42);
+        assert_eq!(b, 42);
+    }
+
+    #[test]
+    fn straight_merge_sums() {
+        assert_eq!(Sum::merge(3, 4), 7);
+    }
+
+    // ══ StaticChain：Chain 测试 ═════════════════════════════════════════
+
+    #[test]
+    fn chain_three_stage_recursive() {
+        // Doubler → Adder → Tripler（3 级递归链，StraightId 链接）
+        // 输入 [1]: D(2) → A(2) → T(6)
+        type Chain3 = Chain<Doubler, Chain<Adder, Tripler, StraightId>, StraightId>;
+        let outputs = Chain3::run_all(vec![1]).expect("chain3");
+        assert_eq!(outputs, vec![6]);
+    }
+
+    #[test]
+    fn chain_recursive_multi_input() {
+        // Doubler → Adder（Adder 跨输入累加）
+        // 输入 [1,2,3]: D(2,4,6) → A(2,6,12)
+        type Chain2 = Chain<Doubler, Adder, StraightId>;
+        let outputs = Chain2::run_all(vec![1, 2, 3]).expect("chain2");
+        assert_eq!(outputs, vec![2, 6, 12]);
+    }
+
+    #[test]
+    fn chain_empty_inputs() {
+        type Chain3 = Chain<Doubler, Chain<Adder, Tripler, StraightId>, StraightId>;
+        let outputs = Chain3::run_all(vec![]).expect("chain3 empty");
+        assert!(outputs.is_empty());
+    }
+
+    // ══ Diamond 测试 ════════════════════════════════════════════════════
+
+    type DiamondShape = Diamond<
+        Doubler,
+        Adder,
+        Tripler,
+        Adder,
+        StraightClone,
+        StraightId,
+        StraightId,
+        Sum,
+    >;
+
+    #[test]
+    fn diamond_runs_split_then_merge() {
+        // Doubler → StraightClone → (Adder, Tripler) → Sum → Adder
+        // 输入 [1, 2]: D(2,4) → split(2,2),(4,4) → A(2,6), T(6,12) → Sum(8,18) → A(8,26)
+        let outputs = DiamondShape::run_all(vec![1, 2]).expect("diamond");
+        assert_eq!(outputs, vec![8, 26]);
+    }
+
+    #[test]
+    fn diamond_empty_inputs() {
+        let outputs = DiamondShape::run_all(vec![]).expect("diamond empty");
+        assert!(outputs.is_empty());
+    }
+
+    #[test]
+    fn diamond_embeds_as_chain_tail() {
+        // Diamond 实现 StaticChain，可作为 Chain 的 Tail 嵌入。
+        // Chain<Doubler, DiamondShape, StraightId>：外层 Doubler → 菱形
+        type ChainWithDiamond = Chain<Doubler, DiamondShape, StraightId>;
+        // 输入 [1]: 外层 D(2) → 菱形 D(4) → split(4,4) → A(4), T(12) → Sum(16) → A(16)
+        let outputs = ChainWithDiamond::run_all(vec![1]).expect("chain+diamond");
+        assert_eq!(outputs, vec![16]);
+    }
+
+    #[test]
+    fn diamond_arms_are_chains() {
+        // 菱形两臂是任意深度链（各 2 级）：左臂 Adder→Doubler，右臂 Tripler→Doubler。
+        type LeftArm = Chain<Adder, Doubler, StraightId>;
+        type RightArm = Chain<Tripler, Doubler, StraightId>;
+        type DChainArms = Diamond<
+            Doubler,
+            LeftArm,
+            RightArm,
+            Adder,
+            StraightClone,
+            StraightId,
+            StraightId,
+            Sum,
+        >;
+        // 输入 [1]: D(2) → split(2,2)
+        //   左臂 A→D: 2 → A(2) → D(4)
+        //   右臂 T→D: 2 → T(6) → D(12)
+        //   Sum(16) → 下游 A(16)
+        let outputs = DChainArms::run_all(vec![1]).expect("diamond chain arms");
+        assert_eq!(outputs, vec![16]);
+    }
+
+    #[test]
+    fn diamond_arm_is_diamond() {
+        // 菱形套菱形：外层的左臂本身是一个完整菱形——递归完备性。
+        type InnerDiamond = Diamond<
+            Doubler,
+            Adder,
+            Tripler,
+            Adder,
+            StraightClone,
+            StraightId,
+            StraightId,
+            Sum,
+        >;
+        type OuterDiamond = Diamond<
+            Doubler,
+            InnerDiamond,
+            Tripler,
+            Adder,
+            StraightClone,
+            StraightId,
+            StraightId,
+            Sum,
+        >;
+        // 输入 [1]: 外层 D(2) → split(2,2)
+        //   左臂 InnerDiamond(2): D(4) → split(4,4) → A(4), T(12) → Sum(16) → A(16)
+        //   右臂 Tripler(2): 6
+        //   Sum(16+6=22) → 下游 A(22)
+        let outputs = OuterDiamond::run_all(vec![1]).expect("diamond in diamond");
+        assert_eq!(outputs, vec![22]);
+    }
+
+    // ══ 旧契约测试（Link/Split/Merge——保留给动态路径便捷函数）══════════
+
     #[test]
     fn link_extract_converts_output_to_input() {
+        // 旧 Link：多端口机器的枚举转换（动态路径便捷函数用）。
+        struct OldDToA;
+        impl Link<Doubler, Adder> for OldDToA {
+            fn extract(out: DoublerOutput) -> Option<AdderInput> {
+                match out {
+                    DoublerOutput::y(n) => Some(AdderInput::x(n)),
+                }
+            }
+        }
         let out = DoublerOutput::y(42);
-        let input = DoublerToAdder::extract(out).expect("should convert");
+        let input = OldDToA::extract(out).expect("should convert");
         match input {
             AdderInput::x(n) => assert_eq!(n, 42),
         }
     }
-
-    #[test]
-    fn link_extract_returns_none_for_unmatched_port() {
-        // 对于单端口机器，extract 总是返回 Some。
-        // 这里测试 Link 的 Option 语义——多端口场景可返回 None。
-        struct MultiOutput;
-        // 简化：直接测试 Option 语义
-        let result: Option<i32> = None;
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn id_link_works_when_types_match() {
-        // IdLink 要求 Src::Output: Into<Dst::Input>。
-        // 当两台机器的端口类型相同时，IdLink 直接工作。
-        struct SameMachine;
-        impl Machine for SameMachine {
-            type State = ();
-            type Input = DoublerInput;
-            type Output = DoublerOutput;
-            type Ports = DoublerPorts;
-            type ProcessOutput = SingleOutput<DoublerOutput>;
-            fn name() -> &'static str { "same" }
-            fn config_schema() -> crate::port::ConfigSchema {
-                crate::port::ConfigSchema::new()
-            }
-            fn init(_ctx: &MachineContext) -> Result<(), InitError> { Ok(()) }
-            fn process(
-                _: &mut (),
-                _: &MachineContext,
-                input: DoublerInput,
-            ) -> SingleOutput<DoublerOutput> {
-                match input {
-                    DoublerInput::x(n) => {
-                        SingleOutput::Yield(DoublerOutput::y(n))
-                    }
-                }
-            }
-            fn cleanup(
-                _: (),
-                _: &MachineContext,
-            ) -> Result<(), CleanupError> {
-                Ok(())
-            }
-        }
-        impl FusedInline for SameMachine {}
-
-        // Doubler::Output = DoublerOutput, SameMachine::Input = DoublerInput
-        // Into 不直接满足（不同类型），所以这里测试手动 Link 而非 IdLink
-        struct DoublerToSame;
-        impl Link<Doubler, SameMachine> for DoublerToSame {
-            fn extract(out: DoublerOutput) -> Option<DoublerInput> {
-                match out {
-                    DoublerOutput::y(n) => Some(DoublerInput::x(n)),
-                }
-            }
-        }
-
-        let out = DoublerOutput::y(10);
-        let input = DoublerToSame::extract(out).expect("convert");
-        match input {
-            DoublerInput::x(n) => assert_eq!(n, 10),
-        }
-    }
-
-    // ── Split 测试 ───────────────────────────────────────────────────────
 
     #[test]
     fn clone_split_duplicates_value() {
@@ -570,113 +914,14 @@ mod tests {
     }
 
     #[test]
-    fn clone_split_works_with_string() {
-        use alloc::string::ToString;
-        let (a, b) = CloneSplit::split("hello".to_string());
-        assert_eq!(a, "hello");
-        assert_eq!(b, "hello");
-    }
-
-    #[test]
-    fn custom_split_routes_by_parity() {
-        // 自定义 Split：偶数→Left，奇数→Right
-        struct ParitySplit;
-        impl Split<i32> for ParitySplit {
-            type Left = Option<i32>;
-            type Right = Option<i32>;
-            fn split(input: i32) -> (Option<i32>, Option<i32>) {
-                if input % 2 == 0 {
-                    (Some(input), None)
-                } else {
-                    (None, Some(input))
-                }
-            }
-        }
-
-        let (even, odd) = ParitySplit::split(4);
-        assert_eq!(even, Some(4));
-        assert_eq!(odd, None);
-
-        let (even, odd) = ParitySplit::split(7);
-        assert_eq!(even, None);
-        assert_eq!(odd, Some(7));
-    }
-
-    #[test]
-    fn custom_split_destructures_tuple() {
-        // 解构 Split：元组 → (第一个元素, 第二个元素)
-        struct TupleSplit;
-        impl Split<(i32, String)> for TupleSplit {
-            type Left = i32;
-            type Right = String;
-            fn split(input: (i32, String)) -> (i32, String) {
-                input
-            }
-        }
-
-        let (a, b) = TupleSplit::split((42, "hello".into()));
-        assert_eq!(a, 42);
-        assert_eq!(b, "hello");
-    }
-
-    // ── Merge 测试 ───────────────────────────────────────────────────────
-
-    #[test]
     fn merge_combines_two_values() {
         struct SumMerge;
         impl Merge<i32, i32> for SumMerge {
             type Output = i32;
-            fn merge(a: i32, b: i32) -> i32 {
-                a + b
-            }
+            fn merge(a: i32, b: i32) -> i32 { a + b }
         }
-
         assert_eq!(SumMerge::merge(3, 4), 7);
     }
-
-    #[test]
-    fn merge_interleaves_vectors() {
-        use alloc::vec::Vec;
-        struct InterleaveMerge;
-        impl Merge<Vec<i32>, Vec<i32>> for InterleaveMerge {
-            type Output = Vec<i32>;
-            fn merge(a: Vec<i32>, b: Vec<i32>) -> Vec<i32> {
-                let mut result = Vec::with_capacity(a.len() + b.len());
-                let mut ai = a.into_iter();
-                let mut bi = b.into_iter();
-                loop {
-                    match (ai.next(), bi.next()) {
-                        (None, None) => break,
-                        (av, bv) => {
-                            if let Some(v) = av { result.push(v); }
-                            if let Some(v) = bv { result.push(v); }
-                        }
-                    }
-                }
-                result
-            }
-        }
-
-        let result = InterleaveMerge::merge(vec![1, 3], vec![2, 4]);
-        assert_eq!(result, vec![1, 2, 3, 4]);
-    }
-
-    #[test]
-    fn merge_selects_first_if_some() {
-        struct OrMerge;
-        impl Merge<Option<i32>, Option<i32>> for OrMerge {
-            type Output = Option<i32>;
-            fn merge(a: Option<i32>, b: Option<i32>) -> Option<i32> {
-                a.or(b)
-            }
-        }
-
-        assert_eq!(OrMerge::merge(Some(1), None), Some(1));
-        assert_eq!(OrMerge::merge(None, Some(2)), Some(2));
-        assert_eq!(OrMerge::merge(None, None), None);
-    }
-
-    // ── 错误类型测试 ─────────────────────────────────────────────────────
 
     #[test]
     fn static_exec_error_display() {

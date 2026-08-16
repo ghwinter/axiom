@@ -17,7 +17,7 @@ use crate::erasure::{ProcessResult, RunningMachine};
 use crate::error::RuntimeError;
 use crate::io::{IoInterest, IoReactor, IoToken, RawIo};
 use crate::registry::Registry;
-use crate::routing::{has_cycle, mark_stopped, route_parallel_outputs, route_target, validate_endpoint};
+use crate::routing::{has_cycle, mark_stopped, route_parallel_outputs, validate_endpoint};
 use crate::topology::{LiveTopology, PhysicalLink};
 
 /// axiom 统一 runtime。
@@ -149,7 +149,24 @@ impl Runtime {
         let (machines, links, topo_order, machine_index, in_degree) =
             crate::fusion::apply_fusion(machines, links, topo_order);
 
-        self.topology = Some(LiveTopology { machines, links, topo_order, machine_index, in_degree });
+        // P2：构建路由索引——物化期事实（含融合后拓扑），tick 热路径
+        // O(log L) 查找，消除 route_target 的 O(L) 线性扫描。
+        let mut route_map: BTreeMap<String, BTreeMap<String, (String, String)>> = BTreeMap::new();
+        for l in &links {
+            route_map
+                .entry(l.src_machine.clone())
+                .or_default()
+                .insert(l.src_port.clone(), (l.dst_machine.clone(), l.dst_port.clone()));
+        }
+
+        self.topology = Some(LiveTopology {
+            machines,
+            links,
+            topo_order,
+            machine_index,
+            in_degree,
+            route_map,
+        });
         Ok(())
     }
 
@@ -234,16 +251,25 @@ impl Runtime {
             match result {
                 ProcessResult::Idle => {}
                 ProcessResult::Yield { port, value } => {
-                    if let Some((dst_machine, dst_port)) = route_target(&topology.links, &name, &port) {
-                        queue.push_back((dst_machine, dst_port, value));
+                    // P2：物化期路由索引 O(log L) 查找（替代 O(L) 线性扫描）。
+                    if let Some((dst_machine, dst_port)) = topology
+                        .route_map
+                        .get(name.as_str())
+                        .and_then(|m| m.get(port))
+                    {
+                        queue.push_back((dst_machine.clone(), dst_port.clone(), value));
                     } else {
                         outputs.push(ProcessResult::Yield { port, value });
                     }
                 }
                 ProcessResult::YieldMulti { outputs: list } => {
                     for (port, value) in list {
-                        if let Some((dst_machine, dst_port)) = route_target(&topology.links, &name, &port) {
-                            queue.push_back((dst_machine, dst_port, value));
+                        if let Some((dst_machine, dst_port)) = topology
+                            .route_map
+                            .get(name.as_str())
+                            .and_then(|m| m.get(port))
+                        {
+                            queue.push_back((dst_machine.clone(), dst_port.clone(), value));
                         } else {
                             outputs.push(ProcessResult::Yield { port, value });
                         }

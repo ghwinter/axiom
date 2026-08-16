@@ -163,6 +163,39 @@ impl Default for DeploySettings {
     }
 }
 
+// ── Incremental patch ─────────────────────────────────────────────────────────
+
+/// 蓝图的增量补丁——声明式意图（幂等）。
+///
+/// 用于蓝图的**增量演进**：消费者（如 AI 蓝图接口）读取当前蓝图后，生成
+/// 一个 `Patch` 序列而非重写全图。所有操作**幂等**——`remove` 一个不存在
+/// 的机器/链接是 no-op，`upsert` 按标识（机器名 / 链接端点）匹配，已存在
+/// 则替换、否则添加。
+///
+/// 应用后配合 [`DeploySpec::validate`] / [`DeploySpec::validate_deep`] 验证
+/// 结果——补丁本身不报错（幂等），正确性由验证器把关。这与蓝图的可
+/// serialize 特性契合：AI 写 JSON 补丁，得到结构化验证错误，迭代。
+///
+/// # 标识约定
+///
+/// - 机器实例以 `name` 为标识；
+/// - 链接以 `(out, into)` 端点对为标识（`(machine, port)` 各一）。
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+pub enum Patch {
+    /// Upsert 机器实例：按 `name` 匹配，已存在则整体替换，否则添加。
+    UpsertMachine(MachineInstance),
+    /// 移除机器（按 `name`）及其所有相关链接；不存在则 no-op。
+    RemoveMachine(Cow<'static, str>),
+    /// Upsert 链接：按 `(out, into)` 端点匹配，已存在则替换 `kind`，否则添加。
+    UpsertLink(LinkSpec),
+    /// 移除链接（按 `(out, into)` 端点匹配）；不存在则 no-op。
+    RemoveLink {
+        out: (Cow<'static, str>, Cow<'static, str>),
+        into: (Cow<'static, str>, Cow<'static, str>),
+    },
+}
+
 // ── Full spec ─────────────────────────────────────────────────────────────────
 
 /// Complete deployment specification.
@@ -207,6 +240,53 @@ impl DeploySpec {
     pub fn with_link(mut self, l: LinkSpec) -> Self {
         self.links.push(l);
         self
+    }
+
+    /// Apply an incremental patch (idempotent).
+    ///
+    /// See [`Patch`] for the semantics of each variant. Applying a patch never
+    /// fails — `remove` of an absent machine/link is a no-op, `upsert` matches
+    /// by identity. Verify the result with [`validate`](Self::validate) or
+    /// [`validate_deep`](Self::validate_deep).
+    pub fn apply_patch(&mut self, patch: &Patch) {
+        match patch {
+            Patch::UpsertMachine(m) => {
+                if let Some(existing) = self.machines.iter_mut().find(|x| x.name == m.name) {
+                    *existing = m.clone();
+                } else {
+                    self.machines.push(m.clone());
+                }
+            }
+            Patch::RemoveMachine(name) => {
+                self.machines
+                    .retain(|m| m.name.as_ref() != name.as_ref());
+                self.links.retain(|l| {
+                    l.out.0.as_ref() != name.as_ref() && l.into.0.as_ref() != name.as_ref()
+                });
+            }
+            Patch::UpsertLink(l) => {
+                if let Some(existing) = self
+                    .links
+                    .iter_mut()
+                    .find(|x| x.out == l.out && x.into == l.into)
+                {
+                    existing.kind = l.kind.clone();
+                } else {
+                    self.links.push(l.clone());
+                }
+            }
+            Patch::RemoveLink { out, into } => {
+                self.links
+                    .retain(|l| !(l.out == *out && l.into == *into));
+            }
+        }
+    }
+
+    /// Apply a sequence of patches in order.
+    pub fn apply_patches(&mut self, patches: &[Patch]) {
+        for p in patches {
+            self.apply_patch(p);
+        }
     }
 
     /// Validate the spec (structural):
@@ -955,6 +1035,89 @@ mod tests {
         PortSchema::new()
             .with(PortDecl::output::<i32>("out"))
             .with(PortDecl::input::<i32>("in"))
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // apply_patch() — incremental patch (idempotent)
+    // ══════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn apply_patch_upsert_machine() {
+        let mut spec = DeploySpec::new().with_machine(machine("a"));
+        // upsert 已存在的机器：整体替换。
+        let updated = MachineInstance::new("a", "new_type", MachinePhysicalSpec::default());
+        spec.apply_patch(&Patch::UpsertMachine(updated));
+        assert_eq!(spec.machines.len(), 1);
+        assert_eq!(spec.machines[0].machine_type.as_ref(), "new_type");
+        // upsert 新机器：添加。
+        spec.apply_patch(&Patch::UpsertMachine(machine("b")));
+        assert_eq!(spec.machines.len(), 2);
+    }
+
+    #[test]
+    fn apply_patch_remove_machine_cascades_links() {
+        let mut spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(inline("a", "out", "b", "in"));
+        spec.apply_patch(&Patch::RemoveMachine("a".into()));
+        assert_eq!(spec.machines.len(), 1);
+        assert!(spec.links.is_empty(), "removing a machine cascades its links");
+        // 幂等：再删一次仍是 no-op。
+        spec.apply_patch(&Patch::RemoveMachine("a".into()));
+        assert_eq!(spec.machines.len(), 1);
+    }
+
+    #[test]
+    fn apply_patch_upsert_link_replaces_kind() {
+        let mut spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(inline("a", "out", "b", "in"));
+        // upsert 相同端点：替换 kind。
+        let channel = LinkSpec::new(
+            ("a", "out"),
+            ("b", "in"),
+            LinkKind::Channel {
+                capacity: 8,
+                drop_when_full: true,
+            },
+        );
+        spec.apply_patch(&Patch::UpsertLink(channel));
+        assert_eq!(spec.links.len(), 1);
+        assert!(matches!(spec.links[0].kind, LinkKind::Channel { .. }));
+    }
+
+    #[test]
+    fn apply_patch_remove_link_idempotent() {
+        let mut spec = DeploySpec::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(inline("a", "out", "b", "in"));
+        let out = ("a".into(), "out".into());
+        let into = ("b".into(), "in".into());
+        spec.apply_patch(&Patch::RemoveLink {
+            out: out.clone(),
+            into: into.clone(),
+        });
+        assert!(spec.links.is_empty());
+        // 幂等：再删一次仍是 no-op。
+        spec.apply_patch(&Patch::RemoveLink { out, into });
+        assert!(spec.links.is_empty());
+    }
+
+    #[test]
+    fn apply_patches_sequence() {
+        // 一次应用多个补丁：从空蓝图重建一个拓扑。
+        let mut spec = DeploySpec::new();
+        spec.apply_patches(&[
+            Patch::UpsertMachine(machine("a")),
+            Patch::UpsertMachine(machine("b")),
+            Patch::UpsertLink(inline("a", "out", "b", "in")),
+        ]);
+        assert_eq!(spec.machines.len(), 2);
+        assert_eq!(spec.links.len(), 1);
+        assert!(spec.validate().is_ok());
     }
 
     // ══════════════════════════════════════════════════════════════════

@@ -114,10 +114,21 @@ The two layers are disjoint. When we say "module $M$ sends data to module $N$", 
 The static path monomorphizes over concrete machine types and inlines `Link::extract` / `Split::split` / `Merge::merge` — in release the compiled code is equivalent to hand-writing the batch loop directly. The dynamic path must type-erase via `Box<dyn Any>` because topology is not known until runtime; this "dynamic tax" is mathematically unavoidable, not an implementation defect. **Neither path imposes a linear assumption on the model** — an arbitrary graph runs on the dynamic path; only the optimization (monomorphization) is shape-restricted.
 
 > **Scope note (anti-narrowing rule).** The static execution path
-> (`axiom_runtime::static_path`) supports linear pipelines (`pipeline2`/`pipeline3`),
-> fan-out (`fanout2` via `Split`), and fan-in (`fanin2` via `Merge`). It is acyclic
-> (synchronous batch model); diamond topologies require composing `fanout2` +
-> `fanin2` manually. A `dag` combinator for arbitrary DAGs is future work. See
+> (`axiom_runtime::static_path`) supports linear pipelines (`pipeline2`/`pipeline3`,
+> `pipeline_chain`), fan-out (`fanout2` via `Split`), fan-in (`fanin2` via `Merge`),
+> and diamonds (`diamond` / `Diamond`, whose arms and downstream may be arbitrary
+> chains). It is acyclic (synchronous batch model). The **combinators** (`Chain`/
+> `Diamond`/`feedback`) execute on bare payloads via `StraightMachine` — no port
+> enum tags, no runtime validation of data origin/destination (P0): origin/destination
+> is fixed by the type system at compile time, so a routing mistake is a business-logic
+> error, not a per-message performance tax. `Chain` (serial) and `Diamond`
+> (split-merge) form a recursive algebra that generates exactly the **series-parallel
+> DAGs** — pipelines, map-reduce, diamond networks, multi-level split-merge trees —
+> all monomorphized. Truly arbitrary DAGs (with non-series-parallel cross edges) are
+> outside this algebra: stable Rust cannot express an arbitrary edge table while
+> keeping port types type-safe (the edge table is value-level, the port types are
+> type-level). Such topologies take the dynamic path (`Runtime`); like the dynamic
+> tax, this is a type-system boundary, not an implementation gap. See
 > `docs/philosophy.md` §"The structural scope constraint" and `docs/architecture.md`
 > §"Static execution path" for details.
 

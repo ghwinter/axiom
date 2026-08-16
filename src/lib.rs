@@ -82,6 +82,7 @@ pub mod machine;
 pub mod migrate;
 pub mod port;
 pub mod portset;
+pub mod projection;
 pub mod resource;
 pub mod runtime_contract;
 pub mod session;
@@ -100,7 +101,7 @@ pub mod prelude_all {
         Identity, Sink, Tee, Latch, Collector, EntityRoot, FuncMachine,
     };
     pub use crate::composite::{CompositeSpec, CompositeError, expand_composites};
-    pub use crate::deploy::{DeploySpec, DeploySettings, MachineInstance, FuncBinding, ValidationError};
+    pub use crate::deploy::{DeploySpec, DeploySettings, MachineInstance, FuncBinding, Patch, ValidationError};
     #[cfg(feature = "std")]
     pub use crate::config::{ConfigCell, ConfigError};
     pub use crate::entity::{Entity, EntityRestoreError};
@@ -125,13 +126,17 @@ pub mod prelude_all {
         In, Out, SinglePorts,        // single-port convenience
         NoInput, NoOutput,           // empty-port convenience
     };
+    pub use crate::projection::{Projection, replay};
     pub use crate::resource::{MachinePhysicalSpec, ExecutionHint, ResourceClass, ThreadPoolSpec};
     pub use crate::session::{
         SessionType, SessionOp, SessionState, SessionProtocol, SessionError, is_dual,
         GlobalType, GlobalOp, LocalType, LocalOp, Role, project, is_consistent,
     };
     pub use crate::stream::StreamingMachine;
-    pub use crate::static_exec::{Link, IdLink, Split, CloneSplit, Merge, StaticExecError};
+    pub use crate::static_exec::{
+        Link, IdLink, Split, CloneSplit, Merge, StaticExecError,
+        StraightMachine, StraightLink, StraightId, StraightSplit, StraightClone, StraightMerge,
+    };
     pub use crate::time::{TimeTick, Clock, RealClock, ReplayClock};
     pub use crate::topology::{DynamicTopology, TopologyOp, TopologyDelta, AppliedOp, TopologyError};
     pub use crate::analysis::{
