@@ -3,7 +3,7 @@
 //! `Machine` 默认**封装**状态（局部性、可验证：状态只被自己的 `process`
 //! 改），但跨机器数据共享受限。本模块提供 [`SharedResource`]——一个可被
 //! 多个计算单元声明读写的全局单例数据——兼得封装的局部性与数据驱动的
-//! 组合性（bevy 的 `Resource` 在 axiom 的受控形态）。
+//! 组合性（共享数据原语（`Resource` 类）在 axiom 的受控形态）。
 //!
 //! # 与 `Machine` 封装的关系
 //!
@@ -90,7 +90,7 @@ mod tests {
 
     #[test]
     fn shared_resource_multi_handle() {
-        // 多个句柄共享同一份数据（bevy Resource 的受控形态）。
+        // 多个句柄共享同一份数据（共享数据原语（`Resource` 类）的受控形态）。
         let shared = SharedResource::new(vec![1i32, 2, 3]);
         let handle_a = shared.clone_handle();
         let handle_b = shared.clone_handle();

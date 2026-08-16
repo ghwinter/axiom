@@ -37,8 +37,8 @@
 // builds are unaffected).
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-// axiom core contains no `unsafe` — make that a compile-time promise (bevy
-// precedent). The runtime's lock-free ring (`CarFreeRing`) and replay entries
+// axiom core contains no `unsafe` — make that a compile-time promise (an
+// ecosystem precedent). The runtime's lock-free ring (`CarFreeRing`) and replay entries
 // live in `axiom-runtime`, outside this crate.
 #![forbid(unsafe_code)]
 

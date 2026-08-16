@@ -113,15 +113,23 @@ The two layers are disjoint. When we say "module $M$ sends data to module $N$", 
 
 | Path | Topology shape | Topology known at | Per-message cost | Zero-cost? | Role |
 |------|---------------|-------------------|------------------|------------|------|
-| **DeploySpec + Runtime** (main model) | **arbitrary graph** (cycles, fan-in/out, composite) | runtime | bounded (heap alloc + dispatch) | no (dynamic tax unavoidable) | general execution: complex graph systems |
+| **DeploySpec + Runtime** (main model) | **arbitrary graph** (cycles, fan-in/out, composite) | runtime | fused: 1 alloc/msg (typed-slot reuse); plain: per-hop alloc + vtable | no (dynamic tax: dispatch + type-erasure) | general execution: complex graph systems |
 | **static_path** (optimization subset) | fixed shape (linear/fan/diamond) | compile time | **zero** | yes | hot paths: compile-time-known shape |
 
 The static path monomorphizes over concrete machine types and inlines
 `StraightLink::convert` / `StraightSplit::split` / `StraightMerge::merge` — in
-release the compiled code is equivalent to hand-writing the batch loop
-directly. The dynamic path must type-erase via `Box<dyn Any>` because topology
-is not known until runtime; this "dynamic tax" is mathematically unavoidable,
-not an implementation defect. **Neither path imposes a linear assumption on
+release the compiled code is equivalent to hand-writing the streaming loop
+directly. **`StaticChain` executes via `FlowThrough`** (see `axiom::static_exec`):
+all machine states are initialized once into a type-tuple, values flow through
+the whole chain element-by-element (nested calls, no intermediate `Vec`
+staging), and cleanup runs once per batch — the execution shape is isomorphic
+to a handwritten loop (bench: `ε ≈ 1–5%` vs handwritten, within noise). The
+dynamic path must type-erase via `Box<dyn Any>` because topology
+is not known until runtime; this "dynamic tax" is the dispatch + type-erasure
+cost of the dynamic path — measured 1.0 allocs/msg for fused chains (typed-slot
+reuse, `runtime/src/typed_slot.rs`) vs 0.000 for the static path (see
+`docs/foundations.md` §15.3 for the 2026-08 revision and the falsified
+"~5× / 1 alloc per message" claim). **Neither path imposes a linear assumption on
 the model** — an arbitrary graph runs on the dynamic path; only the
 optimization (monomorphization) is shape-restricted.
 

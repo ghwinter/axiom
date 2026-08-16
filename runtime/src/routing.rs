@@ -3,7 +3,7 @@
 //! 这些函数无状态、无副作用（除 `mark_stopped` 改传入集合），便于
 //! 在两种驱动模式下复用，也便于单元测试。
 
-use alloc::collections::{BTreeMap, BTreeSet};
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 
 use axiom::port::PortDir;
@@ -53,25 +53,27 @@ pub(crate) fn route_parallel_outputs(
 /// `pending_sources` 是 `LiveTopology::in_degree` 的克隆副本（按
 /// `topo_order` 索引）；`machine_index` 把机器名映射到该索引。
 /// 源停机时递减下游的入度，归零表示该机器不再有任何活跃上游 →
-/// 它也应停机（级联）。环由 `stopped` 集合（insert 防重入）终止。
+/// 它也应停机（级联）。环由 `stopped` 位集（按 ID，P0）终止。
 ///
 /// 用索引数组而非 `BTreeMap<String, usize>` 承载入度——`materialize`
 /// 一次性建表，tick 热路径只克隆 `Vec<usize>`（单次分配，与链路数
 /// 无关），保证 R002 "每链接常数分配"不变量。
 pub(crate) fn mark_stopped(
-    machine: &str,
-    stopped: &mut BTreeSet<String>,
+    machine_id: usize,
+    machine_name: &str,
+    stopped: &mut [bool],
     pending_sources: &mut [usize],
     machine_index: &BTreeMap<String, usize>,
     links: &[PhysicalLink],
 ) {
-    if stopped.insert(machine.to_string()) {
-        for link in links.iter().filter(|l| l.src_machine == machine) {
+    if !stopped[machine_id] {
+        stopped[machine_id] = true;
+        for link in links.iter().filter(|l| l.src_machine == machine_name) {
             if let Some(&idx) = machine_index.get(&link.dst_machine) {
                 let deg = &mut pending_sources[idx];
                 *deg -= 1;
                 if *deg == 0 {
-                    mark_stopped(&link.dst_machine, stopped, pending_sources, machine_index, links);
+                    mark_stopped(idx, &link.dst_machine, stopped, pending_sources, machine_index, links);
                 }
             }
         }

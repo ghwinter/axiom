@@ -21,3 +21,8 @@ axiom = { path = "..", version = "0.1.0" }
 default = ["std"]
 std = []
 
+
+[[bench]]
+name = "dynamic"
+harness = false
+

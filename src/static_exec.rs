@@ -386,81 +386,136 @@ impl<Head, Tail, L> Default for Chain<Head, Tail, L> {
 /// - `Chain<Head, Tail>` 实现为"跑 Head → `StraightLink::convert` 转换 →
 ///   递归 `Tail::run_all`"（递归步），编译期展开到任意深度。
 ///
-/// `run_all` 消费全部输入并返回最终输出。载荷是**裸数据**（`StraightIn`/
-/// `StraightOut`），无端口枚举、无标签检查——来源/去向由类型系统在编译期
-/// 固定，物理执行零验证（P0：消除端口标签税）。
-pub trait StaticChain: Sized {
+/// 流式执行契约（P0 范式革新：执行形态同构）。
+///
+/// 持有整条链所有机器 State 的组合（类型元组，编译期展开），逐元素流过——
+/// 单 for 循环 + 嵌套调用 + 仅 out `Vec`，与手写循环的执行形态同构（消除
+/// 批量中转的形态差，`ε → 0`）。这回答了"更好的实现是什么"：静态路径从
+/// "递归批量中转"革新为"线性流式状态机"。
+pub trait FlowThrough: Sized {
     /// 链首机器类型（递归步需要：`StraightLink<Prev, Self::Head>`）。
+    ///
+    /// `process_one` 的输入类型即 `<Self::Head as StraightMachine>::StraightIn`
+    /// ——来源/去向由类型系统在编译期固定，物理执行零验证（P0）。
     type Head: StraightMachine;
-    /// 链尾裸输出类型。
-    type Output: Send + 'static;
+    /// 逐元素输出类型（尾机器载荷）。
+    type Out;
+    /// 整条链所有机器 State 的组合（类型元组）。
+    type States;
 
-    /// 一次性执行整个链。输入类型即 `Self::Head::StraightIn`。
-    fn run_all(
-        inputs: Vec<<Self::Head as StraightMachine>::StraightIn>,
-    ) -> Result<Vec<Self::Output>, StaticExecError>;
+    /// 初始化所有机器 State（一次，供整批流式使用）。
+    fn new_states() -> Result<Self::States, StaticExecError>;
+    /// 逐元素处理：一个输入流过整条链，产出一个输出。
+    fn process_one(
+        states: &mut Self::States,
+        input: <Self::Head as StraightMachine>::StraightIn,
+    ) -> Self::Out;
+    /// 清理所有机器 State（批结束时一次）。
+    fn cleanup(states: Self::States) -> Result<(), StaticExecError>;
 }
 
-// 基例：单机器（任何 StraightMachine 机器都是一条单级链）。
-impl<M> StaticChain for M
-where
-    M: StraightMachine,
-{
-    type Head = M;
-    type Output = M::StraightOut;
-
-    fn run_all(inputs: Vec<M::StraightIn>) -> Result<Vec<M::StraightOut>, StaticExecError> {
-        let ctx = MachineContext::new(M::name());
-        let mut state = M::init(&ctx).map_err(|e| StaticExecError::InitFailed {
-            machine: M::name(),
-            reason: e.to_string(),
-        })?;
-        // 预分配（P1）：输入长度已知，避免逐输入 realloc。
+/// 编译期线性链的递归执行契约。
+///
+/// - 单机器 `M: StraightMachine` 自动实现（基例）。
+/// - `Chain<Head, Tail>` 实现为"跑 Head → `StraightLink::convert` 转换 →
+///   递归 `Tail::process_one`"（递归步），编译期展开到任意深度。
+///
+/// `run_all` 消费全部输入并返回最终输出，**内部流式执行**（`FlowThrough`）：
+/// 所有机器 State 一次初始化，逐元素流过整条链——无中间 `Vec` 中转，
+/// 执行形态与手写循环同构。
+pub trait StaticChain: FlowThrough {
+    /// 一次性执行整个链。输入类型即链首机器裸输入。
+    ///
+    /// 默认实现为**流式**：`new_states` 一次初始化全部 State → 逐元素
+    /// `process_one` → 批末 `cleanup`。仅 out `Vec` 分配（`with_capacity`）。
+    fn run_all(
+        inputs: Vec<<Self::Head as StraightMachine>::StraightIn>,
+    ) -> Result<Vec<Self::Out>, StaticExecError> {
+        let mut states = Self::new_states()?;
         let mut outputs = Vec::with_capacity(inputs.len());
         for input in inputs {
-            // 裸载荷直传：无枚举 match、无 ctx、无 ProcessOutput 分派。
-            outputs.push(M::process_straight(&mut state, input));
+            outputs.push(Self::process_one(&mut states, input));
         }
-        M::cleanup(state, &ctx).map_err(|e| StaticExecError::CleanupFailed {
-            machine: M::name(),
-            reason: e.to_string(),
-        })?;
+        Self::cleanup(states)?;
         Ok(outputs)
     }
 }
 
+// 基例：单机器（任何 StraightMachine 机器都是一条单级链）。
+impl<M> FlowThrough for M
+where
+    M: StraightMachine,
+{
+    type Head = M;
+    type Out = M::StraightOut;
+    type States = M::State;
+
+    fn new_states() -> Result<Self::States, StaticExecError> {
+        let ctx = MachineContext::new(M::name());
+        M::init(&ctx).map_err(|e| StaticExecError::InitFailed {
+            machine: M::name(),
+            reason: e.to_string(),
+        })
+    }
+    fn process_one(state: &mut Self::States, input: M::StraightIn) -> Self::Out {
+        M::process_straight(state, input)
+    }
+    fn cleanup(state: Self::States) -> Result<(), StaticExecError> {
+        let ctx = MachineContext::new(M::name());
+        M::cleanup(state, &ctx).map_err(|e| StaticExecError::CleanupFailed {
+            machine: M::name(),
+            reason: e.to_string(),
+        })
+    }
+}
+
+impl<M> StaticChain for M where M: StraightMachine {}
+
 // 递归步：Head → Tail。
-impl<Head, Tail, L> StaticChain for Chain<Head, Tail, L>
+impl<Head, Tail, L> FlowThrough for Chain<Head, Tail, L>
 where
     Head: StraightMachine,
     Tail: StaticChain,
     L: StraightLink<Head, Tail::Head>,
 {
     type Head = Head;
-    type Output = Tail::Output;
+    type Out = Tail::Out;
+    type States = (Head::State, Tail::States);
 
-    fn run_all(inputs: Vec<Head::StraightIn>) -> Result<Vec<Tail::Output>, StaticExecError> {
+    fn new_states() -> Result<Self::States, StaticExecError> {
         let ctx = MachineContext::new(Head::name());
-        let mut state = Head::init(&ctx).map_err(|e| StaticExecError::InitFailed {
+        let head_state = Head::init(&ctx).map_err(|e| StaticExecError::InitFailed {
             machine: Head::name(),
             reason: e.to_string(),
         })?;
-        let mut head_out = Vec::with_capacity(inputs.len());
-        for input in inputs {
-            head_out.push(Head::process_straight(&mut state, input));
-        }
-        Head::cleanup(state, &ctx).map_err(|e| StaticExecError::CleanupFailed {
-            machine: Head::name(),
-            reason: e.to_string(),
-        })?;
-
-        // 经 StraightLink 裸转换（无枚举 match、无 Option 检查），递归执行。
-        let tail_inputs: Vec<<Tail::Head as StraightMachine>::StraightIn> = head_out
-            .into_iter()
-            .map(L::convert)
-            .collect();
-        Tail::run_all(tail_inputs)
+        let tail_states = Tail::new_states()?;
+        Ok((head_state, tail_states))
     }
+    fn process_one(
+        (head_state, tail_states): &mut Self::States,
+        input: Head::StraightIn,
+    ) -> Self::Out {
+        // 流式：值直接流过 Head → Link → Tail，无中间 Vec。
+        let head_out = Head::process_straight(head_state, input);
+        let tail_in = L::convert(head_out);
+        Tail::process_one(tail_states, tail_in)
+    }
+    fn cleanup((head_state, tail_states): Self::States) -> Result<(), StaticExecError> {
+        let ctx = MachineContext::new(Head::name());
+        Head::cleanup(head_state, &ctx).map_err(|e| StaticExecError::CleanupFailed {
+            machine: Head::name(),
+            reason: e.to_string(),
+        })?;
+        Tail::cleanup(tail_states)
+    }
+}
+
+impl<Head, Tail, L> StaticChain for Chain<Head, Tail, L>
+where
+    Head: StraightMachine,
+    Tail: StaticChain,
+    L: StraightLink<Head, Tail::Head>,
+{
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -528,6 +583,60 @@ impl<A, Left, Right, Down, S, LB, LC, M> Default for Diamond<A, Left, Right, Dow
     }
 }
 
+impl<A, Left, Right, Down, S, LB, LC, M> FlowThrough for Diamond<A, Left, Right, Down, S, LB, LC, M>
+where
+    A: StraightMachine,
+    Left: StaticChain,
+    Right: StaticChain,
+    Down: StaticChain,
+    S: StraightSplit<A::StraightOut, Left = A::StraightOut, Right = A::StraightOut>,
+    LB: StraightLink<A, Left::Head>,
+    LC: StraightLink<A, Right::Head>,
+    M: StraightMerge<Left::Out, Right::Out, Output = <Down::Head as StraightMachine>::StraightIn>,
+{
+    type Head = A;
+    type Out = Down::Out;
+    type States = (A::State, Left::States, Right::States, Down::States);
+
+    fn new_states() -> Result<Self::States, StaticExecError> {
+        let ctx_a = MachineContext::new(A::name());
+        let a_state = A::init(&ctx_a).map_err(|e| StaticExecError::InitFailed {
+            machine: A::name(),
+            reason: e.to_string(),
+        })?;
+        let left_states = Left::new_states()?;
+        let right_states = Right::new_states()?;
+        let down_states = Down::new_states()?;
+        Ok((a_state, left_states, right_states, down_states))
+    }
+
+    fn process_one(
+        (a_state, left_states, right_states, down_states): &mut Self::States,
+        input: A::StraightIn,
+    ) -> Self::Out {
+        // 流式：一个输入流过 A → Split → 双臂 → Merge → Down，无中间 Vec。
+        let a_out = A::process_straight(a_state, input);
+        let (left, right) = S::split(a_out);
+        let left_out = Left::process_one(left_states, LB::convert(left));
+        let right_out = Right::process_one(right_states, LC::convert(right));
+        let merged = M::merge(left_out, right_out);
+        Down::process_one(down_states, merged)
+    }
+
+    fn cleanup(
+        (a_state, left_states, right_states, down_states): Self::States,
+    ) -> Result<(), StaticExecError> {
+        let ctx_a = MachineContext::new(A::name());
+        A::cleanup(a_state, &ctx_a).map_err(|e| StaticExecError::CleanupFailed {
+            machine: A::name(),
+            reason: e.to_string(),
+        })?;
+        Left::cleanup(left_states)?;
+        Right::cleanup(right_states)?;
+        Down::cleanup(down_states)
+    }
+}
+
 impl<A, Left, Right, Down, S, LB, LC, M> StaticChain for Diamond<A, Left, Right, Down, S, LB, LC, M>
 where
     A: StraightMachine,
@@ -537,65 +646,8 @@ where
     S: StraightSplit<A::StraightOut, Left = A::StraightOut, Right = A::StraightOut>,
     LB: StraightLink<A, Left::Head>,
     LC: StraightLink<A, Right::Head>,
-    M: StraightMerge<
-        Left::Output,
-        Right::Output,
-        Output = <Down::Head as StraightMachine>::StraightIn,
-    >,
+    M: StraightMerge<Left::Out, Right::Out, Output = <Down::Head as StraightMachine>::StraightIn>,
 {
-    type Head = A;
-    type Output = Down::Output;
-
-    fn run_all(inputs: Vec<A::StraightIn>) -> Result<Vec<Down::Output>, StaticExecError> {
-        let ctx_a = MachineContext::new(A::name());
-        let mut state_a = A::init(&ctx_a).map_err(|e| StaticExecError::InitFailed {
-            machine: A::name(),
-            reason: e.to_string(),
-        })?;
-
-        // Stage A：上游（裸载荷直传）。
-        let mut a_outputs = Vec::with_capacity(inputs.len());
-        for input in inputs {
-            a_outputs.push(A::process_straight(&mut state_a, input));
-        }
-
-        // Split + Link：分叉后裸转换为两臂首机器的输入。
-        let mut left_inputs: Vec<<Left::Head as StraightMachine>::StraightIn> =
-            Vec::with_capacity(a_outputs.len());
-        let mut right_inputs: Vec<<Right::Head as StraightMachine>::StraightIn> =
-            Vec::with_capacity(a_outputs.len());
-        for o in a_outputs {
-            let (left, right) = S::split(o);
-            left_inputs.push(LB::convert(left));
-            right_inputs.push(LC::convert(right));
-        }
-
-        // 左右臂：各自是任意深度的 `StaticChain`，独立执行（其机器的
-        // init/cleanup 由各自的 `run_all` 保证）。
-        let left_result = Left::run_all(left_inputs);
-        let right_result = Right::run_all(right_inputs);
-
-        // A 已完成使命，无论左右臂结果如何都 cleanup。
-        A::cleanup(state_a, &ctx_a).map_err(|e| StaticExecError::CleanupFailed {
-            machine: A::name(),
-            reason: e.to_string(),
-        })?;
-
-        let left_outputs = left_result?;
-        let right_outputs = right_result?;
-
-        // Merge：两臂尾裸输出 zip 配对后合并为下游首机器裸输入。
-        let down_inputs: Vec<<Down::Head as StraightMachine>::StraightIn> = left_outputs
-            .into_iter()
-            .zip(right_outputs.into_iter())
-            .map(|(l, r)| M::merge(l, r))
-            .collect();
-
-        // 下游链。
-        let down_outputs = Down::run_all(down_inputs)?;
-
-        Ok(down_outputs)
-    }
 }
 
 // ════════════════════════════════════════════════════════════════════════════

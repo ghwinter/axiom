@@ -166,8 +166,59 @@ t(α) = t(h) + ε, ε < 5%  ⟺  dist(Shape(exec(α)), Shape(exec(h))) → 0
 
 - 静态路径（同步计算管道）的**正确执行形态是流式**（手写形态）——批量中转是
   实现偏差，革新方向是"线性流式"（State 一次初始化 + 嵌套调用 + 仅 out Vec）。
+  **已实施**：`FlowThrough`（`StaticChain` 线性流式），静态路径 0 allocs/msg，
+  `ε ≈ 1–5%`（bench 实测，见 [`zero-cost-paradigm.md`](zero-cost-paradigm.md)）。
 - 流式不是全局通用最优（IO 密集/吞吐任务有各自的形态），而是数据流形态维度
   的一个标准成员，按任务类型选择。
+
+### 5.4 动态路径的下限（2026-08 修订）
+
+**元问题**："动态税不可避免"是真的吗？——**部分真，早期论证错误**：
+
+- **早期论证错误**（`foundations.md` 原定理 15.3）：声称每消息"1 次堆分配 +
+  1 次分派 + 1 次字符串比较"且 ~5×。**实测（3 级链，分配计数器）**：改造前
+  **6.0 allocs/msg（每级 2 次）**、动态税 ~400×——字符串比较与每级 2 次
+  装箱都是**实现冗余**（ID 化 + `inject` 免冗余装箱已消除）。
+- **安全 Rust 的不可消除部分曾是"每级 1 次 `Box` + 1 次虚调用"**——值跨
+  异构类型传递需 `Box<dyn Any>`（`forbid(unsafe_code)` 禁止零分配类型
+  转换）；运行时 `TypeId` 相等无法类型化写入（曾证伪，见
+  `foundations.md` §15.3）。
+- **unsafe 破局（§5.5 分层决策后）**：runtime 层封装点 `typed_slot`
+  （`TypeId` 检查 + 位拷贝 `ptr::read`/`copy_nonoverlapping`）达成**同类型
+  级间 0 分配**——融合链实测 **1.0 allocs/msg**（外部输入 1 次）、时间
+  36→27ms。**剩余税 = 动态分派 + 类型擦除机制成本**（虚调用 ~70ns/级），
+  非分配。
+
+**指导**：动态路径的分配税已降至外部输入 1 次（融合链）；剩余税是动态分派
+（虚调用）的机制成本，随**级数**线性增长。深链/热路径仍优先静态路径
+（0 分配 + 0 分派）；动态路径的"任意拓扑"价值与每级虚调用权衡
+（`foundations.md` §15.3 修订版）。
+
+### 5.5 unsafe 策略分层（2026-08 确立）
+
+**原则**：axiom 按抽象/执行两层划分 unsafe 边界，遵循生态标准模式
+（Rust 标准库、tokio、rayon 等事实标准库均在上层 `forbid(unsafe_code)` /
+核心封装 unsafe 的分层下运行；axiom 的 core/runtime 结构遵循同一模式）。
+
+- **core（抽象层）**：`#![forbid(unsafe_code)]`（`src/lib.rs`）。抽象层的
+  类型承诺纯净——来源/去向由类型系统编译期固定，无 unsafe 侵入。任何
+  "提升表达能力"的诉求不得以 unsafe 为代价；若未来确需，须在本文档
+  论证必要性并单独立项。
+- **runtime（执行层）**：允许**封装性 unsafe**。动态路径的性能需求
+  （无锁载体、类型化值传递）在 runtime 层实施，隔离于单一模块
+  （`carrier` 无锁 SPSC 载体、`typed_slot` 类型化值槽），以**文档化安全
+  不变量 + 测试**保证对外安全接口。
+
+**判断标准**：unsafe 仅允许出现在 runtime 的封装点，满足全部三条——
+(i) 对外提供安全接口（调用方零 `unsafe`）；
+(ii) 安全不变量在模块头文档化（前提条件 + 违反应量）；
+(iii) 不变量由测试覆盖。
+
+**动机**：极致性能的关键路径几乎必然需要 unsafe（生态事实）；"严格"的定义
+是**边界清晰 + 不变量文档化 + 验证充分**，而非零 unsafe。axiom 的承诺是
+**抽象层零 unsafe**（表达力可信），执行层以封装的 unsafe 换取动态路径的
+每级零分配传递（见 §5.4 的破局：`TypeId` 相等后的 `transmute` 是 identity，
+内存安全）。
 
 ---
 
@@ -183,22 +234,30 @@ t(α) = t(h) + ε, ε < 5%  ⟺  dist(Shape(exec(α)), Shape(exec(h))) → 0
 | D6 | 来源/去向是业务错误，不是运行时验证的理由 | §3.2 |
 | D7 | 执行形态同构：零成本 = 抽象执行形态 ≡ 手写形态 | §5.1 |
 | D8 | 调度可验证性：共享槽写者互斥（多写者需串行/声明顺序），部署期发现并发冲突 | 见下 |
+| D9 | unsafe 策略分层：core 零 unsafe（抽象层纯净）；runtime 封装性 unsafe（单点 + 不变量文档 + 测试） | §5.5 |
 
-**D8 调度可验证性（bevy 启发）**：`validate_deep` 的 `analysis::shared_slot_conflicts`
+**D8 调度可验证性**：`validate_deep` 的 `analysis::shared_slot_conflicts`
 检测多个源写入同一 `SharedState`/`Latest` 槽的冲突（并行写顺序不确定）——
-这是调度歧义（scheduling ambiguity）的部署期形态：bevy 在运行期警告，axiom
-在部署期发现。冲突可被 `TopologyReport` 报告，多写者需显式串行或声明顺序。
+这是调度歧义（scheduling ambiguity）的部署期形态：典型 ECS/调度系统在
+运行期警告，axiom 在部署期发现。冲突可被 `TopologyReport` 报告，多写者需
+显式串行或声明顺序。
 
-**A2 宏诊断即契约（bevy 启发）**：`declare_ports!` 的文档以 `compile_fail`
-doctest 锁定错误用法（流类型拼写错误、重复端口名）必须编译失败——宏的诊断
-质量是契约的一部分，不随重构漂移（bevy 的 compile_fail UI 测试同款精神）。
+**D9 unsafe 策略分层**：`design-principles.md` §5.5——core（`src/lib.rs`）
+`#![forbid(unsafe_code)]` 保证抽象层类型承诺纯净；runtime 允许**封装性
+unsafe**（`carrier` 无锁载体、`typed_slot` 类型化值槽），全部满足三条件：
+对外安全接口、模块头文档化安全不变量、测试覆盖。判定：任何 unsafe 不得
+侵入 core；执行层的 unsafe 以"抽象层零 unsafe"换取动态路径零分配传递。
 
-**A3 异步就绪声明（bevy 启发）**：`Machine::is_ready`（默认 `true`）让需要
-异步初始化的机器声明"我何时就绪"——驱动者（异步 runtime/adapter）轮询
-`is_ready`，就绪前不驱动（bevy `Plugin::ready/finish` 的机器级形态）。
+**A2 宏诊断即契约**：`declare_ports!` 的文档以 `compile_fail` doctest 锁定
+错误用法（流类型拼写错误、重复端口名）必须编译失败——宏的诊断质量是契约
+的一部分，不随重构漂移（编译期测试锁定宏展开，与生态中 UI/宏测试同精神）。
+
+**A3 异步就绪声明**：`Machine::is_ready`（默认 `true`）让需要异步初始化的
+机器声明"我何时就绪"——驱动者（异步 runtime/adapter）轮询 `is_ready`，
+就绪前不驱动（生命周期就绪阶段声明的机器级形态）。
 `axiom-runtime`（同步）不等待；异步 adapter 使用此声明。
 
-**A4 受控共享数据（bevy 启发）**：`SharedResource<T>`（`Arc<RwLock<T>>`）是
+**A4 受控共享数据**：`SharedResource<T>`（`Arc<RwLock<T>>`）是
 "封装 + 组合"的折中原语——默认机器状态有主（封装），需要跨机器共享的数据
 用 `SharedResource` **显式**承载（组合）。读写经 `RwLock`：多读者并行、写者
 互斥（与 D8 对应）。仅 std 提供；不需要共享的机器保持零成本封装。

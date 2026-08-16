@@ -27,7 +27,7 @@ use core::any::TypeId;
 
 /// A payload type that deliberately does **not** implement `Clone`.
 #[derive(Debug, PartialEq)]
-struct NoClone {
+pub struct NoClone {
     fd: i32,
 }
 
