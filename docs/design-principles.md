@@ -182,6 +182,26 @@ t(α) = t(h) + ε, ε < 5%  ⟺  dist(Shape(exec(α)), Shape(exec(h))) → 0
 | D5 | 验证判据：验证时刻类型集合是否可知 | §3.1 |
 | D6 | 来源/去向是业务错误，不是运行时验证的理由 | §3.2 |
 | D7 | 执行形态同构：零成本 = 抽象执行形态 ≡ 手写形态 | §5.1 |
+| D8 | 调度可验证性：共享槽写者互斥（多写者需串行/声明顺序），部署期发现并发冲突 | 见下 |
+
+**D8 调度可验证性（bevy 启发）**：`validate_deep` 的 `analysis::shared_slot_conflicts`
+检测多个源写入同一 `SharedState`/`Latest` 槽的冲突（并行写顺序不确定）——
+这是调度歧义（scheduling ambiguity）的部署期形态：bevy 在运行期警告，axiom
+在部署期发现。冲突可被 `TopologyReport` 报告，多写者需显式串行或声明顺序。
+
+**A2 宏诊断即契约（bevy 启发）**：`declare_ports!` 的文档以 `compile_fail`
+doctest 锁定错误用法（流类型拼写错误、重复端口名）必须编译失败——宏的诊断
+质量是契约的一部分，不随重构漂移（bevy 的 compile_fail UI 测试同款精神）。
+
+**A3 异步就绪声明（bevy 启发）**：`Machine::is_ready`（默认 `true`）让需要
+异步初始化的机器声明"我何时就绪"——驱动者（异步 runtime/adapter）轮询
+`is_ready`，就绪前不驱动（bevy `Plugin::ready/finish` 的机器级形态）。
+`axiom-runtime`（同步）不等待；异步 adapter 使用此声明。
+
+**A4 受控共享数据（bevy 启发）**：`SharedResource<T>`（`Arc<RwLock<T>>`）是
+"封装 + 组合"的折中原语——默认机器状态有主（封装），需要跨机器共享的数据
+用 `SharedResource` **显式**承载（组合）。读写经 `RwLock`：多读者并行、写者
+互斥（与 D8 对应）。仅 std 提供；不需要共享的机器保持零成本封装。
 
 > **一句话总结**：axiom 的元问题不是"性能怎么优化"，而是"抽象与物理的边界
 > 到底在哪、零成本到底承诺了什么、验证到底该做什么"。统一的答案是：**物理是

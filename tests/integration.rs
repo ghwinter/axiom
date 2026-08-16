@@ -120,6 +120,42 @@ fn test_machine_init() {
 }
 
 #[test]
+fn test_machine_is_ready_default_and_override() {
+    // 默认 is_ready = true（同步机器）。
+    let ctx = MachineContext::new("test");
+    assert!(SimpleCounter::is_ready(&ctx), "default readiness is true");
+
+    // 覆盖 is_ready：声明"异步初始化未完成"。
+    struct AsyncBackend;
+    impl Machine for AsyncBackend {
+        type State = ();
+        type Input = CounterInput;
+        type Output = CounterOutput;
+        type Ports = CounterPorts;
+        type ProcessOutput = SingleOutput<Self::Output>;
+        fn name() -> &'static str { "async_backend" }
+        fn config_schema() -> ConfigSchema { ConfigSchema::new() }
+        fn init(_: &MachineContext) -> Result<(), InitError> { Ok(()) }
+        fn process(
+            _: &mut (),
+            _: &MachineContext,
+            input: CounterInput,
+        ) -> SingleOutput<CounterOutput> {
+            let v = match input { CounterInput::in_(v) => v };
+            SingleOutput::Yield(CounterOutput::out(v))
+        }
+        fn cleanup(_: (), _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
+        // 异步就绪声明：驱动者轮询 is_ready，就绪前不驱动。
+        fn is_ready(_: &MachineContext) -> bool { false }
+    }
+
+    assert!(
+        !AsyncBackend::is_ready(&ctx),
+        "async-initialized machine declares not ready until backend connects"
+    );
+}
+
+#[test]
 fn test_machine_process() {
     let ctx = MachineContext::new("test");
     let mut state = SimpleCounter::init(&ctx).unwrap();
