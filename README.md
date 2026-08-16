@@ -259,6 +259,7 @@ dictate physics, the carrier choice does".
 |----------|---------------|
 | [`docs/foundations.md`](docs/foundations.md) | Algebraic foundation — axioms, theorems, proofs |
 | [`docs/philosophy.md`](docs/philosophy.md) | Design philosophy — abstraction vs physics, control/data blur |
+| [`docs/design-principles.md`](docs/design-principles.md) | Meta-problems & design principles — zero-cost as shape isomorphism, verification judgement, physical process as a finite choice set |
 | [`docs/architecture.md`](docs/architecture.md) | Architecture details — ports, links, deployment, runtime comparison |
 | [`docs/architecture_diagrams.md`](docs/architecture_diagrams.md) | Diagrams — system layers, link strategies, deployment, roadmap |
 
