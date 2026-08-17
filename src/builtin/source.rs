@@ -8,13 +8,18 @@ use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
-// 注：本文件未采用 `#[crate::ports]` 宏。Source 的端口签名是不对称泛型：
-// `SourceInput` 无泛型（tick 端口承载 `()`），而 `SourceOutput<O>` 带泛型 `O`。
-// `#[ports]` 宏会把 struct 的全部泛型统一传播到 Input/Output 两个枚举，
-// 这将产生 `SourceInput<O>`——给一个会被实际构造（`Tick(())`）的输入枚举
-// 强加无意义的幻影泛型 `O`，破坏构造人机工程学与既有公开 API。因此保留手写。
+// Note: this file does not use the `#[crate::ports]` macro. Source's port
+// signature is an asymmetric generic: `SourceInput` has no generic
+// parameter (the tick port carries `()`), while `SourceOutput<O>` carries
+// the generic parameter `O`. The `#[ports]` macro propagates all of the
+// struct's generic parameters uniformly to both the Input and Output
+// enums, which would produce a `SourceInput<O>` — imposing a meaningless
+// phantom generic parameter `O` on an input enum that is actually
+// constructed (`Tick(())`), breaking construction ergonomics and the
+// existing public API. The hand-written version is therefore kept.
 //
-// 其余对称泛型的 builtin（Identity/Tee/Latch/Collector/Sink）均已迁移到宏。
+// The remaining builtins with symmetric generic parameters
+// (Identity/Tee/Latch/Collector/Sink) have been migrated to the macro.
 
 pub struct SourcePorts<O>(PhantomData<O>);
 
@@ -88,4 +93,20 @@ impl<O: Clone + Default + Send + Sync + 'static> Machine for Source<O> {
     }
     fn cleanup(_state: SourceState<O>, _ctx: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
     fn deterministic() -> bool { true }
+}
+
+// ── Straight contract (unified static entry point) ──────────
+//
+// Source acts as the "constant generator" of the static path: `() → O`,
+// each drive yields a clone of the current `state.output` (consistent with
+// the tick semantics of the enum `process`).
+
+impl<O: Clone + Default + Send + Sync + 'static> StraightMachine for Source<O> {
+    type StraightIn = ();
+    type StraightOut = O;
+
+    #[inline]
+    fn process_straight(state: &mut SourceState<O>, _input: ()) -> O {
+        state.output.clone()
+    }
 }

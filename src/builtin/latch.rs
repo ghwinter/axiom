@@ -1,15 +1,20 @@
-/// Latch: Moore 型延迟元素——输出上一次的输入，而非当前输入。
+/// Latch: a Moore-type delay element — outputs the previous input rather
+/// than the current one.
 ///
-/// `T → T` — 用于打破反馈拓扑中的代数环（定理 1.2a）。
+/// `T → T` — used to break algebraic cycles in feedback topologies
+/// (Theorem 1.2a).
 ///
-/// 语义：$\delta(s, i) = (s', \lambda(s))$，其中 $s' = i$，$\lambda(s) = s$。
-/// 即：状态存当前输入，输出取旧状态。首次调用时 $s_0 = \text{None}$，输出 `Idle`。
+/// Semantics: $\delta(s, i) = (s', \lambda(s))$, where $s' = i$ and
+/// $\lambda(s) = s$. That is, the state holds the current input while the
+/// output takes the old state. On the first call $s_0 = \text{None}$, yielding
+/// `Idle`.
 use core::marker::PhantomData;use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
-// 当 `derive` feature 启用时，用 `#[ports]` 宏自动生成端口样板；
-// 否则手写（保持零依赖能力）。
+// When the `derive` feature is enabled, the `#[ports]` macro generates the
+// port boilerplate automatically; otherwise it is written by hand
+// (preserving the zero-dependency capability).
 #[cfg(feature = "derive")]
 #[crate::ports]
 pub struct LatchPorts<T> {
@@ -89,8 +94,8 @@ impl<T: Clone + Send + Sync + 'static> Machine for Latch<T> {
 
     fn init(_ctx: &MachineContext) -> Result<Option<T>, InitError> { Ok(None) }
 
-    /// Moore 型延迟：输出旧状态，存入新输入。
-    /// 首次调用（state = None）返回 Idle。
+    /// Moore-type delay: outputs the old state and stores the new input.
+    /// Returns `Idle` on the first call (state = None).
     fn process(state: &mut Option<T>, _ctx: &MachineContext, input: LatchInput<T>) -> SingleOutput<LatchOutput<T>> {
         match input {
             LatchInput::Input(v) => {
@@ -108,9 +113,11 @@ impl<T: Clone + Send + Sync + 'static> Machine for Latch<T> {
     fn deterministic() -> bool { true }
 }
 
-// Latch 的输出 `λ(s_old)` 仅依赖更新前状态，与当前输入无关——
-// 这是定理 1.2a 中打破反馈拓扑代数环的核心机制。实现 `Moore` marker
-// trait 使部署层 `is_moore` 声明与类型层一致，cycle-safety 检查可识别。
+// Latch's output `λ(s_old)` depends only on the pre-update state, not on the
+// current input — this is the core mechanism for breaking algebraic cycles in
+// feedback topologies (Theorem 1.2a). Implementing the `Moore` marker trait
+// keeps the deployment layer's `is_moore` declaration consistent with the type
+// layer, so that cycle-safety checks can recognize it.
 impl<T: Clone + Send + Sync + 'static> Moore for Latch<T> {}
 
 

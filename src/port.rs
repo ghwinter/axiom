@@ -1,30 +1,40 @@
-//! # 端口模型：语义标注与物理载体分离
+//! # Port model: semantic annotations separate from physical carriers
 //!
-//! axiom 的端口分类——`PortDir`（In/Out）与 `FlowKind`（Data/Control/
-//! Observe）——是**语义标注**，不是物理属性。物理层上，一次端口传输只是
-//! "线程写字节、另一线程读字节"（或在编译器展开后根本没有字节流动）；
-//! 标注不改变物理，也没有任何运行时开销用于维持"这条连接存在"。
+//! **Maturity: stable** (the stable core, main subject of the current refactor).
 //!
-//! 三个维度各在不同层面起作用：
+//! axiom's port classification — `PortDir` (In/Out) and `FlowKind` (Data/Control/
+//! Observe) — is a **semantic annotation**, not a physical property. At the
+//! physical layer, a port transfer is just "one thread writes bytes, another
+//! thread reads bytes" (or, after compiler expansion, no bytes flow at all);
+//! the annotation does not change the physics, and no runtime overhead is spent
+//! maintaining "this connection exists".
 //!
-//! | 标注 | 职责层面 | 作用 |
+//! The three dimensions each act at a different layer:
+//!
+//! | Annotation | Responsibility layer | Effect |
 //! |------|----------|------|
-//! | `port_name` | 语义层 | 身份——数据在拓扑中的坐标（拓扑即身份） |
-//! | `PortDir` | 代数层 | 有向边的方向（`f: A → B`）；`can_link_to` 要求 out→in |
-//! | `FlowKind` | 验证层 | 语义契约：Data↔Data 才可连；Observe 参与可观测性完备性分析（定理 7.2） |
+//! | `port_name` | semantic layer | identity — the coordinate of data in the topology (topology is identity) |
+//! | `PortDir` | algebraic layer | direction of the directed edge (`f: A → B`); `can_link_to` requires out→in |
+//! | `FlowKind` | validation layer | semantic contract: only Data↔Data may connect; Observe participates in observability-completeness analysis (Theorem 7.2) |
 //!
-//! 物理差异**完全**由 [`crate::link::LinkKind`] 表达：同一个 `PortDecl`
-//! 可以经 `BoundedBuf`（真实缓冲区，写/读有物理过程）、`Latest`（单槽
-//! 变量，覆盖写）、`Inline`（函数调用，无缓冲无分配）连接。其中 `Inline`
-//! 是"解抽象"的极端形态：拓扑结构在物理层**完全消解**——值经寄存器/栈
-//! 传递，无数据流动、无内存分配，抽象过程没有物理过程对应；但语义层
-//! 拓扑仍可表达、可验证（`DeploySpec::validate_deep` 仍检查 Inline 无环
-//! 与度约束 ≤1）。
+//! Physical differences are **entirely** expressed by [`crate::link::LinkKind`]:
+//! the same `PortDecl` can be connected via `BoundedBuf` (a real buffer; write/
+//! read have a physical process), `Latest` (a single-slot variable; overwriting
+//! write), or `Inline` (a function call; no buffer, no allocation). Among these,
+//! `Inline` is the extreme form of "de-abstraction": the topology structure is
+//! **completely dissolved** at the physical layer — values travel via
+//! registers/stack, no data flows, no memory is allocated, and the abstract
+//! process has no physical counterpart; but the semantic-layer topology is still
+//! expressible and verifiable (`DynamicTopology::validate_deep` still checks
+//! Inline acyclicity and the degree constraint ≤1).
 //!
-//! 因此：**被分类的是标注，不是物理**。物理对称（"端口本质上没有区别"）
-//! 与代数不对称（方向、流类型约束验证）并存——这是 axiom 抽象层与物理
-//! 层解耦（foundations.md §15）在端口模型上的具体体现。快照、审计、重放
-//! 等物理需求不属于端口标注，属于显式契约（`Machine::checkpoint`/`restore`）。
+//! Hence: **what is classified is the annotation, not the physics**. Physical
+//! symmetry ("ports are essentially no different") coexists with algebraic
+//! asymmetry (direction, flow-type constraint validation) — this is how the
+//! decoupling of axiom's abstraction layer from the physical layer
+//! (foundations.md §15) manifests in the port model. Physical needs such as
+//! snapshots, audit, and replay do not belong to port annotations; they belong
+//! to explicit contracts (`Machine::checkpoint`/`restore`).
 
 #[cfg(not(feature = "std"))]
 use crate::compat::prelude::*;
@@ -384,9 +394,10 @@ impl ConfigSchema {
 /// not the Machine's — a Machine should always execute its full computation;
 /// the runtime decides whether to route observation outputs.
 pub struct MachineContext {
-    /// Machine 实例名（`Cow` 使 runtime 可用 owned name 构造上下文，
-    /// 与 `DeploySpec` 的 `Cow<'static, str>` 名称一致——消除了
-    /// 从 `String` 反序列化名到 `&'static str` 的 `leak`）。
+    /// The Machine instance name (`Cow` lets the runtime build the context with
+    /// an owned name, consistent with `DynamicTopology`'s `Cow<'static, str>`
+    /// names — eliminating the `leak` from a deserialized `String` name to
+    /// `&'static str`).
     name: Cow<'static, str>,
     /// Snapshot function (wired by runtime, optional).
     pub(crate) snapshot_fn: Option<Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>>,

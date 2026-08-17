@@ -1,3 +1,5 @@
+/// **Maturity: tool** (a development-time tool, reinforced per the unified convention).
+///
 /// ConfigCell — a versioned, thread-safe runtime configuration container.
 ///
 /// # Problem this solves

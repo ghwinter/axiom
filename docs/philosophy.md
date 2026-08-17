@@ -1,6 +1,6 @@
-# axiom 哲学基础
+# axiom Philosophy
 
-> **阅读建议：** 本文档讨论 axiom 的设计哲学——它不是什么、为什么存在、以及它试图解决什么问题。如果你更关心具体如何使用，请回到 README。
+> **Reading guide.** This document discusses axiom's design philosophy — what it is not, why it exists, and what problems it tries to solve. If you care more about concrete usage, return to the README.
 
 ---
 
@@ -73,7 +73,7 @@ must not be moved out:
    incompatible machine. Replacing this with a proc-macro check would
    **downgrade a complete proof to a syntactic heuristic** (proc macros
    cannot see trait implementations). This is the correct design and is
-   not a leak. (See E16 contract.)
+   not a leak.
 
 3. **`Clone` is NOT required by `HasPortInfo`.** A non-`Clone` payload (an
    owned buffer, a handle, a `Box<dyn Fn>`) can be transported via
@@ -87,7 +87,7 @@ must not be moved out:
 `Machine: Send + Sync + 'static`, `PortSet: Send + Sync + 'static`, and
 `HasPortInfo: Send + Sized + 'static` are **deployability commitments**,
 not leaks. axiom's design target is systems that *can* be deployed across
-threads — `DeploySpec` declares the topology, the runtime materialises it
+threads — `DynamicTopology` declares the topology, the runtime materialises it
 across threads, and `Send + Sync` is the type-level contract that makes
 multi-threaded deployment sound. Removing these bounds would force every
 consumer (`MachineHandle`, `StreamingMachine`, runtime materialiser) to
@@ -107,8 +107,8 @@ core, are:
   abstract declaration.
 - **Execution backend** — `ExecutionHint` declares the abstract execution
   class (`Async` / `CpuBound` / `CpuBoundN` / `ThreadPool`); the runtime
-  maps it to a concrete executor (tokio task, dedicated thread, rayon
-  scope, inline call).
+  maps it to a concrete executor (an async task, a dedicated thread, a
+  thread-pool scope, an inline call).
 - **Backpressure execution** — `BackpressurePolicy` declares the abstract
   policy (`Block` / `Drop` / `Overwrite` / `Credit`); the runtime enforces
   it on the physical carrier.
@@ -122,7 +122,7 @@ belongs to the runtime.
 
 ### How axiom realizes zero-cost
 
-The compiler can fully dissolve an abstraction at compile time when three conditions hold (formal proof in `foundations.md` §15.2):
+The compiler can fully dissolve an abstraction at compile time when three conditions hold (formal proof in [foundations.md §15.2](foundations.md)):
 
 - (a) All type parameters are known at compile time (**static deployment**);
 - (b) All conversion functions are pure and inlined;
@@ -132,31 +132,29 @@ axiom offers **two deployment paths** corresponding to whether these conditions 
 
 | Path | Function | Topology known at | Per-message cost | Zero-cost? | Use case |
 |------|----------|-------------------|------------------|------------|----------|
-| **Static** | `axiom_runtime::static_path::{pipeline2, pipeline3, fanout2, fanin2}` | compile time | **zero** | yes | fixed pipelines, fan-out/fan-in, hot paths (**default**) |
-| **Dynamic** | `Runtime::materialize(spec)` | runtime | ~5x (heap alloc + dynamic dispatch) | no | runtime topology mirror (rare) |
+| **Static** | `axiom_runtime::static_path::{pipeline_chain, diamond, feedback}` (combinators) | compile time | **zero** | yes | series-parallel pipelines, hot paths (**default**) |
+| **Dynamic** | `Runtime::materialize(spec)` | runtime | fused: 1.0 allocs/msg (typed-slot reuse); plain: per-hop alloc + vtable | no | runtime topology mirror (rare) |
 
-The static path encodes topology in type parameters; the compiler monomorphizes over concrete machine types, inlines `Link::extract` / `Split::split` / `Merge::merge` to `match`+rewrap, and emits code equivalent to hand-writing the batch loop directly. The dynamic path must type-erase via `Wire { payload: Box<dyn Any> }` because topology is not known until runtime — this "dynamic tax" is mathematically unavoidable, not an implementation defect.
+The static path encodes topology in type parameters; the compiler monomorphizes over concrete machine types, inlines `StraightLink::convert` / `StraightSplit::split` / `StraightMerge::merge`, and emits code equivalent to hand-writing the batch loop directly. The dynamic path must type-erase via `Wire { payload: Box<dyn Any> }` because topology is not known until runtime — this "dynamic tax" is the dispatch + type-erasure cost of the dynamic path (see [foundations.md §15.3](foundations.md)).
 
-> **Probe vs path.** The original `LinearRuntime::pipeline3` was a **zero-cost
-> probe** that validated the non-invasion axiom for the linear case $A \to B
-> \to C$. It has been superseded by the general static execution path
-> (`axiom_runtime::static_path`), which extends the probe to fan-out
-> (`fanout2` via `Split`), fan-in (`fanin2` via `Merge`), and diamonds
-> (`diamond` / `Diamond`, whose arms and downstream may be arbitrary chains).
-> `Chain` (serial) and `Diamond` (split-merge) form a recursive algebra that
-> generates exactly the **series-parallel DAGs**, all monomorphized. Truly
+> **Static path entry points.** The static execution path
+> (`axiom_runtime::static_path`) is entered exclusively through the combinators:
+> `pipeline_chain` (arbitrary-depth linear chain), `diamond` (split–merge with
+> arbitrary chain arms and downstream), and `feedback` (single-machine feedback
+> loop). `Chain` (serial) and `Diamond` (split-merge) form a recursive algebra
+> that generates exactly the **series-parallel DAGs**, all monomorphized. Truly
 > arbitrary DAGs (non-series-parallel cross edges) are outside this algebra —
 > stable Rust cannot express an arbitrary edge table while keeping port types
 > type-safe — so they take the dynamic path; like the dynamic tax, this is a
-> type-system boundary, not an implementation gap. See `docs/architecture.md`
-> §"Static execution path" for the current API.
+> type-system boundary, not an implementation gap. See [architecture.md](architecture.md)
+§"Static execution path" for the current API.
 
 > **Static-first principle.** Static topology is the **default** worldview: a
-> `DeploySpec` declared once, `validate_deep` checked once, topology never
-> mutated at runtime. The dynamic path exists for **contract completeness**
-> (a runtime mirror of the pure-data `DeploySpec` must exist as a type) and
-> for the rare case where the topology itself must be decided by the running
-> system. One invariant bounds it: **the instance graph is dynamic; the type
+> `DynamicTopology` declared once, `validate_deep` checked once, the instance
+> graph never mutated at runtime. The mutation path exists for **contract
+> completeness** (`TopologyMutation`, the runtime mirror of the pure-data
+> `DynamicTopology`, must exist as a type) and for the rare case where the
+> topology itself must be decided by the running system. One invariant bounds it: **the instance graph is dynamic; the type
 > space is static** — the dynamic path can create/remove *instances* of
 > already-registered machine types, but cannot load new `Machine`
 > implementations. Most scenarios casually called "dynamic" (auto-scaling,
@@ -176,8 +174,8 @@ fixed-function path are **narrow subsets** of the design space. They are
 **not** the default, **not** the target, and **not** an acceptable
 fallback when full structural power proves difficult to implement.
 
-> **Formal basis (2026-08).** The strict definitions live in
-> `docs/structural-model.md`: system = typed graph (§1); axiom's domain is
+> **Formal basis.** The strict definitions live in
+> [structural-model.md](structural-model.md): system = typed graph (§1); axiom's domain is
 > the **structure layer** (module set + links), behavior is a black box
 > (§2 — behavioral complexity never requires the dynamic path); static =
 > topology as types, dynamic = topology as values materialized at runtime
@@ -199,7 +197,7 @@ fallback when full structural power proves difficult to implement.
 > arbitrary complexity: many modules, many connections, many threads,
 > nested sub-systems. axiom's value is making **that** complexity
 > compilable and verifiable — not making the trivial case fast. A narrow
-> subset may serve as a minimal validation probe (e.g. the `pipeline3`
+> subset may serve as a minimal validation probe (e.g. the `pipeline_chain`
 > zero-cost probe in the next section), but must never be mistaken for
 > axiom's capability ceiling.
 
@@ -224,40 +222,42 @@ The static path not only matches but **exceeds** hand-written performance — be
 
 ### Fused pipeline: dissolving the data-flow metaphor
 
-The non-invasion axiom has a second, stricter validation path: the **static execution path** (`axiom_runtime::static_path`). A pipeline of `Add → Mul → Sub` machines, run via `pipeline3`, is compiled into a single loop equivalent to a hand-written `for` loop — no intermediate `Vec`, no trait dispatch, no function-call boundaries between stages.
+The non-invasion axiom has a second, stricter validation path: the **static execution path** (`axiom_runtime::static_path`). A pipeline of `Add → Mul → Sub` machines, run via `pipeline_chain`, is compiled into a single loop equivalent to a hand-written `for` loop — no intermediate `Vec`, no trait dispatch, no function-call boundaries between stages.
 
 On a 1,000,000-element pipeline, release build (min of 5 runs):
 
 | Implementation | Time | Allocations | vs hand-written loop |
 |----------------|-----:|------------:|---------------------:|
 | Hand-written `for` loop | 1.999 ms | 1 | baseline |
-| `pipeline3` (fused, static path) | 1.904 ms | 1 | **0.95x (4.8% faster)** |
+| `pipeline_chain` (fused, static path) | 1.904 ms | 1 | **0.95x (4.8% faster)** |
 | Hand-written `iter().map().collect()` | 1.570 ms | 1 | 0.79x (auto-vectorized) |
 | Chained per-machine `run` (unfused) | 19.255 ms | 67 | 9.63x slower (documented Vec tax) |
 
 The static path matches the hand-written loop within compiler-optimization noise ($|\epsilon| / t(h_\alpha) < 0.05$), with **zero** extra allocations. The Machine/Port/Link abstraction dissolved into pure computation — the "data flow" metaphor has no physical cost at this layer.
 
-The iterator chain (`iter().map().collect()`) runs faster due to LLVM auto-vectorization of contiguous iterator adapters — a compiler optimization of the *pattern*, not a tax from axiom's abstraction. A hand-written `for` loop has the same gap vs the chain. The static path uses a `for` loop (it must, to support `Idle`/`Done` control flow), so the fair comparison is against the loop.
+The iterator chain (`iter().map().collect()`) runs faster due to compiler auto-vectorization of contiguous iterator adapters — a compiler optimization of the *pattern*, not a tax from axiom's abstraction. A hand-written `for` loop has the same gap vs the chain. The static path uses a `for` loop (it must, to support `Idle`/`Done` control flow), so the fair comparison is against the loop.
 
-The chained per-machine `run` path (N independent loops + N-1 intermediate `Vec`) documents the cost of *not* fusing — this is the "Vec tax" that `pipeline3` eliminates.
+The chained per-machine `run` path (N independent loops + N-1 intermediate `Vec`) documents the cost of *not* fusing — this is the "Vec tax" that `pipeline_chain` eliminates.
 
 ### Codifying compiler knowledge: from guessing to verifying
 
 The fused pipeline validation above was achieved by understanding *why* the compiler fails to fuse stages, not by guessing. This methodology — reasoning about compiler behavior from first principles and verifying with measurements — is itself part of axiom's design contract. The principle:
 
 1. **Type contract** — `Machine::process` implementations marked `#[inline]` enable cross-crate inlining; without it, the static path cannot dissolve stage boundaries.
-2. **Iterator input** — `pipeline3` accepts `impl IntoIterator`, letting the compiler fuse input conversion into the loop (no intermediate `Vec`).
+2. **Combinator monomorphization** — the static path is entered through the combinators `pipeline_chain`/`diamond`/`feedback` over `StraightMachine`s; the topology is encoded in types (`Chain`/`Diamond`), so the compiler monomorphizes the entire shape and fuses stage boundaries into a single loop (no per-stage function-call barrier).
 3. **Batch collection** — the static path collects outputs into `Vec` per stage; the batch model avoids per-message allocation while keeping `Idle`/`Done` control flow expressible.
 4. **Fair baseline** — compare against the structurally equivalent hand-written `for` loop, not the auto-vectorized iterator chain.
 
-This is the empirical form of the non-invasion axiom: every abstraction path in axiom should be validated against its hand-written equivalent, and the validation should be reproducible (L0 benchmark) and automatable (CI gate).
+This is the empirical form of the non-invasion axiom: every abstraction path in axiom should be validated against its hand-written equivalent, and the validation should be reproducible as a benchmark and automatable as a CI gate.
 
 ### Separation of layers in the codebase
 
-The separation theorem (`foundations.md` §15.4) has a concrete codebase invariant:
+The separation theorem ([foundations.md §15.4](foundations.md)) has a concrete codebase invariant:
 
-- **axiom core** (`src/`) is the formalization of $\mathcal{A}$. It contains no `tokio::spawn`, no `std::thread::spawn`, no `async fn`, no `Future` impl, no runtime objects. It defines traits and types only.
-- **axiom adapters** (`axiom-tokio/`, future `axiom-rayon/`) are interpreters $\mathcal{A} \to \mathcal{P}_h$. They implement the execution on specific runtimes.
+- **axiom core** (`src/`) is the formalization of $\mathcal{A}$. It contains no task spawning, no `std::thread::spawn`, no `async fn`, no `Future` implementation, no runtime objects. It defines traits and types only.
+- **axiom adapters** (the reference `axiom-runtime`, or third-party adapters
+  such as `axiom-tokio`) are interpreters $\mathcal{A} \to \mathcal{P}_h$. They
+  implement the execution on specific runtimes.
 
 The abstraction layer never depends on a specific runtime. Swapping the adapter changes the physical execution strategy (threading, scheduling, IO model) without changing the abstraction's semantics.
 
@@ -285,8 +285,7 @@ Both are **port annotations**, not **type parameters**.
 
 The consequence of "Control is data" and "Observe is data" is that **observation
 and debugging are ordinary modules in the topology** — not external tooling bolted
-onto the side. This is the same insight the Linux kernel arrived at with
-`tracepoint`/`perf`/`ftrace`:
+onto the side:
 
 - **Observing is acquiring data.** A `Monitor` machine subscribes to an `Observe`
   output via an ordinary link. The observation stream is verified the same way
@@ -421,11 +420,11 @@ axiom            ←  mapping layer
   PortSchema / LinkSpec  defines topology
   ExecutionHint /        defines physical resource interfaces
     PhysicalSpec
-  DeploySpec             maps abstract → physical
+  DynamicTopology             maps abstract → physical
      ▲                    │
      │                    │ implements scheduling, threading, channels
      ▼                    ▼
-Runtime adapters  (axiom_tokio, axiom_rayon, axiom_linear)
+Runtime adapters  (reference: axiom-runtime; third-party: axiom_tokio, axiom_rayon)
      ▲
      │
      ▼
@@ -434,7 +433,7 @@ OS / Hardware
 
 A pure abstraction layer says "what to do" and knows nothing about the physical layer. A framework says "how to do it" and owns the physical layer. axiom says **both in the same type system, but the upper layer does not depend on any specific implementation of the lower layer.**
 
-`Machine::process()` is pure abstract. `MachinePhysicalSpec::execution` is a physical declaration. They live in the same trait. The application author writes `process()` without knowing which runtime will drive it. The deployer writes `DeploySpec` to map each machine to a physical execution strategy, without changing the machine's code.
+`Machine::process()` is pure abstract. `MachinePhysicalSpec::execution` is a physical declaration. They live in the same trait. The application author writes `process()` without knowing which runtime will drive it. The deployer writes `DynamicTopology` to map each machine to a physical execution strategy, without changing the machine's code.
 
 This is not abstraction for abstraction's sake. It is **co-expression of intent and resource** — the machine declares what it needs, the deployer provides what the machine gets, and the two are checked for consistency at link/deploy time.
 
@@ -442,7 +441,7 @@ This is not abstraction for abstraction's sake. It is **co-expression of intent 
 
 ## What axiom is not
 
-- Not a runtime (no tokio, no executor, no event loop)
+- Not a runtime (no executor, no event loop)
 - Not a framework (no Application trait, no main() wrapper)
 - Not a trading engine (no betarc semantics)
 - Not a pure abstraction layer — it also defines the physical interface

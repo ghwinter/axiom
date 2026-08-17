@@ -1,8 +1,9 @@
-//! axiom 统一 runtime 主体——`Runtime` 结构与 `materialize`/`tick`/`shutdown` 生命周期。
+//! The axiom unified runtime — the `Runtime` structure and the `materialize`/`tick`/`shutdown`
+//! lifecycle.
 //!
-//! 驱动循环按 `RuntimeConfig::mode` 分发：
-//! - `Sequential` / `Inline` → 单线程 BFS（直接 move 投递）；
-//! - `Parallel(n)` → 每机器一个 OS 线程 + channel 载体。
+//! The driving loop dispatches by `RuntimeConfig::mode`:
+//! - `Sequential` / `Inline` → single-threaded BFS (direct move delivery);
+//! - `Parallel(n)` → one OS thread per machine + channel carriers.
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -20,18 +21,18 @@ use crate::registry::Registry;
 use crate::routing::{has_cycle, mark_stopped, route_parallel_outputs, validate_endpoint};
 use crate::topology::{LiveTopology, PhysicalLink, TopologyIds};
 
-/// axiom 统一 runtime。
+/// The axiom unified runtime.
 pub struct Runtime {
     config: RuntimeConfig,
     registry: Registry,
     topology: Option<LiveTopology>,
-    /// 调度器（内部子系统契约：Sequential/Parallel/自定义，构造时按
-    /// `RuntimeConfig::mode` 选择——见 `scheduler.rs`）。`Option` 便于
-    /// `tick` 取出调度（避免 `&self.scheduler` 与 `&mut self` 双重借用）。
+    /// The scheduler (an internal subsystem contract: Sequential/Parallel/custom, selected at
+    /// construction from `RuntimeConfig::mode` — see `scheduler.rs`). `Option` lets `tick`
+    /// take it out (avoiding the double borrow of `&self.scheduler` and `&mut self`).
     scheduler: Option<Box<dyn crate::scheduler::Scheduler>>,
-    /// IO 多路复用路由表：token → (machine_name, port_name)。
-    /// `register_io` 填充，`run_io` 查询——把 reactor 就绪事件转为
-    /// `(machine, port, IoEvent)` 输入注入 tick 循环。
+    /// IO multiplexing routing table: token → (machine_name, port_name).
+    /// Filled by `register_io`, queried by `run_io` — converts reactor readiness events into
+    /// `(machine, port, IoEvent)` inputs injected into the tick loop.
     io_routing: BTreeMap<IoToken, (String, String)>,
 }
 
@@ -56,8 +57,22 @@ impl Runtime {
         self.registry.register::<M>(machine_type);
     }
 
-    /// 注册一个可融合机器——`M: FusedInline` 在类型层保证输出数量固定，
-    /// `materialize` 可将其纳入 `FusedPipeline` 链（消除每跳路由开销）。
+    /// Register a **Moore-semantics** machine — `M: axiom::machine::Moore` guarantees at the
+    /// type level that output depends only on the pre-update state. At materialization the
+    /// `is_moore` declaration is checked against the implementation (S3-2): only types
+    /// registered via `register_moore` may declare Moore semantics.
+    pub fn register_moore<M>(&mut self, machine_type: &str)
+    where
+        M: axiom::machine::Machine + axiom::machine::Moore,
+        M::Input: core::any::Any + Send,
+        M::Output: core::any::Any + Send,
+    {
+        self.registry.register_moore::<M>(machine_type);
+    }
+
+    /// Register a fusable machine — `M: FusedInline` guarantees a fixed output count at the
+    /// type level, so `materialize` can fold it into a `FusedPipeline` chain (eliminating
+    /// per-hop routing overhead).
     pub fn register_fused<M>(&mut self, machine_type: &str)
     where
         M: axiom::machine::Machine + axiom::machine::FusedInline,
@@ -68,38 +83,44 @@ impl Runtime {
         self.registry.register_fused::<M>(machine_type);
     }
 
-    /// 注册一个复合 Machine——子拓扑 + 端口映射封装为单一 `machine_type`。
+    /// Register a composite Machine — a sub-topology plus port mapping wrapped into a single
+    /// `machine_type`.
     ///
-    /// `materialize` 遇到该类型的实例时递归展开：子机器名字空间化为
-    /// `parent.sub`，外部链接按端口映射表重定向到子机器。展开在机器
-    /// 构建、端点校验、融合之前——融合看到的是展开后的扁平拓扑，
-    /// `FusedPipeline` 可跨原复合边界融合。
+    /// When `materialize` encounters an instance of such a type it expands it recursively: the
+    /// sub-machines are namespaced as `parent.sub`, and external links are redirected to the
+    /// sub-machines via the port mapping table. Expansion happens before machine construction,
+    /// endpoint validation and fusion — fusion sees the expanded flat topology, so a
+    /// `FusedPipeline` can fuse across the original composite boundaries.
     ///
-    /// 嵌套复合（子拓扑中再次使用复合 `machine_type`）通过循环展开
-    /// 处理，直到无复合残留（深度上限 64，防止配置错误导致无限展开）。
+    /// Nested composites (a composite `machine_type` used again inside a sub-topology) are
+    /// handled by iterative expansion until no composite remains (depth cap 64, preventing
+    /// infinite expansion from misconfiguration).
     pub fn register_composite(&mut self, machine_type: &str, spec: axiom::composite::CompositeSpec) {
         self.registry.register_composite(machine_type, spec);
     }
 
-    /// 物化 DeploySpec——把纯数据拓扑解释为运行时实体。
+    /// Materialize a `DynamicTopology` — interpret the pure-data topology as runtime entities.
     ///
-    /// 物化流程：
-    /// 1. `DeploySpec::validate()` 结构检查（名称唯一性、自环、度约束）；
-    /// 2. **复合展开**——把 `register_composite` 注册的复合实例替换为
-    ///    名字空间化的子拓扑 + 重定向外部链接（递归到任意深度）；
-    /// 3. 按展开后的 machine_type 构建机器实例；
-    /// 4. `validate_endpoint` 校验端口存在性 + 方向；
-    /// 5. `apply_fusion` 融合相邻 FusedInline 链。
-    pub fn materialize(&mut self, spec: &axiom::deploy::DeploySpec) -> Result<(), RuntimeError> {
+    /// Materialization steps:
+    /// 1. `DynamicTopology::validate()` structural checks (name uniqueness, self-loops, degree
+    ///    constraints);
+    /// 2. **Composite expansion** — replace composite instances registered via
+    ///    `register_composite` with namespaced sub-topologies + redirected external links
+    ///    (recursive to any depth);
+    /// 3. Build machine instances from the expanded `machine_type`s;
+    /// 4. `validate_endpoint` checks port existence + direction;
+    /// 5. `apply_fusion` fuses adjacent FusedInline chains.
+    pub fn materialize(&mut self, spec: &axiom::deploy::DynamicTopology) -> Result<(), RuntimeError> {
         spec.validate().map_err(|e| RuntimeError::InitFailed {
             machine: "<spec>".into(),
             error: axiom::machine::InitError::Other(format!("validate failed: {e:?}")),
         })?;
 
-        // 复合展开：把 composite machine_type 实例替换为子拓扑（名字空间化）。
-        // 展开在 validate 之后（原始结构合法）、机器构建之前（展开后才是
-        // 真实拓扑）。融合看到的是展开后的扁平拓扑——复合边界已消失，
-        // FusedPipeline 可跨原复合边界融合。
+        // Composite expansion: replace composite machine_type instances with sub-topologies
+        // (namespaced). Expansion runs after validate (the raw structure is legal) and before
+        // machine construction (the expanded topology is the real one). Fusion sees the
+        // expanded flat topology — composite boundaries have disappeared, so a FusedPipeline
+        // can fuse across the original composite boundaries.
         let (expanded_machines, expanded_links) = axiom::composite::expand_composites(
             spec.machines.clone(),
             spec.links.clone(),
@@ -120,8 +141,21 @@ impl Runtime {
             let machine_type = instance.machine_type.as_ref();
             let name = instance.name.as_ref();
 
-            // MachineContext 接受 Cow：直接克隆 instance.name（Cow），
-            // 借用时零复制、owned 时一次转移——无需 leak 到 'static。
+            // S3-2: Moore declaration contract check — a machine whose `is_moore` is declared
+            // true must have its type registered via `register_moore` (the type-level guarantee
+            // that it implements the `Moore` trait). A mismatch between declaration and
+            // implementation (e.g. a machine registered via plain `register` declared Moore)
+            // would mislead `validate_deep`'s cycle-safety analysis (falsely believing it can
+            // break a feedback loop) — rejected at deployment time.
+            if instance.is_moore && !self.registry.is_moore(machine_type) {
+                return Err(RuntimeError::MooreMismatch {
+                    machine: name.to_string(),
+                    machine_type: machine_type.to_string(),
+                });
+            }
+
+            // MachineContext accepts Cow: clone instance.name (a Cow) directly — zero-copy
+            // when borrowed, one transfer when owned — no need to leak to 'static.
             let ctx = axiom::port::MachineContext::new(instance.name.clone());
 
             let machine = self.registry.build(machine_type, ctx)?;
@@ -147,15 +181,17 @@ impl Runtime {
             })
             .collect();
 
-        // pipelineN 融合：把相邻 FusedInline 机器链替换为 FusedPipeline，
-        // 消除每跳的路由查找与队列开销。apply_fusion 重建 machines/links/
-        // topo_order/machine_index/in_degree，保证后续 tick 看到的是融合后
-        // 的拓扑（链外链接指向链首名，链内链接已内化）。
+        // pipelineN fusion: replace adjacent FusedInline machine chains with a FusedPipeline,
+        // eliminating the per-hop route lookup and queue overhead. apply_fusion rebuilds
+        // machines/links/topo_order/machine_index/in_degree so that subsequent ticks see the
+        // fused topology (links outside the chain point at the chain head's name; in-chain
+        // links are internalized).
         let (machines, links, topo_order, machine_index, in_degree) =
             crate::fusion::apply_fusion(machines, links, topo_order);
 
-        // P2：构建路由索引——物化期事实（含融合后拓扑），tick 热路径
-        // O(log L) 查找，消除 route_target 的 O(L) 线性扫描。
+        // P2: build the routing index — a materialization-time fact (covering the fused
+        // topology), giving O(log L) lookups on the tick hot path and eliminating
+        // route_target's O(L) linear scan.
         let mut route_map: BTreeMap<String, BTreeMap<String, (String, String)>> = BTreeMap::new();
         for l in &links {
             route_map
@@ -164,9 +200,9 @@ impl Runtime {
                 .insert(l.src_port.clone(), (l.dst_machine.clone(), l.dst_port.clone()));
         }
 
-        // P0：ID 化路由索引——tick 热路径免字符串匹配与 String clone。
-        // 机器按 topo_order 序编号（= machine_index 值），端口按 schema 的
-        // inputs()/outputs() 序编号（&'static str，编译期已知）。
+        // P0: ID-based routing index — no string matching or String clone on the tick hot
+        // path. Machines are numbered by topo_order (= machine_index values), ports by their
+        // inputs()/outputs() order in the schema (&'static str, known at compile time).
         let mut route_by_src: Vec<Vec<(&'static str, usize, u16)>> =
             vec![Vec::new(); machines.len()];
         let mut out_port_names: Vec<Vec<&'static str>> = Vec::with_capacity(machines.len());
@@ -179,8 +215,9 @@ impl Runtime {
         for l in &links {
             let src_id = *machine_index.get(&l.src_machine).expect("link src machine indexed");
             let dst_id = *machine_index.get(&l.dst_machine).expect("link dst machine indexed");
-            // src_port（String）匹配 schema 序的 &'static str（validate_endpoint
-            // 已保证存在）；dst_port 解析为目标机器输入端口 ID。
+            // src_port (a String) is matched against the schema-ordered &'static str
+            // (validate_endpoint already guarantees its existence); dst_port resolves to the
+            // target machine's input port ID.
             let src_port = out_port_names[src_id]
                 .iter()
                 .copied()
@@ -208,40 +245,44 @@ impl Runtime {
 
     pub fn topology(&self) -> Option<&LiveTopology> { self.topology.as_ref() }
 
-    /// 驱动循环：按 `RuntimeConfig::mode` 分发。
+    /// The driving loop: dispatches by `RuntimeConfig::mode`.
     ///
-    /// - `Sequential` / `Inline`：单线程 BFS 驱动（直接 move 投递）。
-    /// - `Parallel(n)`：每机器一个线程 + channel 载体（见 [`Self::drive_parallel`]）。
+    /// - `Sequential` / `Inline`: single-threaded BFS driving (direct move delivery).
+    /// - `Parallel(n)`: one thread per machine + channel carriers (see [`Self::drive_parallel`]).
     ///
-    /// 经 [`crate::scheduler::Scheduler`] 委托——调度策略是可替换的内部
-    /// 子系统（结构一致性：runtime 内部也用"模块 + 契约"组织）。
+    /// Delegated through [`crate::scheduler::Scheduler`] — the scheduling strategy is a
+    /// replaceable internal subsystem (structural consistency: the runtime itself is organized
+    /// as "modules + contracts").
     pub fn tick(
         &mut self,
         inputs: Vec<(String, String, Box<dyn core::any::Any + Send>)>,
     ) -> Result<Vec<ProcessResult>, RuntimeError> {
-        // 取出调度器（避免 &self.scheduler 与 &mut self 双重借用），
-        // tick 后放回——调度器是纯策略（无跨 tick 状态）。
+        // Take the scheduler out (avoiding the double borrow of &self.scheduler and &mut self),
+        // and put it back after tick — the scheduler is pure policy (no cross-tick state).
         let scheduler = self.scheduler.take().expect("runtime scheduler present");
         let result = scheduler.tick(self, inputs);
         self.scheduler = Some(scheduler);
         result
     }
 
-    /// 单线程 BFS 驱动循环：注入外部 inputs（machine, port, payload）→ process →
-    /// 按 `LinkSpec` 把输出路由到下游机器 → 逐级传播，直到没有新输出。
+    /// Single-threaded BFS driving loop: inject external inputs (machine, port, payload) →
+    /// process → route outputs to downstream machines per `LinkSpec` → propagate level by
+    /// level until no new output remains.
     ///
-    /// # 路由语义
+    /// # Routing semantics
     ///
-    /// 每个输出值（按端口名匹配 `PhysicalLink`）：
-    /// - 命中一条 link → 用 `HasPortInfo::from_port_name` 构造下游输入并
-    ///   入队（BFS 逐级传播）；
-    /// - 未命中（终端机器 / 观察端口无下游）→ 收集为最终输出返回。
+    /// Each output value (matched against `PhysicalLink` by port name):
+    /// - If it hits a link → build the downstream input via `HasPortInfo::from_port_name` and
+    ///   enqueue it (BFS level-by-level propagation);
+    /// - If it misses (terminal machine / observation port with no downstream) → collect it
+    ///   and return it as a final output.
     ///
-    /// # LinkKind 物理化（Sequential 模式）
+    /// # LinkKind physicalization (Sequential mode)
     ///
-    /// 单线程顺序驱动下，所有 link kind（Inline/BoundedBuf/Channel…）
-    /// 物理化都是**直接 move 投递**：生产者与消费者在同一线程交替执行，
-    /// 缓冲永不积压，有界性无物理意义——直接投递是等价物理。
+    /// Under single-threaded sequential driving, every link kind (Inline/BoundedBuf/Channel/...)
+    /// physicalizes to **direct move delivery**: producer and consumer run interleaved on the
+    /// same thread, buffers never back up, and boundedness has no physical meaning — direct
+    /// delivery is the equivalent physics.
     pub(crate) fn drive_sequential(
         &mut self,
         inputs: Vec<(String, String, Box<dyn core::any::Any + Send>)>,
@@ -255,8 +296,9 @@ impl Runtime {
         let ids = &topology.ids;
         let topo_order = &topology.topo_order;
 
-        // P0：ID 化队列——(machine_id, port_id, payload)，无 String clone。
-        // 外部注入的 (机器名, 端口名) 在入队时一次解析为 ID。
+        // P0: ID-based queue — (machine_id, port_id, payload), no String clone.
+        // Externally injected (machine name, port name) is resolved to IDs once, at enqueue
+        // time.
         let mut queue: std::collections::VecDeque<(usize, u16, Box<dyn core::any::Any + Send>)> =
             std::collections::VecDeque::with_capacity(inputs.len());
         for (name, port, payload) in inputs {
@@ -274,15 +316,16 @@ impl Runtime {
         let mut outputs: Vec<ProcessResult> = Vec::new();
         let mut ticks: u64 = 0;
 
-        // A1 停机传播：pending_sources = in_degree 的克隆副本（按 topo_order
-        // 索引）；stopped = 已停机机器位集（按 ID，O(1) 检查）。
+        // A1 shutdown propagation: pending_sources = a cloned copy of in_degree (indexed by
+        // topo_order); stopped = a bit set of stopped machines (by ID, O(1) check).
         let mut pending_sources: Vec<usize> = topology.in_degree.clone();
         let machine_index = &topology.machine_index;
         let mut stopped: Vec<bool> = vec![false; topology.machines.len()];
 
-        // H2 公平性：每机器每轮处理配额（None = FIFO 无限制，默认）。
-        // 达配额的机器的后续消息 defer 到下一轮（配额重置）——防止单个
-        // flood 源独占 BFS 饿死其他源。
+        // H2 fairness: per-machine per-round processing quota (None = unlimited FIFO, the
+        // default). Messages for a machine at its quota are deferred to the next round (quota
+        // reset) — preventing a single flooding source from monopolizing BFS and starving other
+        // sources.
         let fairness = self.config.max_messages_per_machine;
         let mut processed: Vec<u64> = vec![0; topology.machines.len()];
         let mut deferred: std::collections::VecDeque<(usize, u16, Box<dyn core::any::Any + Send>)> =
@@ -293,13 +336,14 @@ impl Runtime {
                 if deferred.is_empty() {
                     break;
                 }
-                // 本轮结束：deferred 进入下一轮（配额重置），继续传播。
+                // Round end: deferred messages move to the next round (quota reset),
+                // propagation continues.
                 std::mem::swap(&mut queue, &mut deferred);
                 processed.fill(0);
                 continue;
             };
 
-            // 公平性：机器达配额 → defer 到下一轮，优先处理其他机器。
+            // Fairness: machine at quota → defer to the next round, prioritize other machines.
             if let Some(quota) = fairness {
                 if quota > 0 && processed[mid] >= quota {
                     deferred.push_back((mid, pid, payload));
@@ -308,7 +352,7 @@ impl Runtime {
             }
             processed[mid] += 1;
 
-            // 已停机机器：丢弃后续消息（Done 是停机信号，不是 Idle）。
+            // Stopped machine: drop subsequent messages (Done is a shutdown signal, not Idle).
             if stopped[mid] {
                 continue;
             }
@@ -325,16 +369,18 @@ impl Runtime {
             })?;
             let result = machine.inject(pid, payload);
 
-            // Done = 停机信号：本机器停机，并级联停机"所有入边源均已
-            // 停机"的下游（显式传播，而非仅忽略）。
+            // Done = shutdown signal: this machine stops, and downstream machines whose
+            // "in-edges are all from stopped sources" stop in cascade (explicit propagation,
+            // not just ignoring).
             if matches!(result, ProcessResult::Done) {
                 mark_stopped(mid, name, &mut stopped, &mut pending_sources, machine_index, &topology.links);
                 continue;
             }
 
-            // 路由：输出按端口名找下游；无下游则作为终端输出收集。
-            // P0：route_by_src[mid] 线性扫描（输出端口通常 1-2），
-            // Yield 的端口名（&'static str）直接比较，无字符串表查找。
+            // Routing: outputs look up downstream by port name; those without a downstream are
+            // collected as terminal outputs.
+            // P0: linear scan over route_by_src[mid] (output ports are usually 1-2), comparing
+            // the yielded port name (&'static str) directly, no string-table lookup.
             match result {
                 ProcessResult::Idle => {}
                 ProcessResult::Yield { port, value } => {
@@ -365,42 +411,48 @@ impl Runtime {
         Ok(outputs)
     }
 
-    /// 多线程驱动：每机器一个 OS 线程，链接按 `LinkKind` 物化为真实 channel。
+    /// Multi-threaded driving: one OS thread per machine, links physicalized into real channels
+    /// by `LinkKind`.
     ///
-    /// # 物理载体（按 `LinkKind` 选择，见 [`carrier::channel_for`]）
+    /// # Physical carriers (selected by `LinkKind`, see [`carrier::channel_for`])
     ///
     /// - `BoundedBuf { Blocking }` / `Channel { !drop_when_full }` →
-    ///   `sync_channel(capacity)` + 阻塞 `send`（自然背压）；
+    ///   `sync_channel(capacity)` + blocking `send` (natural backpressure);
     /// - `BoundedBuf { Dropping }` / `Channel { drop_when_full }` →
-    ///   `sync_channel` + `try_send`（满则丢弃新消息）；
-    /// - `BoundedBuf { Overwriting }` → **自定义有界覆盖载体**
-    ///   （满时覆盖最老——原生语义，非 `try_send` 近似）；
-    /// - `Latest` / `SharedState` → **单槽覆盖载体**（读者见最新值）；
-    /// - `Inline` / `CasFreeRing` → 无界 `channel`（跨线程 Inline 即
-    ///   函数调用→channel 的语义迁移；CasFreeRing 的无锁载体属嵌入式场景）。
+    ///   `sync_channel` + `try_send` (drops the new message when full);
+    /// - `BoundedBuf { Overwriting }` → **custom bounded overwrite carrier** (overwrites the
+    ///   oldest when full — the native semantics, not a `try_send` approximation);
+    /// - `Latest` / `SharedState` → **single-slot overwrite carrier** (the reader sees the
+    ///   latest value);
+    /// - `Inline` / `CasFreeRing` → unbounded `channel` (a cross-thread Inline is the semantic
+    ///   migration of function-call → channel; the CasFreeRing lock-free carrier belongs to
+    ///   embedded scenarios).
     ///
-    /// `ReadPolicy::NonBlocking` 已物理化：单入边 + BoundedBuf 时线程
-    /// 走 `try_recv` + `yield_now` 轮询（不阻塞线程）。
+    /// `ReadPolicy::NonBlocking` is physicalized: with a single in-edge + BoundedBuf the thread
+    /// polls via `try_recv` + `yield_now` (does not block the thread).
     ///
-    /// # fan-in 支持
+    /// # fan-in support
     ///
-    /// 每目标机器可有多条入边：各入边一个 receiver，机器线程经 forward
-    /// 线程合并消费（按到达顺序注入）。fan-in 下 `NonBlocking` 降级为
-    /// 阻塞（合并 channel 用阻塞 recv）。
+    /// A target machine may have multiple in-edges: one receiver per in-edge, and the machine
+    /// thread consumes them merged via forward threads (injected in arrival order). Under
+    /// fan-in `NonBlocking` degrades to blocking (the merged channel uses a blocking recv).
     ///
-    /// # 限制
+    /// # Limitations
     ///
-    /// - 每机器必须有一个输入端口（Source 类无输入机器暂不支持）；
-    /// - **有环拓扑**：环中线程无法靠 channel 断开级联停机（互相保活），
-    ///   改用全局 `stop_signal`（`Arc<AtomicBool>`）+ 每线程 tick 计数器
-    ///   驱动——任何线程达到 `Done` 或 tick 超限即全局停机。无环拓扑
-    ///   保持现有 channel 断开级联停机路径。
+    /// - Every machine must have an input port (Source-like machines without inputs are not yet
+    ///   supported);
+    /// - **Cyclic topologies**: threads in a cycle cannot cascade-shutdown via channel
+    ///   disconnection (they keep each other alive), so a global `stop_signal`
+    ///   (`Arc<AtomicBool>`) + a per-thread tick counter drives them — any thread reaching
+    ///   `Done` or exceeding the tick limit triggers a global shutdown. Acyclic topologies
+    ///   keep the existing channel-disconnection cascade shutdown path.
     ///
-    /// # 停机：channel 断开级联
+    /// # Shutdown: channel-disconnection cascade
     ///
-    /// tick 注入后 drop 所有入口 sender → 入口线程 `recv` 返回 `None` →
-    /// 退出 → drop 自己的输出 sender → 下游 `recv` 断开 → 级联停止 →
-    /// `thread::scope` 收敛。终端输出经结果 channel 收集。
+    /// After tick injection, drop all entry senders → entry threads' `recv` returns `None` →
+    /// they exit → drop their own output senders → downstream `recv` disconnects → cascade
+    /// stops → `thread::scope` converges. Terminal outputs are collected through the result
+    /// channel.
     pub(crate) fn drive_parallel(
         &mut self,
         inputs: Vec<(String, String, Box<dyn core::any::Any + Send>)>,
@@ -413,31 +465,36 @@ impl Runtime {
         })?;
         let ids = &topology.ids;
 
-        // ── 1. 构建 link channel 载体 ────────────────────────────────────
-        // A2：支持 fan-in——每目标机器可有多条入边，各入边一个 receiver，
-        // 机器线程经 forward 线程合并消费（见下方 spawn 逻辑）。
-        // channel 传 (port_name, payload)——port 名随消息走，线程循环用收到的
-        // port 名 inject，而非固定端口。这统一了 Sequential/Parallel 的 inject
-        // 语义，也为未来多输入端口机器做好准备。
+        // ── 1. Build link channel carriers ──────────────────────────────────
+        // A2: fan-in support — each target machine may have multiple in-edges, one receiver per
+        // in-edge, and the machine thread consumes them merged via forward threads (see the
+        // spawn logic below).
+        // The channel carries (port_name, payload) — the port name travels with the message;
+        // the thread loop injects with the received port name rather than a fixed port. This
+        // unifies the inject semantics of Sequential/Parallel and prepares for future machines
+        // with multiple input ports.
 
-        // 输出路由表：src_machine → (src_port → (dst_port, 下游 carrier))。
-        // dst_port 随 link 走——路由时附带在消息里，下游线程用它 inject。
-        // 按机器分组，每个机器线程持有**自己那组 sender 的所有权**——
-        // 线程退出时 drop → 下游 recv 断开 → 级联停机才能生效。
-        // （若集中在函数级变量，线程退出只 drop 引用，下游 sender 仍存活，
-        //   下游线程永远阻塞——死锁。）
+        // Output routing table: src_machine → (src_port → (dst_port, downstream carrier)).
+        // dst_port travels with the link — it is attached to the message when routing, and the
+        // downstream thread injects with it.
+        // Grouped by machine; each machine thread owns **its own set of senders** — when the
+        // thread exits it drops them → downstream recv disconnects → the cascade shutdown can
+        // take effect. (If they were centralized in function-level variables, thread exit would
+        // only drop references while the downstream senders stay alive, and downstream threads
+        // would block forever — deadlock.)
         let mut out_routes: BTreeMap<
             String,
             BTreeMap<String, (String, ChanSender)>,
         > = BTreeMap::new();
-        // 输入接收表：dst_machine → 多条入边的 receiver 列表（A2 fan-in）。
-        // 不再存 dst_port——port 名随消息走，receiver 只需收消息。
+        // Input receiver table: dst_machine → the list of receivers for its in-edges (A2
+        // fan-in). dst_port is no longer stored — the port name travels with the message; the
+        // receiver only needs to receive messages.
         let mut in_routes: BTreeMap<String, Vec<ChanReceiver>> = BTreeMap::new();
-        // 单入边机器的 read_policy（NonBlocking 轮询用）；fan-in 或无
-        // BoundedBuf 入边默认 Blocking。
+        // read_policy of single-in-edge machines (used for NonBlocking polling); defaults to
+        // Blocking under fan-in or without a BoundedBuf in-edge.
         let mut in_policies: BTreeMap<String, axiom::link::ReadPolicy> = BTreeMap::new();
         for link in &topology.links {
-            // 按 LinkKind 物理化 carrier（见 channel_for 的载体矩阵）。
+            // Physicalize the carrier by LinkKind (see channel_for's carrier matrix).
             let (tx, rx) = channel_for(&link.kind);
             out_routes
                 .entry(link.src_machine.clone())
@@ -445,18 +502,21 @@ impl Runtime {
                 .insert(link.src_port.clone(), (link.dst_port.clone(), tx));
             in_routes.entry(link.dst_machine.clone()).or_default().push(rx);
             if let axiom::link::LinkKind::BoundedBuf { read_policy, .. } = &link.kind {
-                // 仅单入边时生效（fan-in 由 forward 线程阻塞合并）。
+                // Only effective with a single in-edge (fan-in is merged blockingly by forward
+                // threads).
                 in_policies.entry(link.dst_machine.clone()).or_insert(*read_policy);
             }
         }
 
-        // 入口机器（无入边）：tick 持有注入 sender。入口 channel 恒为无界
-        // （外部注入不应被背压阻塞）。Source 类（无输入端口）无法驱动，
-        // 因 inject 无端口可匹配——直接报错。
+        // Entry machines (no in-edges): tick holds the injection senders. Entry channels are
+        // always unbounded (external injection should not be blocked by backpressure).
+        // Source-like machines (no input ports) cannot be driven, because inject has no port to
+        // match — error out directly.
         //
-        // 有环拓扑的特殊处理：环中所有机器都有入边，但外部输入仍需注入。
-        // 为被外部 input 引用的机器创建额外的 entry channel——它的
-        // receiver 与 link carrier 一起 forward 合并到机器线程。
+        // Special handling for cyclic topologies: every machine in a cycle has in-edges, but
+        // external inputs still need injection. Create an extra entry channel for machines
+        // referenced by external inputs — its receiver is forward-merged into the machine
+        // thread together with the link carriers.
         let mut entry_txs: BTreeMap<String, mpsc::Sender<RoutedMsg>> = BTreeMap::new();
         let mut entry_rxs: BTreeMap<String, mpsc::Receiver<RoutedMsg>> = BTreeMap::new();
         for (name, machine) in &topology.machines {
@@ -474,38 +534,44 @@ impl Runtime {
             entry_rxs.insert(name.clone(), rx);
         }
 
-        // 有环检测：环中线程无法靠 channel 断开级联停机（互相保活），
-        // 改用全局 stop_signal + tick 限制驱动。必须在 entry channel 处理
-        // 之前算出——有环时需为"已有入边但被外部 input 引用"的机器额外
-        // 创建 entry channel（环中所有机器都有入边，否则外部输入无处注入）。
+        // Cycle detection: threads in a cycle cannot cascade-shutdown via channel disconnection
+        // (they keep each other alive), so a global stop_signal + tick limit drives them
+        // instead. Must be computed before the entry-channel handling — when cyclic, machines
+        // that "already have in-edges but are referenced by external inputs" need an extra
+        // entry channel (every machine in a cycle has in-edges, otherwise external inputs would
+        // have nowhere to inject).
         let cyclic = has_cycle(&topology.topo_order, &topology.links);
         let stop_signal = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let max_ticks = self.config.max_ticks.unwrap_or(1_000_000);
 
-        // 有环拓扑：为被外部 input 引用但已有入边的机器创建 entry channel。
-        // 这些机器的线程同时从 link carrier 和 entry channel 消费（forward 合并）。
+        // Cyclic topology: create entry channels for machines that are referenced by external
+        // inputs but already have in-edges. These machines' threads consume from both the link
+        // carriers and the entry channel (forward-merged).
         if cyclic {
             for (name, _, _) in &inputs {
                 if !entry_txs.contains_key(name) && topology.machines.contains_key(name) {
                     let (tx, rx) = mpsc::channel::<RoutedMsg>();
                     entry_txs.insert(name.clone(), tx);
-                    // entry rx 直接加入 in_routes（与 link carrier 一起 forward 合并）；
-                    // 不放入 entry_rxs——避免双重所有权。
+                    // The entry rx goes straight into in_routes (forward-merged together with
+                    // the link carriers); it is not put into entry_rxs — to avoid double
+                    // ownership.
                     in_routes.entry(name.clone()).or_default().push(ChanReceiver::Mpsc(rx));
                 }
             }
         }
 
-        // 结果收集 channel（终端输出）。
+        // Result-collection channel (terminal outputs).
         let (result_tx, result_rx) = mpsc::channel::<ProcessResult>();
 
-        // ── 2. scoped 线程：每机器一个；注入与级联停机也在 scope 内 ──
-        // （线程 spawn 后立即 recv；若注入在 scope 外，scope 会先阻塞
-        //   等待线程 join，而线程永远等不到输入——死锁。）
+        // ── 2. Scoped threads: one per machine; injection and cascade shutdown also inside
+        //        the scope ──
+        // (Threads recv immediately after spawn; if injection happened outside the scope, the
+        //  scope would block waiting for the threads to join while the threads wait forever for
+        //  input — deadlock.)
         let machines: Vec<(&String, &mut Box<dyn RunningMachine>)> =
             topology.machines.iter_mut().collect();
 
-        // 注入前验证：所有外部 input 的目标必须是入口机器。
+        // Pre-injection validation: all external inputs must target entry machines.
         for (name, _, _) in &inputs {
             if !entry_txs.contains_key(name) {
                 return Err(RuntimeError::DanglingRef {
@@ -517,16 +583,18 @@ impl Runtime {
 
         std::thread::scope(|s| {
             for (name, machine) in machines {
-                // 机器的输入 receiver：入边机器的 in_routes（可多条，A2 fan-in
-                // 经 forward 线程合并），否则入口机器的 entry_rxs。
-                // port 名随消息走（不在 receiver 侧存）——统一 Sequential/Parallel 的 inject 语义。
+                // The machine's input receiver: in_routes for machines with in-edges (possibly
+                // multiple, A2 fan-in merged via forward threads), otherwise the entry
+                // machine's entry_rxs.
+                // The port name travels with the message (not stored on the receiver side) —
+                // unifying the inject semantics of Sequential/Parallel.
                 let rx = match in_routes.remove(name) {
                     Some(mut v) if v.len() == 1 => v.pop().expect("len 1"),
                     Some(v) => {
-                        // fan-in：每条入边一个 forward 线程 → 合并 channel →
-                        // 本线程 recv 合并 rx（按到达顺序）。所有 forward 退出
-                        // （上游 sender 断开 / stop_signal）后合并 rx recv
-                        // 断开 → 级联停机。
+                        // fan-in: one forward thread per in-edge → merged channel → this thread
+                        // recvs the merged rx (in arrival order). After all forward threads exit
+                        // (upstream sender disconnection / stop_signal), the merged rx recv
+                        // disconnects → cascade shutdown.
                         let (merge_tx, merge_rx) = mpsc::channel::<RoutedMsg>();
                         let stop_fwd = stop_signal.clone();
                         for rx in v {
@@ -536,8 +604,9 @@ impl Runtime {
                                 if stop_fwd.load(std::sync::atomic::Ordering::Relaxed) {
                                     return;
                                 }
-                                // 有环时用 try_recv + yield（避免阻塞 forward 线程
-                                // 导致 stop_signal 无法传播）；无环时阻塞 recv。
+                                // When cyclic, use try_recv + yield (avoiding a blocked forward
+                                // thread that would prevent stop_signal from propagating); when
+                                // acyclic, use a blocking recv.
                                 if cyclic {
                                     loop {
                                         if stop_fwd.load(std::sync::atomic::Ordering::Relaxed) {
@@ -563,29 +632,31 @@ impl Runtime {
                         entry_rxs.remove(name).expect("entry machine has an entry channel"),
                     ),
                 };
-                // 本机器输出 sender 的所有权（退出时 drop → 下游级联停机）。
+                // Owns this machine's output senders (dropped on exit → downstream cascade
+                // shutdown).
                 let my_routes = out_routes.remove(name).unwrap_or_default();
                 let result_tx = &result_tx;
-                // NonBlocking：单入边 + BoundedBuf read_policy == NonBlocking。
+                // NonBlocking: single in-edge + BoundedBuf read_policy == NonBlocking.
                 let non_blocking = in_policies.get(name).copied()
                     == Some(axiom::link::ReadPolicy::NonBlocking);
                 let stop = stop_signal.clone();
-                // P0：本机器的输入端口名表（String port → port_id 用）。
+                // P0: this machine's input port name table (used for String port → port_id).
                 let mid = topology.machine_index.get(name).copied().unwrap_or(0);
                 let in_names = &ids.in_port_names[mid];
 
                 s.spawn(move || {
                     let handle: &mut Box<dyn RunningMachine> = machine;
-                    // 端口名 → 端口 ID（线性扫描，输入端口通常 1-2）。
+                    // port name → port ID (linear scan; input ports are usually 1-2).
                     let pid_of = |port: &str| -> u16 {
                         in_names.iter().position(|p| *p == port).unwrap_or(0) as u16
                     };
 
                     if cyclic {
-                        // 有环模式：全局 stop_signal + tick 限制驱动。
-                        // 环中线程无法靠 channel 断开停机（互相保活），
-                        // 改用 try_recv + yield + tick 计数。任何线程
-                        // Done / tick 超限 → set stop_signal → 全局停机。
+                        // Cyclic mode: driven by the global stop_signal + tick limit.
+                        // Threads in a cycle cannot shut down via channel disconnection (they
+                        // keep each other alive), so try_recv + yield + tick counting is used
+                        // instead. Any thread hitting Done / the tick limit → set stop_signal →
+                        // global shutdown.
                         let mut ticks: u64 = 0;
                         loop {
                             if stop.load(std::sync::atomic::Ordering::Relaxed) {
@@ -610,8 +681,9 @@ impl Runtime {
                             }
                         }
                     } else if non_blocking {
-                        // ReadPolicy::NonBlocking：try_recv + 让出（轮询调度，
-                        // 不阻塞线程）；Err(()) = 断开 → 退出（级联停机）。
+                        // ReadPolicy::NonBlocking: try_recv + yield (polling scheduling, does
+                        // not block the thread); Err(()) = disconnection → exit (cascade
+                        // shutdown).
                         loop {
                             match rx.try_recv() {
                                 Ok(Some((port, payload))) => {
@@ -626,38 +698,42 @@ impl Runtime {
                             }
                         }
                     } else {
-                        // 默认（Blocking）：阻塞 recv。
+                        // Default (Blocking): blocking recv.
                         while let Some((port, payload)) = rx.recv() {
                             let result = handle.inject(pid_of(&port), payload);
-                            // A1：Done = 停机信号——立即退出，不再处理 channel 积压。
+                            // A1: Done = shutdown signal — exit immediately, no longer
+                            // processing the channel backlog.
                             if matches!(result, ProcessResult::Done) {
                                 break;
                             }
                             route_parallel_outputs(result, &my_routes, result_tx);
                         }
                     }
-                    // rx 断开 / Done / stop_signal → 线程退出 → my_routes drop
-                    // → 下游 recv 断开 → 级联停机（无环）或 stop_signal 传播（有环）。
+                    // rx disconnection / Done / stop_signal → thread exit → my_routes dropped →
+                    // downstream recv disconnects → cascade shutdown (acyclic) or stop_signal
+                    // propagation (cyclic).
                 });
             }
 
-            // 注入外部 inputs（线程已开始 recv，send 立即被消费）。
-            // port 名随消息发送——线程循环用收到的 port 名 inject。
-            // 用 get 而非 remove：多个 input 可能注入**同一**入口机器
-            // （remove 第一次后第二次即失败——真实 bug，由 http_declarative
-            //  验收用例抓到）。统一 drop 在注入循环之后。
+            // Inject external inputs (threads already started recv, so sends are consumed
+            // immediately). The port name is sent with the message — the thread loop injects
+            // with the received port name.
+            // Use get rather than remove: multiple inputs may inject into **the same** entry
+            // machine (remove would fail on the second one after the first — a real bug caught
+            // by the http_declarative acceptance test). The senders are dropped uniformly after
+            // the injection loop.
             for (name, port, payload) in inputs {
                 let tx = entry_txs.get(&name).expect("validated entry");
                 let _ = tx.send((port, payload));
             }
-            // 释放全部入口 sender：入口线程 recv 断开 → 级联停机 →
-            // scope 收敛（所有线程 join）。
+            // Release all entry senders: entry threads' recv disconnects → cascade shutdown →
+            // the scope converges (all threads join).
             drop(entry_txs);
         });
 
-        // ── 4. 收集终端输出（直到结果 channel 断开）────────────────────
-        // 必须 drop result_tx：scope 内各线程只借用了它的引用，顶层 sender
-        // 仍在，否则 recv 永远等不到 Err(disconnected)。
+        // ── 4. Collect terminal outputs (until the result channel disconnects) ──────────
+        // Must drop result_tx: threads in the scope only borrowed a reference to it, the
+        // top-level sender still lives, otherwise recv would never see Err(disconnected).
         drop(result_tx);
         let mut outputs = Vec::new();
         while let Ok(r) = result_rx.recv() {
@@ -666,7 +742,7 @@ impl Runtime {
         Ok(outputs)
     }
 
-    /// 清理所有 machine（逆序 cleanup）。
+    /// Clean up all machines (cleanup in reverse order).
     pub fn shutdown(&mut self) -> Result<(), RuntimeError> {
         if let Some(mut topology) = self.topology.take() {
             while let Some((_, machine)) = topology.machines.pop_last() {
@@ -676,22 +752,24 @@ impl Runtime {
         Ok(())
     }
 
-    // ── IO 多路复用集成 ───────────────────────────────────────────────────
+    // ── IO multiplexing integration ───────────────────────────────────────
     //
-    // 外部注册模型：调用方创建 IO source（如 TcpListener），取 raw fd/socket，
-    // 通过 register_io 注册 token→(machine, port) 映射 + reactor 兴趣。
-    // run_io poll reactor → 就绪事件转为 inputs → 合并外部 inputs → tick。
+    // External-registration model: the caller creates an IO source (e.g. TcpListener), takes
+    // the raw fd/socket, and registers a token→(machine, port) mapping + reactor interest via
+    // register_io. run_io polls the reactor → converts readiness events into inputs → merges
+    // the external inputs → tick.
     //
-    // 保持 Machine::process 签名不变——machine 收到 IoEvent 作为普通
-    // 类型化输入（输入端口类型含 `IoEvent` variant），在 process 中执行
-    // 实际 IO（read/write/accept）。
+    // The Machine::process signature is unchanged — the machine receives an IoEvent as an
+    // ordinary typed input (the input port type includes an `IoEvent` variant) and performs the
+    // actual IO (read/write/accept) inside process.
 
-    /// 注册一个 IO source 的就绪兴趣 + 路由映射。
+    /// Register an IO source's readiness interest + routing mapping.
     ///
-    /// - `token`：调用方分配的令牌，用于关联就绪事件与 machine。
-    /// - `machine` / `port`：就绪时注入的目标机器名与输入端口名。
-    /// - `raw`：OS 级 fd（Unix）/ socket（Windows）。
-    /// - `interest`：READABLE / WRITABLE / READ_WRITE。
+    /// - `token`: a caller-assigned token associating readiness events with a machine.
+    /// - `machine` / `port`: the target machine name and input port name to inject on
+    ///   readiness.
+    /// - `raw`: the OS-level fd (Unix) / socket (Windows).
+    /// - `interest`: READABLE / WRITABLE / READ_WRITE.
     pub fn register_io<R: IoReactor>(
         &mut self,
         reactor: &mut R,
@@ -706,7 +784,7 @@ impl Runtime {
         Ok(())
     }
 
-    /// 更新已注册 IO source 的兴趣（readiness 模型下 rearm）。
+    /// Update a registered IO source's interest (rearm under the readiness model).
     pub fn reregister_io<R: IoReactor>(
         &mut self,
         reactor: &mut R,
@@ -721,7 +799,7 @@ impl Runtime {
         Ok(())
     }
 
-    /// 注销一个 IO source。
+    /// Deregister an IO source.
     pub fn deregister_io<R: IoReactor>(
         &mut self,
         reactor: &mut R,
@@ -733,12 +811,13 @@ impl Runtime {
         Ok(())
     }
 
-    /// IO 感知的单次驱动：poll reactor → 就绪事件转为 inputs → 合并外部
-    /// inputs → 调用现有 tick 循环 → 返回终端输出。
+    /// IO-aware single drive: poll the reactor → convert readiness events into inputs → merge
+    /// the external inputs → call the existing tick loop → return terminal outputs.
     ///
-    /// - `timeout`：传给 reactor poll 的等待上限。`None` = 阻塞直到有事件；
-    ///   `Some(0)` = 非阻塞（立即返回当前就绪）。
-    /// - 未注册 token 的就绪事件被丢弃（reactor 可能报告已 deregister 的源）。
+    /// - `timeout`: the wait limit passed to the reactor poll. `None` = block until an event;
+    ///   `Some(0)` = non-blocking (return what is currently ready immediately).
+    /// - Readiness events with unregistered tokens are dropped (the reactor may report sources
+    ///   that have been deregistered).
     pub fn run_io<R: IoReactor>(
         &mut self,
         reactor: &mut R,

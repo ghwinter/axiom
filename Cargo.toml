@@ -1,11 +1,11 @@
 [package]
 name = "axiom"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 # Edition 2024 was stabilized in Rust 1.85 (Feb 2025). All code also compiles
 # on later stable releases; bump only when adopting newer language features.
 rust-version = "1.85"
-description = "Func + Machine: typed ports, explicit topology, deploy-time physics. Zero-dependency computation primitives for observable, controllable systems. // 函数与状态机：类型化端口、显式拓扑、部署时物理决策。零依赖计算原语，构建可观测、可控制的软件系统。"
+description = "Func + Machine: typed ports, explicit topology, deploy-time physics. Zero-dependency computation primitives for observable, controllable systems."
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/ghwinter/axiom"
@@ -23,11 +23,11 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true, default-features = false, features = ["alloc"] }
-axiom-derive = { path = "derive", version = "0.1.0", optional = true }
+axiom-derive = { path = "derive", version = "0.2.0", optional = true }
 
 [dev-dependencies]
 # Used only by the serde round-trip test (tests/serde_roundtrip.rs) to prove
-# that a DeploySpec declared in JSON can be loaded. Dev-only; does not affect
+# that a DynamicTopology declared in JSON can be loaded. Dev-only; does not affect
 # the crate's zero-dependency guarantee.
 serde_json = "1"
 
@@ -44,9 +44,9 @@ serde_json = "1"
 # access are gated behind `std`. Collection types come from `crate::compat`
 # (std::collections under std, alloc::collections::BTree* under no_std) so the
 # crate stays zero-dependency in both configurations. `serialize` is
-# independent of `std` and enables full `DeploySpec` round-trip: every
+# independent of `std` and enables full `DynamicTopology` round-trip: every
 # deploy-time type uses `Cow<'static, str>` for names, so a topology declared
-# in TOML/JSON can be deserialized directly into a `DeploySpec`.
+# in TOML/JSON can be deserialized directly into a `DynamicTopology`.
 [features]
 default = ["std"]
 std = []

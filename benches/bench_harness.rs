@@ -111,9 +111,9 @@ fn run_bench<F: Fn()>(name: &str, f: F) -> BenchResult {
             break;
         }
         if elapsed > Duration::from_micros(10) {
-            // ceil 除法保证下一次迭代总时长 ≥ warmup_target：
-            // 若单次耗时接近 target 的约数倍（如 15ms × 6 = 90ms < 100ms），
-            // 整数除法会收敛到不满足条件的迭代数而死循环——div_ceil 修复。
+            // ceil division guarantees next iteration's total duration ≥ warmup_target:
+            // if a single iteration is close to a divisor multiple of the target (e.g. 15ms × 6 = 90ms < 100ms),
+            // integer division would converge to an iteration count that never satisfies the condition and loop forever — div_ceil fixes that.
             let ratio = warmup_target
                 .as_nanos()
                 .div_ceil(elapsed.as_nanos().max(1));

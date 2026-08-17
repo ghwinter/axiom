@@ -1,7 +1,7 @@
 use axiom::prelude_all::*;
 use axiom::builtin::{IdentityInput, IdentityOutput};
 use axiom::session::{is_consistent, project, GlobalOp, GlobalType, LocalOp};
-use axiom::topology::{DynamicTopology, TopologyOp};
+use axiom::topology::{TopologyMutation, TopologyOp};
 
 // ════════════════════════════════════════════════════════════════════════════
 // ConfigCell tests
@@ -407,7 +407,7 @@ fn test_hybrid_driver_reset_jump() {
 
 #[test]
 fn test_topology_spawn() {
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
     assert_eq!(topo.machine_count(), 0);
 
     let delta = topo.apply(TopologyOp::Spawn {
@@ -427,7 +427,7 @@ fn test_topology_spawn() {
 
 #[test]
 fn test_topology_spawn_duplicate() {
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
     topo.apply(TopologyOp::Spawn {
         name: "worker_1",
         machine_type: "worker",
@@ -452,7 +452,7 @@ fn test_topology_spawn_duplicate() {
 
 #[test]
 fn test_topology_link_and_unlink() {
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
     topo.apply(TopologyOp::Spawn {
         name: "a",
         machine_type: "t",
@@ -496,7 +496,7 @@ fn test_topology_link_and_unlink() {
 
 #[test]
 fn test_topology_retire_with_links_fails() {
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
     topo.apply(TopologyOp::Spawn {
         name: "a",
         machine_type: "t",
@@ -529,7 +529,7 @@ fn test_topology_retire_with_links_fails() {
 
 #[test]
 fn test_topology_retire_without_links_succeeds() {
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
     topo.apply(TopologyOp::Spawn {
         name: "lonely",
         machine_type: "t",
@@ -545,7 +545,7 @@ fn test_topology_retire_without_links_succeeds() {
 
 #[test]
 fn test_topology_snapshot() {
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
     topo.apply(TopologyOp::Spawn {
         name: "a",
         machine_type: "t",
@@ -561,7 +561,7 @@ fn test_topology_snapshot() {
 
 #[test]
 fn test_topology_self_loop_rejected() {
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
     topo.apply(TopologyOp::Spawn {
         name: "a",
         machine_type: "t",
@@ -587,8 +587,8 @@ fn test_topology_self_loop_rejected() {
 #[test]
 fn test_topology_cycle_between_machines_allowed() {
     // Cycles between DIFFERENT machines are allowed.
-    // DynamicTopology rejects only self-loops, consistent with DeploySpec::validate().
-    let mut topo = DynamicTopology::new();
+    // TopologyMutation rejects only self-loops, consistent with DynamicTopology::validate().
+    let mut topo = TopologyMutation::new();
     topo.apply(TopologyOp::Spawn {
         name: "a",
         machine_type: "t",
@@ -640,7 +640,7 @@ fn test_validate_deep_port_compatibility() {
     schemas.insert("a", PortSchema::new().with(PortDecl::output::<i32>("out")));
     schemas.insert("b", PortSchema::new().with(PortDecl::input::<i32>("in")));
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "t", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("b", "t", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("a", "out"), ("b", "in"), LinkKind::Inline));
@@ -657,7 +657,7 @@ fn test_validate_deep_type_mismatch() {
     schemas.insert("a", PortSchema::new().with(PortDecl::output::<i32>("out")));
     schemas.insert("b", PortSchema::new().with(PortDecl::input::<String>("in")));
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "t", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("b", "t", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("a", "out"), ("b", "in"), LinkKind::Inline));
@@ -679,7 +679,7 @@ fn test_validate_deep_resource_budget() {
     let mut schemas: HashMap<&str, PortSchema> = HashMap::new();
     schemas.insert("a", PortSchema::new().with(PortDecl::output::<i32>("out")));
 
-    let spec = DeploySpec {
+    let spec = DynamicTopology {
         machines: vec![MachineInstance {
             name: "a".into(),
             machine_type: "t".into(),
@@ -732,7 +732,7 @@ fn test_validate_deep_unsafe_cycle_no_moore() {
     let buf = LinkKind::BoundedBuf {
         capacity: 16, write_policy: WritePolicy::Blocking, read_policy: ReadPolicy::Blocking,
     };
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "A", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("b", "B", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("a", "out"), ("b", "in"), buf.clone()))
@@ -758,7 +758,7 @@ fn test_validate_deep_safe_cycle_with_moore() {
     let buf = LinkKind::BoundedBuf {
         capacity: 16, write_policy: WritePolicy::Blocking, read_policy: ReadPolicy::Blocking,
     };
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "A", MachinePhysicalSpec::default()).moore())
         .with_machine(MachineInstance::new("b", "B", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("a", "out"), ("b", "in"), buf.clone()))
@@ -773,7 +773,7 @@ fn test_validate_deep_inline_cycle_rejected() {
     // Inline cycle = synchronous call deadlock, regardless of Moore.
     // Even with a Moore machine, an Inline cycle is rejected.
     let schemas = two_machine_schemas();
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "A", MachinePhysicalSpec::default()).moore())
         .with_machine(MachineInstance::new("b", "B", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("a", "out"), ("b", "in"), LinkKind::Inline))
@@ -800,7 +800,7 @@ fn test_validate_deep_dag_no_cycle_ok() {
         .with(PortDecl::output::<i32>("out")));
     schemas.insert("c", PortSchema::new().with(PortDecl::input::<i32>("in")));
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "A", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("b", "B", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("c", "C", MachinePhysicalSpec::default()))
@@ -828,7 +828,7 @@ fn test_validate_deep_moore_breaks_only_its_own_cycle() {
     let buf = LinkKind::BoundedBuf {
         capacity: 16, write_policy: WritePolicy::Blocking, read_policy: ReadPolicy::Blocking,
     };
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "A", MachinePhysicalSpec::default()).moore())
         .with_machine(MachineInstance::new("b", "B", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("c", "C", MachinePhysicalSpec::default()))
@@ -991,8 +991,8 @@ fn test_project_choice_first_branch() {
         GlobalOp::End,
     ]);
 
-    // A 是 selector → 内部选择 Select，两个分支结构完整保留（不再是
-    // "只取第一个分支" 的退化实现）。
+    // A is the selector → it projects to an internal Select; both branches are
+    // fully preserved (no longer a degenerate "keep only the first branch").
     let local_a = project(&global, "A");
     let select = local_a.ops().iter().find_map(|op| match op {
         LocalOp::Select { branches } => Some(branches),
@@ -1002,7 +1002,7 @@ fn test_project_choice_first_branch() {
     assert!(matches!(&select[0].ops()[0], LocalOp::Send { to, label } if *to == "B" && *label == "left"));
     assert!(matches!(&select[1].ops()[0], LocalOp::Send { to, label } if *to == "C" && *label == "right"));
 
-    // B 非 selector → 外部选择 Choose（B 接受 peer 的选择）。
+    // B is not the selector → it projects to an external Choose (B accepts the peer's choice).
     let local_b = project(&global, "B");
     let choose = local_b.ops().iter().find_map(|op| match op {
         LocalOp::Choose { branches } => Some(branches),
@@ -1014,7 +1014,7 @@ fn test_project_choice_first_branch() {
 
 #[test]
 fn test_project_recurse_preserves_recursion() {
-    // 递归全局协议：Server 循环收请求、发响应。
+    // Recursive global protocol: Server loops receiving requests and sending responses.
     let rec_body = GlobalType::sequence(&[
         GlobalOp::Message { from: "Client", to: "Server", label: "req" },
         GlobalOp::Message { from: "Server", to: "Client", label: "resp" },
@@ -1025,7 +1025,7 @@ fn test_project_recurse_preserves_recursion() {
         GlobalOp::End,
     ]);
 
-    // Client 投影：Recurse 结构保留（不再是"只取 body 第一个 op"）。
+    // Client projection: the Recurse structure is preserved (no longer "take only the first op of the body").
     let client = project(&global, "Client");
     let rec = client.ops().iter().find_map(|op| match op {
         LocalOp::Recurse { var, body } => Some((*var, body)),
@@ -1040,7 +1040,7 @@ fn test_project_recurse_preserves_recursion() {
 
 #[test]
 fn test_is_dual_choice_and_recursion() {
-    // Select(内部选择) 与 Choose(外部选择) 对偶（分支逐对偶）。
+    // Select (internal choice) and Choose (external choice) are dual (branches dualize pairwise).
     let s = SessionType::sequence(&[
         SessionOp::Select {
             branches: vec![
@@ -1059,7 +1059,7 @@ fn test_is_dual_choice_and_recursion() {
     ]);
     assert!(is_dual(&s, &c));
     assert!(is_dual(&c, &s));
-    // 分支不匹配 → 不对偶
+    // Mismatched branches → not dual
     let c_bad = SessionType::sequence(&[
         SessionOp::Choose {
             branches: vec![
@@ -1070,7 +1070,7 @@ fn test_is_dual_choice_and_recursion() {
     ]);
     assert!(!is_dual(&s, &c_bad));
 
-    // 递归对偶：同 var 名 + body 对偶。
+    // Recursive duality: same var name + dual bodies.
     let r1 = SessionType::sequence(&[
         SessionOp::Recurse {
             var: "loop",
@@ -1086,7 +1086,7 @@ fn test_is_dual_choice_and_recursion() {
         SessionOp::Var { var: "loop" },
     ]);
     assert!(is_dual(&r1, &r2));
-    // var 名不同 → 不对偶
+    // Different var names → not dual
     let r3 = SessionType::sequence(&[
         SessionOp::Recurse {
             var: "other",
@@ -1099,7 +1099,7 @@ fn test_is_dual_choice_and_recursion() {
 
 #[test]
 fn test_is_consistent_recursive() {
-    // Choice 分支内的 Message 也应参与一致性检查。
+    // Messages inside Choice branches must also participate in the consistency check.
     let branch1 = GlobalType::sequence(&[
         GlobalOp::Message { from: "A", to: "B", label: "ok" },
         GlobalOp::End,
@@ -1112,7 +1112,7 @@ fn test_is_consistent_recursive() {
         GlobalOp::Choice { selector: "A", branches: vec![branch1, branch2] },
         GlobalOp::End,
     ]);
-    // A 发往 B/C 的标签在各自分支投影中匹配 → 一致。
+    // The labels A sends to B/C match in each branch's projection → consistent.
     assert!(is_consistent(&global));
 }
 
@@ -1136,7 +1136,7 @@ fn test_project_skip_for_uninvolved_role() {
 fn test_apply_batch_rollback_on_self_loop() {
     // Cycles between different machines are ALLOWED, so we use a self-loop
     // (still rejected) to trigger batch rollback.
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
 
     // Pre-spawn two nodes.
     topo.apply(TopologyOp::Spawn {
@@ -1189,7 +1189,7 @@ fn test_apply_batch_rollback_on_self_loop() {
 
 #[test]
 fn test_apply_batch_partial_failure_rollback() {
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
 
     // Batch: spawn 3 nodes (OK), then duplicate spawn (fails).
     let result = topo.apply_batch(vec![
@@ -1231,7 +1231,7 @@ fn test_apply_batch_partial_failure_rollback() {
 
 #[test]
 fn test_topology_replace_transfers_links() {
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
 
     // Spawn A → B chain.
     topo.apply(TopologyOp::Spawn {
@@ -1276,7 +1276,7 @@ fn test_topology_replace_transfers_links() {
 
 #[test]
 fn test_topology_replace_nonexistent_fails() {
-    let mut topo = DynamicTopology::new();
+    let mut topo = TopologyMutation::new();
 
     let result = topo.apply(TopologyOp::Replace {
         old_name: "ghost",

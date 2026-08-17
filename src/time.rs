@@ -1,3 +1,5 @@
+/// **Maturity: stable** (the stable core, main subject of the current refactor).
+///
 /// Time abstraction — a replaceable time source.
 ///
 /// In production, `RealClock` provides wall-clock time.

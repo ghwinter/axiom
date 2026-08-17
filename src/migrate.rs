@@ -1,3 +1,5 @@
+/// **Maturity: experimental** (an extension; advanced as part of the core, not dropped).
+///
 /// SchemaMigrate — version migration for port payload schemas.
 ///
 /// # Problem this solves
@@ -34,9 +36,9 @@
 /// registry.register("trade_out", std::any::TypeId::of::<MyPayload>(), Arc::new(MyMigrator));
 /// ```
 
-use core::any::{Any, TypeId};
-use std::collections::HashMap;
-use std::sync::Arc;
+use core::any::Any;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 
 // ── SchemaMigrate trait ───────────────────────────────────────────────────────
 
@@ -70,6 +72,11 @@ pub type MigrateFn =
     Arc<dyn Fn(Box<dyn Any + Send>, u32, u32) -> Option<Box<dyn Any + Send>> + Send + Sync>;
 
 // ── MigrateRegistry ──────────────────────────────────────────────────────────
+//
+// `MigrateRegistry` uses `RwLock` for concurrent registration/lookup, which
+// requires `std` — unavailable under `no_std + alloc` (see lib.rs: RwLock-based
+// containers are gated to std). The `SchemaMigrate` trait and `MigrateFn` type
+// only need `Arc`/`Box` (alloc) and work under no_std as well.
 
 /// A registry of schema migrators, keyed by (port_name, TypeId).
 ///
@@ -84,14 +91,23 @@ pub type MigrateFn =
 /// are lock-free concurrent, writes (registrations) are exclusive.
 /// In practice, registrations happen at startup and migrations happen
 /// during `process()`, so contention is minimal.
+#[cfg(feature = "std")]
 pub struct MigrateRegistry {
-    migrators: RwLock<HashMap<(&'static str, TypeId), MigrateFn>>,
+    migrators: RwLock<crate::compat::HashMap<(&'static str, TypeId), MigrateFn>>,
 }
 
 // Note: We avoid importing std::sync::RwLock via `use` to keep the module
 // self-contained. Re-exported here for the field type.
+#[cfg(feature = "std")]
 use std::sync::RwLock;
 
+#[cfg(feature = "std")]
+use crate::compat::HashMap;
+
+#[cfg(feature = "std")]
+use core::any::TypeId;
+
+#[cfg(feature = "std")]
 impl MigrateRegistry {
     /// Create an empty registry.
     pub fn new() -> Self {
@@ -165,12 +181,14 @@ impl MigrateRegistry {
     }
 }
 
+#[cfg(feature = "std")]
 impl Default for MigrateRegistry {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(feature = "std")]
 impl core::fmt::Debug for MigrateRegistry {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let guard = self.migrators.read().expect("MigrateRegistry poisoned");

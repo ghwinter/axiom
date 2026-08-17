@@ -1,6 +1,8 @@
+//! **Maturity: tool** (development-time tool / runtime-adapter constraints, reinforced per the unified convention).
+//!
 //! Runtime capability contracts — the guardrail for runtime adapters.
 //!
-//! axiom is an abstraction layer: a `DeploySpec` is pure structure, and any
+//! axiom is an abstraction layer: a `DynamicTopology` is pure structure, and any
 //! runtime adapter (the built-in `axiom-runtime`, a future `axiom_tokio`,
 //! `axiom_io_uring`, `axiom_wasi`, an embedded bare-metal executor, …)
 //! interprets it with its own physics. The **constraint side** of "provide a
@@ -17,7 +19,7 @@
 //! - [`Guarantees`] — the declarative capability struct every adapter
 //!   returns from [`RuntimeContract::guarantees`].
 //! - [`RuntimeContract::check_spec`] — default implementation: verifies a
-//!   `DeploySpec` against the declared guarantees and returns a structured
+//!   `DynamicTopology` against the declared guarantees and returns a structured
 //!   [`ValidationReport`] (reusing `RuleViolation`). A blueprint that needs a
 //!   carrier or execution mode the runtime does not provide is rejected
 //!   *before* deployment, with `rule_id`-tagged violations the AI loop can
@@ -31,8 +33,9 @@
 //! can physically honor*, and `check_spec` is the pure function that decides
 //! whether they agree.
 
+use crate::backpressure::BackpressureAction;
 use crate::compat::HashMap;
-use crate::deploy::{DeploySpec, RuleViolation, ValidationReport};
+use crate::deploy::{DynamicTopology, RuleViolation, ValidationReport};
 use crate::link::{
     LinkKind, LinkSpec, MemoryRegion, ReadPolicy, WritePolicy,
 };
@@ -72,6 +75,28 @@ pub struct CasFreeRingSupport {
     pub heap: bool,
     /// Supports `MemoryRegion::Static` storage (fixed address).
     pub static_region: bool,
+}
+
+/// Which backpressure actions the runtime can execute on its carriers
+/// (S3-3 — policy↔carrier correspondence).
+///
+/// Each runtime declares which [`BackpressureAction`]s its carriers
+/// natively support. A `BackpressurePolicy` that `required_action`s
+/// `Block` may only be wired onto a link whose runtime declares
+/// `block: true`; otherwise the policy would silently fail to deliver
+/// its declared semantics.
+#[derive(Debug, Clone, Default)]
+pub struct BackpressureActionSupport {
+    /// Runtime can block the sender thread (e.g. `SyncSender::send`).
+    pub block: bool,
+    /// Runtime can drop the message when full (e.g. `try_send` + abandon).
+    pub drop: bool,
+    /// Runtime can evict the oldest and deliver the newest (overwrite
+    /// carrier, e.g. ring-buffer with wrap-around).
+    pub overwrite: bool,
+    /// Runtime can defer the send and re-schedule the machine when
+    /// credits replenish (credit-based flow control).
+    pub defer: bool,
 }
 
 /// Which `LinkKind` variants the runtime implements, with capability details.
@@ -172,6 +197,38 @@ pub struct Guarantees {
     pub deterministic_replay: bool,
     /// Physical budget the runtime can honor.
     pub physical: PhysicalBudget,
+    /// Which backpressure actions the runtime's carriers can execute.
+    pub backpressure: BackpressureActionSupport,
+}
+
+impl Guarantees {
+    /// Whether a concrete backpressure policy can be wired onto this
+    /// runtime's carriers — i.e. the action [`BackpressurePolicy::required_action`]
+    /// demands is executable (S3-3). `true` if the runtime declares the
+    /// action, `false` if it would silently violate the policy.
+    pub fn backpressure_supported(
+        &self,
+        policy: &dyn crate::backpressure::BackpressurePolicy,
+    ) -> bool {
+        self.backpressure.supports(policy.required_action())
+    }
+}
+
+impl BackpressureActionSupport {
+    /// Whether an action can be executed on the runtime's carriers.
+    ///
+    /// `Proceed` (a plain successful send) is always executable — every
+    /// carrier can do a non-blocking send; the other actions require the
+    /// corresponding declared capability.
+    pub fn supports(&self, action: BackpressureAction) -> bool {
+        match action {
+            BackpressureAction::Proceed => true,
+            BackpressureAction::Block => self.block,
+            BackpressureAction::Drop => self.drop,
+            BackpressureAction::Overwrite => self.overwrite,
+            BackpressureAction::Defer => self.defer,
+        }
+    }
 }
 
 /// A runtime adapter's capability contract.
@@ -187,15 +244,17 @@ pub trait RuntimeContract {
     /// The declared capabilities.
     fn guarantees(&self) -> Guarantees;
 
-    /// Verify a `DeploySpec` against the declared guarantees.
+    /// Verify a `DynamicTopology` against the declared guarantees.
     ///
     /// Default implementation checks, per link: kind support, per-kind policy
-    /// support, capacity limits. Per machine: execution-mode support, physical
-    /// budget. Plus: Moore/cycle requirement (only when `link_delay == Zero`)
-    /// and total-thread budget.
+    /// support, capacity limits, and **backpressure-action support** (the
+    /// carrier must be able to execute the action the link's declared policy
+    /// demands). Per machine: execution-mode support, physical budget. Plus:
+    /// Moore/cycle requirement (only when `link_delay == Zero`) and
+    /// total-thread budget.
     fn check_spec(
         &self,
-        spec: &DeploySpec,
+        spec: &DynamicTopology,
         schemas: &HashMap<&str, PortSchema>,
     ) -> ValidationReport {
         let g = self.guarantees();
@@ -208,6 +267,26 @@ pub trait RuntimeContract {
         // 1. Per-link carrier support.
         for (i, link) in spec.links.iter().enumerate() {
             check_link_kind(&mut report, i, link, &g);
+        }
+
+        // 1b. Backpressure policy ↔ carrier correspondence (S3-3): each
+        // link's declared policy (or its carrier's built-in semantics) demands
+        // an action when full; the runtime must declare it can execute that
+        // action on its carriers.
+        for (i, link) in spec.links.iter().enumerate() {
+            if let Some(action) = link_required_backpressure_action(&link.kind) {
+                if !g.backpressure.supports(action) {
+                    report.push(RuleViolation::new(
+                        "runtime-backpressure-action",
+                        format!("links[{i}].kind"),
+                        format!("backpressure action {action:?} supported by runtime"),
+                        format!(
+                            "link kind {} demands {action:?}, runtime unsupported",
+                            link.kind.name()
+                        ),
+                    ));
+                }
+            }
         }
 
         // 2. Per-machine execution-mode support + physical budget.
@@ -406,6 +485,33 @@ fn push_unsupported(report: &mut ValidationReport, i: usize, kind: &str) {
     ));
 }
 
+/// The backpressure action a link's declared policy demands when its
+/// carrier is full — the carrier-side contract (S3-3).
+///
+/// Links with no queued backpressure semantics (`Inline` direct call /
+/// `SharedState` shared memory) return `None` — nothing to validate.
+fn link_required_backpressure_action(kind: &LinkKind) -> Option<BackpressureAction> {
+    match kind {
+        LinkKind::Inline | LinkKind::SharedState => None,
+        LinkKind::BoundedBuf { write_policy, .. } => Some(match write_policy {
+            WritePolicy::Blocking => BackpressureAction::Block,
+            WritePolicy::Dropping => BackpressureAction::Drop,
+            WritePolicy::Overwriting => BackpressureAction::Overwrite,
+        }),
+        LinkKind::Channel { drop_when_full, .. } => Some(if *drop_when_full {
+            // Fire-and-forget: drop the message when full.
+            BackpressureAction::Drop
+        } else {
+            // Natural backpressure: block the sender.
+            BackpressureAction::Block
+        }),
+        // A single overwrite slot = latest-wins = evict-oldest semantics.
+        LinkKind::Latest { .. } => Some(BackpressureAction::Overwrite),
+        // SPSC ring: bounded capacity, sender blocks when full.
+        LinkKind::CasFreeRing { .. } => Some(BackpressureAction::Block),
+    }
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 fn thread_count(e: &ExecutionHint) -> usize {
@@ -417,7 +523,7 @@ fn thread_count(e: &ExecutionHint) -> usize {
     }
 }
 
-fn spec_has_non_moore_cycle(spec: &DeploySpec) -> bool {
+fn spec_has_non_moore_cycle(spec: &DynamicTopology) -> bool {
     // Reuse the public analysis: feedback_loops finds cycles; for the
     // zero-delay rule we need a cycle without any Moore machine.
     // Simplification: if the spec has any feedback loop and not every
@@ -490,6 +596,17 @@ impl RuntimeContract for ReferenceRuntime {
                 cache_line_align: false,
                 max_cleanup_latency_us: 0,
             },
+            // Built-in carrier validation (see runtime/carrier.rs): BoundedBlocking
+            // supports Block, BoundedDropping/Channel(drop) supports Drop,
+            // BoundedOverwriting supports Overwrite. CreditPolicy's Defer
+            // (rescheduling + on_consumed credit replenishment) is not yet wired
+            // in — honestly declared as unsupported.
+            backpressure: BackpressureActionSupport {
+                block: true,
+                drop: true,
+                overwrite: true,
+                defer: false,
+            },
         }
     }
 }
@@ -497,7 +614,10 @@ impl RuntimeContract for ReferenceRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::deploy::{DeploySpec, MachineInstance};
+    use crate::backpressure::{
+        BackpressurePolicy, BlockPolicy, CreditPolicy, DropPolicy, OverwritePolicy,
+    };
+    use crate::deploy::{DynamicTopology, MachineInstance};
     use crate::port::PortDecl;
     use crate::resource::MachinePhysicalSpec;
 
@@ -511,8 +631,8 @@ mod tests {
         schemas
     }
 
-    fn spec_ab(link: LinkKind) -> DeploySpec {
-        DeploySpec::new()
+    fn spec_ab(link: LinkKind) -> DynamicTopology {
+        DynamicTopology::new()
             .with_machine(MachineInstance::new("a", "A", MachinePhysicalSpec::default()))
             .with_machine(MachineInstance::new("b", "B", MachinePhysicalSpec::default()))
             .with_link(crate::link::LinkSpec::new(("a", "out"), ("b", "in"), link))
@@ -631,7 +751,7 @@ mod tests {
                 }
             }
         }
-        let spec = DeploySpec::new().with_machine(MachineInstance::new(
+        let spec = DynamicTopology::new().with_machine(MachineInstance::new(
             "a",
             "A",
             MachinePhysicalSpec {
@@ -673,7 +793,7 @@ mod tests {
                 }
             }
         }
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(MachineInstance::new(
                 "a",
                 "A",
@@ -720,7 +840,7 @@ mod tests {
             }
         }
         // a → b → a cycle, neither Moore.
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(MachineInstance::new("a", "A", MachinePhysicalSpec::default()))
             .with_machine(MachineInstance::new("b", "B", MachinePhysicalSpec::default()))
             .with_link(crate::link::LinkSpec::new(("a", "out"), ("b", "in"), LinkKind::Inline))
@@ -730,5 +850,241 @@ mod tests {
             .violations
             .iter()
             .any(|v| v.rule_id == "runtime-cycle-moore"));
+    }
+
+    // ── S3-3: backpressure policy ↔ carrier correspondence ─────────────────────
+
+    /// A runtime whose carriers can only block (no drop / overwrite / defer).
+    fn block_only_runtime() -> impl RuntimeContract {
+        struct BlockOnly;
+        impl RuntimeContract for BlockOnly {
+            fn id(&self) -> &'static str {
+                "test/block-only"
+            }
+            fn guarantees(&self) -> Guarantees {
+                Guarantees {
+                    link_kinds: LinkKindSupport {
+                        inline: true,
+                        bounded_buf: Some(BoundedBufSupport {
+                            write_policies: vec![WritePolicy::Blocking],
+                            read_policies: vec![ReadPolicy::Blocking],
+                            max_capacity: 0,
+                        }),
+                        channel: Some(ChannelSupport {
+                            drop_when_full: false,
+                            max_capacity: 0,
+                        }),
+                        latest: true,
+                        cas_free_ring: Some(CasFreeRingSupport {
+                            heap: true,
+                            static_region: false,
+                        }),
+                        ..LinkKindSupport::default()
+                    },
+                    exec_modes: ExecModeSupport {
+                        sequential: true,
+                        ..ExecModeSupport::default()
+                    },
+                    link_delay: LinkDelay::OneTick,
+                    backpressure: BackpressureActionSupport {
+                        block: true,
+                        ..BackpressureActionSupport::default()
+                    },
+                    ..Guarantees::default()
+                }
+            }
+        }
+        BlockOnly
+    }
+
+    #[test]
+    fn rejects_unsupported_backpressure_action() {
+        // Overwrite-demanding link (BoundedBuf{Overwriting}) on a runtime
+        // that can only block → runtime-backpressure-action violation.
+        let rt = block_only_runtime();
+        let spec = spec_ab(LinkKind::BoundedBuf {
+            capacity: 4,
+            write_policy: WritePolicy::Overwriting,
+            read_policy: ReadPolicy::Blocking,
+        });
+        let report = rt.check_spec(&spec, &schema_io());
+        assert!(report
+            .violations
+            .iter()
+            .any(|v| v.rule_id == "runtime-backpressure-action"),
+            "{:?}", report.violations);
+
+        // Latest (single overwrite slot) demands Overwrite too.
+        let report = rt.check_spec(&spec_ab(LinkKind::Latest { capacity: 0 }), &schema_io());
+        assert!(report
+            .violations
+            .iter()
+            .any(|v| v.rule_id == "runtime-backpressure-action"),
+            "{:?}", report.violations);
+
+        // Channel{drop_when_full:true} demands Drop.
+        let report = rt.check_spec(
+            &spec_ab(LinkKind::Channel { capacity: 4, drop_when_full: true }),
+            &schema_io(),
+        );
+        assert!(report
+            .violations
+            .iter()
+            .any(|v| v.rule_id == "runtime-backpressure-action"),
+            "{:?}", report.violations);
+    }
+
+    #[test]
+    fn accepts_backpressure_actions_when_declared() {
+        // ReferenceRuntime declares block/drop/overwrite → all stateless
+        // carrier semantics pass.
+        let rt = ReferenceRuntime;
+        let specs = [
+            spec_ab(LinkKind::BoundedBuf {
+                capacity: 4,
+                write_policy: WritePolicy::Blocking,
+                read_policy: ReadPolicy::Blocking,
+            }),
+            spec_ab(LinkKind::BoundedBuf {
+                capacity: 4,
+                write_policy: WritePolicy::Dropping,
+                read_policy: ReadPolicy::Blocking,
+            }),
+            spec_ab(LinkKind::BoundedBuf {
+                capacity: 4,
+                write_policy: WritePolicy::Overwriting,
+                read_policy: ReadPolicy::Blocking,
+            }),
+            spec_ab(LinkKind::Channel { capacity: 4, drop_when_full: false }),
+            spec_ab(LinkKind::Channel { capacity: 4, drop_when_full: true }),
+            spec_ab(LinkKind::Latest { capacity: 0 }),
+            spec_ab(LinkKind::CasFreeRing {
+                capacity: 4,
+                storage: crate::link::MemoryRegion::Heap { size: 64 },
+            }),
+        ];
+        for spec in &specs {
+            let report = rt.check_spec(spec, &schema_io());
+            assert!(report.is_ok(), "{:?}", report.violations);
+        }
+    }
+
+    #[test]
+    fn policy_required_action_matches_semantics() {
+        // Each policy declares the action it demands when full/out-of-credit.
+        assert_eq!(BlockPolicy::new().required_action(), BackpressureAction::Block);
+        assert_eq!(DropPolicy::new().required_action(), BackpressureAction::Drop);
+        assert_eq!(OverwritePolicy::new().required_action(), BackpressureAction::Overwrite);
+        assert_eq!(CreditPolicy::default().required_action(), BackpressureAction::Defer);
+    }
+
+    #[test]
+    fn credit_policy_requires_defer_support() {
+        // CreditPolicy demands Defer; a runtime without defer (e.g. the
+        // reference runtime — credit not yet wired into carriers) must reject
+        // wiring it; a runtime declaring defer accepts it.
+        let g = ReferenceRuntime.guarantees();
+        assert!(!g.backpressure_supported(&CreditPolicy::default()),
+            "reference runtime does not implement credit/defer");
+        assert!(g.backpressure_supported(&BlockPolicy::new()));
+        assert!(g.backpressure_supported(&DropPolicy::new()));
+        assert!(g.backpressure_supported(&OverwritePolicy::new()));
+
+        let with_defer = Guarantees {
+            backpressure: BackpressureActionSupport {
+                block: true,
+                drop: true,
+                overwrite: true,
+                defer: true,
+            },
+            ..Guarantees::default()
+        };
+        assert!(with_defer.backpressure_supported(&CreditPolicy::default()));
+    }
+
+    /// A runtime that declares *no* backpressure actions rejects every link
+    /// whose carrier has queued semantics — even a plain blocking send. Only
+    /// Inline / SharedState (no queued backpressure) and `Proceed` (a
+    /// successful send) remain admissible.
+    #[test]
+    fn no_backpressure_runtime_rejects_queued_links() {
+        struct NoBp;
+        impl RuntimeContract for NoBp {
+            fn id(&self) -> &'static str {
+                "test/no-bp"
+            }
+            fn guarantees(&self) -> Guarantees {
+                Guarantees {
+                    link_kinds: LinkKindSupport {
+                        inline: true,
+                        bounded_buf: Some(BoundedBufSupport {
+                            write_policies: vec![
+                                WritePolicy::Blocking,
+                                WritePolicy::Dropping,
+                                WritePolicy::Overwriting,
+                            ],
+                            read_policies: vec![ReadPolicy::Blocking],
+                            max_capacity: 0,
+                        }),
+                        channel: Some(ChannelSupport {
+                            drop_when_full: true,
+                            max_capacity: 0,
+                        }),
+                        latest: true,
+                        shared_state: true,
+                        ..LinkKindSupport::default()
+                    },
+                    exec_modes: ExecModeSupport {
+                        sequential: true,
+                        ..ExecModeSupport::default()
+                    },
+                    link_delay: LinkDelay::OneTick,
+                    // backpressure: all-false (default) — carriers can only
+                    // `Proceed`.
+                    ..Guarantees::default()
+                }
+            }
+        }
+        let rt = NoBp;
+        // Every queued carrier demands an action the runtime cannot execute.
+        for link in [
+            LinkKind::BoundedBuf {
+                capacity: 4,
+                write_policy: WritePolicy::Blocking,
+                read_policy: ReadPolicy::Blocking,
+            },
+            LinkKind::BoundedBuf {
+                capacity: 4,
+                write_policy: WritePolicy::Dropping,
+                read_policy: ReadPolicy::Blocking,
+            },
+            LinkKind::BoundedBuf {
+                capacity: 4,
+                write_policy: WritePolicy::Overwriting,
+                read_policy: ReadPolicy::Blocking,
+            },
+            LinkKind::Channel { capacity: 4, drop_when_full: false },
+            LinkKind::Channel { capacity: 4, drop_when_full: true },
+            LinkKind::Latest { capacity: 0 },
+        ] {
+            let report = rt.check_spec(&spec_ab(link.clone()), &schema_io());
+            assert!(
+                report.violations.iter().any(|v| v.rule_id == "runtime-backpressure-action"),
+                "expected backpressure violation for {:?}: {:?}",
+                link,
+                report.violations,
+            );
+        }
+        // Inline / SharedState have no queued semantics → no backpressure
+        // violation even on a no-bp runtime.
+        for link in [LinkKind::Inline, LinkKind::SharedState] {
+            let report = rt.check_spec(&spec_ab(link.clone()), &schema_io());
+            assert!(
+                report.violations.iter().all(|v| v.rule_id != "runtime-backpressure-action"),
+                "unexpected backpressure violation for {:?}: {:?}",
+                link,
+                report.violations,
+            );
+        }
     }
 }

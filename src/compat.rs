@@ -1,3 +1,5 @@
+//! **Maturity: stable** (the stable core, main subject of the current refactor).
+//!
 //! Collection aliases that work under both `std` and `no_std + alloc`.
 //!
 //! axiom is zero-dependency (the only optional dep is `serde`). To keep that

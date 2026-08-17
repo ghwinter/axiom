@@ -1,3 +1,5 @@
+//! **Maturity: experimental** (an extension; advanced as part of the core, not dropped).
+//!
 //! Session Types — protocol-level type safety for port communications.
 //!
 //! # Theoretical foundation

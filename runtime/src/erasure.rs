@@ -1,8 +1,8 @@
-//! 类型擦除层——`RunningMachine` trait + `MachineWrapper` 适配器。
+//! Type erasure layer — `RunningMachine` trait + `MachineWrapper` adapter.
 //!
-//! runtime 持有 `Box<dyn RunningMachine>`，不需要知道具体 `M` 类型。
-//! `M::Input` 通过 `Box<dyn Any>` downcast 还原；`M::Output` 通过
-//! `HasPortInfo::port_name()` 提取端口名，`into_any()` 类型擦除值。
+//! The runtime holds `Box<dyn RunningMachine>` and does not need to know the concrete `M` type.
+//! `M::Input` is restored via `Box<dyn Any>` downcast; `M::Output` extracts the port name via
+//! `HasPortInfo::port_name()` and type-erases the value with `into_any()`.
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -13,25 +13,27 @@ use axiom::portset::HasPortInfo;
 
 use crate::error::RuntimeError;
 
-/// 类型擦除后的活跃 Machine——runtime 持有 `Box<dyn RunningMachine>`，
-/// 不需要知道具体 `M` 类型。
+/// A running Machine after type erasure — the runtime holds `Box<dyn RunningMachine>`,
+/// so it does not need to know the concrete `M` type.
 ///
-/// `process_boxed` 接收 `Box<dyn Any + Send>`（类型擦除的 input），
-/// 返回 `ProcessResult`（包含端口名和擦除后的输出值）。
-/// 端口名由 `HasPortInfo::port_name()` 从输出值提取，runtime 用它匹配
-/// `LinkSpec` 的源端口，找到目标机器和端口。
+/// `process_boxed` receives `Box<dyn Any + Send>` (a type-erased input) and returns
+/// `ProcessResult` (containing the port name and the erased output value).
+/// The port name is extracted from the output value by `HasPortInfo::port_name()`; the runtime
+/// uses it to match the source port of a `LinkSpec` and find the target machine and port.
 pub trait RunningMachine: Send {
     fn name(&self) -> &str;
     fn process_boxed(&mut self, input: Box<dyn core::any::Any + Send>) -> ProcessResult;
-    /// 按端口 ID 注入路由来的 payload：ID 经 `in_port_names` 还原端口名，
-    /// 用 `HasPortInfo::from_port_name` 构造本机器的输入 variant 并 process。
-    /// `Idle` 表示端口不匹配。ID 化消除了热路径的字符串匹配与装箱。
+    /// Inject a routed payload by port ID: the ID is restored to a port name via `in_port_names`,
+    /// and `HasPortInfo::from_port_name` builds this machine's input variant and processes it.
+    /// `Idle` means the port did not match. ID-based injection eliminates string matching and
+    /// boxing on the hot path.
     fn inject(&mut self, port_id: u16, payload: Box<dyn core::any::Any + Send>) -> ProcessResult;
-    /// 类型化单槽处理（unsafe 破局后的级间免装箱协议）：从 `slot` 取裸值
-    /// （[`take_input`] 位拷贝零分配）、`Pack` 构造输入、process、`Unpack`
-    /// 裸值、经 [`put_output`] 写回同一槽（同类型零分配 / 跨类型重装箱）。
-    /// 仅 [`ScratchMachine`]（`M::Input: Pack` + `M::Output: Unpack` 单输入
-    /// 单输出机器）覆盖；其余机器返回 `Idle`。
+    /// Typed single-slot processing (the allocation-free inter-stage protocol after the unsafe
+    /// workaround): take the raw value from `slot` ([`take_input`] bit copy, zero allocation),
+    /// build the input with `Pack`, process, `Unpack` the raw value, and write it back to the same
+    /// slot via [`put_output`] (same type = zero allocation / cross-type = re-box).
+    /// Only [`ScratchMachine`] (`M::Input: Pack` + `M::Output: Unpack` single-input single-output
+    /// machines) overrides this; other machines return `Idle`.
     fn process_scratch(
         &mut self,
         _port_id: u16,
@@ -41,14 +43,15 @@ pub trait RunningMachine: Send {
     }
     fn is_done(&self) -> bool;
     fn port_schema(&self) -> &axiom::port::PortSchema;
-    /// 是否可进入融合流水线（`register_fused::<M: FusedInline>()` 注册的
-    /// 机器返回 `true`）。`materialize` 用此标记识别可融合的 Inline 链，
-    /// 替换为 `FusedPipeline`——消除每跳的路由查找与队列开销。
+    /// Whether the machine can enter a fused pipeline (machines registered via
+    /// `register_fused::<M: FusedInline>()` return `true`). `materialize` uses this flag to
+    /// recognize fusible Inline chains and replace them with a `FusedPipeline` — eliminating the
+    /// per-hop route lookup and queue overhead.
     fn is_fused_compatible(&self) -> bool;
     fn cleanup(self: Box<Self>) -> Result<(), RuntimeError>;
 }
 
-/// `process` 调用的结果——简化版 `ProcessOutput`，用于类型擦除后的路由。
+/// The result of a `process` call — a simplified `ProcessOutput` used for routing after type erasure.
 #[derive(Debug)]
 pub enum ProcessResult {
     Idle,
@@ -57,30 +60,32 @@ pub enum ProcessResult {
     YieldMulti { outputs: Vec<(&'static str, Box<dyn core::any::Any + Send>)> },
 }
 
-/// 类型化单槽处理结果（unsafe 破局后的级间免装箱协议）。
+/// Result of typed single-slot processing (the allocation-free inter-stage protocol after the
+/// unsafe workaround).
 ///
-/// [`RunningMachine::process_scratch`] 从调用方传入的 [`TypedSlot`] 取裸值、
-/// process、经 [`recycle`] 写回同一槽（同类型零分配 / 跨类型重装箱）。
-/// `Yield` 的值**隐含在槽中**（未装箱），调用方直接 move。
+/// [`RunningMachine::process_scratch`] takes the raw value from the caller-supplied [`TypedSlot`],
+/// processes it, and writes it back to the same slot via [`recycle`] (same type = zero allocation /
+/// cross-type = re-box). The `Yield` value is **implicit in the slot** (unboxed); the caller moves
+/// it directly.
 #[derive(Debug)]
 pub enum ScratchResult {
     Idle,
     Done,
-    /// 单输出：输出值已在槽中，`port` 是输出端口名。
+    /// Single output: the output value is already in the slot, `port` is the output port name.
     Yield(&'static str),
 }
 
-/// 把具体 `MachineHandle<M, Running>` 包装成 `Box<dyn RunningMachine>`。
+/// Wraps a concrete `MachineHandle<M, Running>` into a `Box<dyn RunningMachine>`.
 ///
-/// `M::Input` 通过 `Box<dyn Any>` downcast 还原。
-/// `M::Output` 通过 `HasPortInfo::port_name()` 提取端口名，
-/// `HasPortInfo::into_any()` 类型擦除值。
+/// `M::Input` is restored via `Box<dyn Any>` downcast.
+/// `M::Output` extracts the port name via `HasPortInfo::port_name()`,
+/// and type-erases the value with `HasPortInfo::into_any()`.
 pub(crate) struct MachineWrapper<M: Machine> {
     handle: Option<MachineHandle<M, Running>>,
     done: bool,
     fused: bool,
     schema: axiom::port::PortSchema,
-    /// 输入端口名表（schema.inputs() 序）——inject(port_id) 还原端口名用。
+    /// Input port name table (in schema.inputs() order) — used to restore port names in inject(port_id).
     in_names: Vec<&'static str>,
 }
 
@@ -107,8 +112,9 @@ where
         })
     }
 
-    /// 统一尾部：process 具体输入 → 类型擦除输出。inject 与 process_boxed
-    /// 共用——inject 免去装箱+downcast（P0：消除动态路径的冗余堆分配）。
+    /// Unified tail: process a concrete input → type-erased output. Shared by inject and
+    /// process_boxed — inject skips boxing + downcast (P0: eliminates redundant heap allocation
+    /// on the dynamic path).
     fn process_input(&mut self, input: M::Input) -> ProcessResult {
         let handle = match self.handle.as_mut() {
             Some(h) => h,
@@ -158,7 +164,7 @@ where
     }
 
     fn inject(&mut self, port_id: u16, payload: Box<dyn core::any::Any + Send>) -> ProcessResult {
-        // ID → 端口名（&'static str，schema.inputs() 序），构造输入 variant。
+        // ID → port name (&'static str, schema.inputs() order); build the input variant.
         let Some(port) = self.in_names.get(port_id as usize).copied() else {
             return ProcessResult::Idle;
         };
@@ -186,16 +192,19 @@ where
     }
 }
 
-/// 类型化单槽阶段（unsafe 破局后的级间免装箱：`FusedPipeline` 的级间机器）。
+/// Typed single-slot stage (allocation-free inter-stage passing after the unsafe workaround:
+/// the inter-stage machine of `FusedPipeline`).
 ///
-/// 包装 [`MachineWrapper`]，实现 [`RunningMachine`] 全转发 + `process_scratch`
-/// **类型化覆盖**：输入经 `Pack::pack(裸值)` 构造（零分配，免
-/// `from_port_name` 的 Box 消费），输出经 `Unpack::unpack` 提取裸值
-/// （零分配），再经 [`recycle`] 写回同一槽——**同类型级间（如
-/// `Step: i32→i32`）全程 0 分配**，仅外部输入 1 次。
+/// Wraps [`MachineWrapper`], implementing full forwarding of [`RunningMachine`] plus a **typed
+/// override** of `process_scratch`: the input is built via `Pack::pack(raw value)` (zero allocation,
+/// no Box consumption from `from_port_name`), the output raw value is extracted via
+/// `Unpack::unpack` (zero allocation), and then written back to the same slot via [`recycle`] —
+/// **same-type inter-stage (e.g. `Step: i32→i32`) is zero allocation throughout**, with only the
+/// external input allocating once.
 ///
-/// 仅 `register_fused::<M>`（`M::Input: Pack` + `M::Output: Unpack`，
-/// FusedInline 单输入单输出机器）构建——多输入/多输出机器不进入融合链。
+/// Built only by `register_fused::<M>` (`M::Input: Pack` + `M::Output: Unpack`, FusedInline
+/// single-input single-output machines) — multi-input/multi-output machines do not enter the
+/// fusion chain.
 pub(crate) struct ScratchMachine<M: Machine>
 where
     M::Input: axiom::portset::Pack,
@@ -213,14 +222,14 @@ where
         Ok(Self { inner: MachineWrapper::<M>::new(ctx, fused)? })
     }
 
-    /// 类型化单槽处理：裸值 Box → `Pack` 构造 Input → process → `Unpack`
-    /// 裸值 → 写回（同类型零分配 / 跨类型重装箱）。
+    /// Typed single-slot processing: raw value Box → build Input via `Pack` → process → `Unpack`
+    /// raw value → write back (same type = zero allocation / cross-type = re-box).
     fn process_scratch_typed(
         &mut self,
         port_id: u16,
         slot: &mut Option<Box<dyn core::any::Any + Send>>,
     ) -> ScratchResult {
-        // 端口存在性校验（级间协议仅服务单输入机器）。
+        // Port existence check (the inter-stage protocol only serves single-input machines).
         let _port = match self.inner.in_names.get(port_id as usize) {
             Some(p) => *p,
             None => return ScratchResult::Idle,
@@ -228,7 +237,7 @@ where
         let Some(b) = slot.take() else {
             return ScratchResult::Idle;
         };
-        // 取输入裸值（unsafe 封装点：位拷贝 + 保留分配）。
+        // Take the input raw value (the unsafe encapsulation point: bit copy + preserve allocation).
         let (raw_in, raw_ptr) = match crate::typed_slot::take_input::<<M::Input as axiom::portset::Pack>::Raw>(b) {
             Ok(pair) => pair,
             Err(b) => {
@@ -246,8 +255,8 @@ where
             axiom::machine::ProcessOutput::Yield(o) => {
                 let port = HasPortInfo::port_name(&o);
                 let raw_out = <M::Output as axiom::portset::Unpack>::unpack(o);
-                // 写回：同类型（TypeId 相等）→ 分配复用（0 分配）；
-                // 跨类型 → 释放旧分配 + 重装箱（转换点 1 次）。
+                // Write back: same type (equal TypeId) → allocation reuse (zero allocation);
+                // cross-type → free the old allocation + re-box (one allocation at the transition point).
                 let boxed = crate::typed_slot::put_output::<
                     <M::Input as axiom::portset::Pack>::Raw,
                     <M::Output as axiom::portset::Unpack>::Raw,
@@ -255,7 +264,7 @@ where
                 *slot = Some(boxed);
                 ScratchResult::Yield(port)
             }
-            // FusedInline 单输出机器：多输出不可能（SingleOutput）。
+            // FusedInline single-output machine: multi-output is impossible (SingleOutput).
             axiom::machine::ProcessOutput::YieldMulti(_) => ScratchResult::Idle,
             axiom::machine::ProcessOutput::Idle => ScratchResult::Idle,
             axiom::machine::ProcessOutput::Done => {

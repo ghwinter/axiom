@@ -1,25 +1,28 @@
 #![allow(non_snake_case, dead_code)]
 
-//! Windows IO 多路复用——基于 WSAEventSelect + WSAWaitForMultipleEvents。
+//! Windows IO multiplexing — based on WSAEventSelect + WSAWaitForMultipleEvents.
 //!
-//! ## readiness 模型
+//! ## Readiness model
 //!
-//! `WSAEventSelect` 关联 socket 网络事件与手动重置事件对象；
-//! `WSAWaitForMultipleEvents` 等待任一事件就绪；
-//! `WSAEnumNetworkEvents` 枚举具体事件**并重置事件对象**（level-triggered
-//! 语义——若数据仍可读，重置后会再次就绪）。
+//! `WSAEventSelect` associates a socket's network events with a manual-reset
+//! event object; `WSAWaitForMultipleEvents` waits for any event to become
+//! ready; `WSAEnumNetworkEvents` enumerates the specific events **and resets
+//! the event object** (level-triggered semantics — if data is still readable,
+//! it becomes ready again after the reset).
 //!
-//! ## 限制
+//! ## Limitation
 //!
-//! `WSAWaitForMultipleEvents` 最多 64 个事件对象
-//! （`WSA_MAXIMUM_WAIT_EVENTS`）。超出返回 `CapacityExceeded`。
-//! 生产级大规模 IO（数千连接）应使用 IOCP（completion 模型，
-//! 后续增量）——本实现为零依赖场景提供可用的 readiness 多路复用。
+//! `WSAWaitForMultipleEvents` supports at most 64 event objects
+//! (`WSA_MAXIMUM_WAIT_EVENTS`); exceeding that returns `CapacityExceeded`.
+//! Production-scale IO (thousands of connections) should use IOCP (completion
+//! model, a later increment) — this implementation provides a usable
+//! readiness multiplexer for zero-dependency scenarios.
 //!
 //! ## FFI
 //!
-//! 最小声明集——仅本 reactor 需要的 6 个函数。`ws2_32.lib` 已由
-//! `std::net` 间接链接，无需额外链接指令。零外部依赖。
+//! Minimal declaration set — only the 6 functions this reactor needs.
+//! `ws2_32.lib` is already linked indirectly through `std::net`, so no
+//! additional link directive is needed. Zero external dependencies.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -27,12 +30,12 @@ use core::time::Duration;
 
 use crate::io::{IoError, IoEvent, IoInterest, IoReactor, IoToken, RawIo};
 
-// ── Windows FFI 类型 ───────────────────────────────────────────────────────
+// ── Windows FFI types ─────────────────────────────────────────────────────
 type HANDLE = *mut core::ffi::c_void;
 type SOCKET = usize;
 type BOOL = i32;
 
-// FD_* 网络事件位掩码（winsock2.h）
+// FD_* network event bit masks (winsock2.h)
 const FD_READ: i32 = 0x00000001;
 const FD_WRITE: i32 = 0x00000002;
 const FD_ACCEPT: i32 = 0x00000008;
@@ -44,7 +47,7 @@ const WSA_WAIT_TIMEOUT: u32 = 258;
 const WSA_INFINITE: u32 = 0xFFFFFFFF;
 const WSA_MAXIMUM_WAIT_EVENTS: usize = 64;
 
-/// winsock2.h: WSANETWORKEVENTS——WSAEnumNetworkEvents 的输出结构。
+/// winsock2.h: WSANETWORKEVENTS — the output structure of WSAEnumNetworkEvents.
 #[repr(C)]
 struct WsaNetworkEvents {
     lNetworkEvents: i32,
@@ -81,13 +84,14 @@ struct Registration {
 
 pub struct WsaReactor {
     registrations: Vec<Registration>,
-    /// socket → registration 索引（deregister 用 swap_remove 后需更新）。
+    /// socket → registration index (must be updated after swap_remove in deregister).
     socket_index: BTreeMap<SOCKET, usize>,
 }
 
-// WSA 事件句柄与 socket 是内核对象句柄，跨线程共享安全（非线程局部指针）。
-// `HANDLE = *mut c_void` 默认不是 Send，但这里的指针值是 OS 句柄而非
-// 内存地址——手动标记 Send 让 `IoReactor: Send` 约束满足。
+// WSA event handles and sockets are kernel object handles, safe to share
+// across threads (not thread-local pointers). `HANDLE = *mut c_void` is not
+// Send by default, but here the pointer value is an OS handle, not a memory
+// address — mark Send manually to satisfy the `IoReactor: Send` bound.
 unsafe impl Send for WsaReactor {}
 
 impl WsaReactor {
@@ -127,7 +131,7 @@ impl IoReactor for WsaReactor {
             return Err(IoError::CapacityExceeded);
         }
         let socket = raw as SOCKET;
-        // 已注册则走 reregister 路径（避免重复创建事件对象）。
+        // If already registered, use the reregister path (avoids creating a duplicate event object).
         if self.socket_index.contains_key(&socket) {
             return self.reregister(raw, interest, token);
         }
@@ -171,7 +175,7 @@ impl IoReactor for WsaReactor {
             None => return Ok(()),
         };
         let reg = self.registrations.swap_remove(idx);
-        // swap_remove 把最后一个元素移到 idx——更新被移动元素的路由索引。
+        // swap_remove moves the last element into idx — update the moved element's route index.
         if idx < self.registrations.len() {
             let moved_socket = self.registrations[idx].socket;
             self.socket_index.insert(moved_socket, idx);
@@ -202,16 +206,17 @@ impl IoReactor for WsaReactor {
         if wait_result == WSA_WAIT_TIMEOUT {
             return Ok(Vec::new());
         }
-        // fWaitAll=FALSE 时只返回第一个就绪索引，但多个可能同时就绪。
-        // 枚举**所有**注册 socket 的网络事件——WSAEnumNetworkEvents 会重置
-        // 事件对象（level-triggered：若条件仍满足，下次 poll 再报）。
-        // O(n)（n ≤ 64）——对 WSAEventSelect 的规模上限是可接受的。
+        // With fWaitAll=FALSE only the first ready index is returned, but several may
+        // be ready at once. Enumerate the network events of **all** registered
+        // sockets — WSAEnumNetworkEvents resets the event object (level-triggered:
+        // if the condition still holds, the next poll reports it again). O(n)
+        // (n ≤ 64) — acceptable given WSAEventSelect's scale limit.
         let mut events = Vec::new();
         for reg in &self.registrations {
             let mut ne = WsaNetworkEvents { lNetworkEvents: 0, iErrorCode: [0; 10] };
             let rc = unsafe { WSAEnumNetworkEvents(reg.socket, reg.event, &mut ne) };
             if rc != 0 {
-                // socket 可能已关闭——跳过（下次 deregister 清理）。
+                // The socket may have been closed — skip it (cleaned up on the next deregister).
                 continue;
             }
             if ne.lNetworkEvents != 0 {

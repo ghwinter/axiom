@@ -1,44 +1,47 @@
-//! 类型化值槽——动态路径级间的零分配值传递（unsafe 封装点）。
+//! Typed value slot — zero-allocation value passing between stages on the dynamic path (the unsafe encapsulation point).
 //!
-//! # 安全不变量（`design-principles.md` §5.5：封装性 unsafe 三条件）
+//! # Safety invariants (`design-principles.md` §5.5: three conditions for encapsulated unsafe)
 //!
-//! 1. **对外安全接口**：本模块的 `pub` 方法均为安全接口；唯一 `unsafe`
-//!    块在 [`take_input`] 与 [`put_output`]（见下），调用方零 `unsafe`。
-//! 2. **不变量文档化**：
-//!    - 槽持有 `Box<dyn Any + Send>`（类型擦除的裸值），`take`/`put`
-//!      为安全装箱/移动；
-//!    - [`take_input`] 用 `ptr::read` 位拷贝取出裸值（不消费分配），返回
-//!      指向未初始化内存的 `*mut InRaw`——**必须**经 [`put_output`] 写回
-//!      或释放，不得泄漏或重复读取；
-//!    - [`put_output`] 的位拷贝（`copy_nonoverlapping`）**仅在 `TypeId`
-//!      相等时执行**：Rust 保证同类型唯一 `TypeId` ⟹ `InRaw`/`OutRaw`
-//!      为同一类型 ⟹ size/align 相同 ⟹ 位拷贝是合法类型重写，内存安全；
-//!      跨类型时用 `dealloc(Layout::new::<InRaw>())` 释放分配（不 drop
-//!      未初始化内容），另装箱。
-//! 3. **测试覆盖**：同类型复用（0 分配）、跨类型重装箱、类型不匹配拒绝、
-//!    多轮读写往返。
+//! 1. **Safe public interface**: all `pub` methods of this module are safe; the only `unsafe`
+//!    blocks are in [`take_input`] and [`put_output`] (see below), so callers use zero `unsafe`.
+//! 2. **Documented invariants**:
+//!    - The slot holds `Box<dyn Any + Send>` (a type-erased raw value); `take`/`put`
+//!      are safe boxing/moving operations;
+//!    - [`take_input`] uses `ptr::read` to bit-copy out the raw value (without consuming the
+//!      allocation) and returns `*mut InRaw` pointing to uninitialized memory — it **must** be
+//!      written back via [`put_output`] or freed, and must not be leaked or read twice;
+//!    - [`put_output`]'s bit copy (`copy_nonoverlapping`) runs **only when the `TypeId`s are
+//!      equal**: Rust guarantees a unique `TypeId` per type ⟹ `InRaw`/`OutRaw` are the same type
+//!      ⟹ identical size/align ⟹ the bit copy is a legal type rewrite and memory-safe;
+//!      for cross-type, `dealloc(Layout::new::<InRaw>())` frees the allocation (without dropping
+//!      uninitialized content) and re-boxes.
+//! 3. **Test coverage**: same-type reuse (zero allocation), cross-type re-boxing, type-mismatch
+//!    rejection, and multi-round read/write round-trips.
 
 use alloc::boxed::Box;
 use core::any::{Any, TypeId};
 
-/// 取输入裸值并保留分配（级间免装箱的第一步）。
+/// Take the input raw value while preserving the allocation (the first step of allocation-free
+/// inter-stage passing).
 ///
-/// 从 `boxed`（含 `InRaw` 裸值）`downcast` 到 `Box<InRaw>`（同一分配），
-/// `Box::into_raw` 拿指针（不 drop 分配），`ptr::read` 位拷贝取出裸值。
+/// From `boxed` (holding an `InRaw` raw value) `downcast` to `Box<InRaw>` (the same allocation),
+/// `Box::into_raw` obtains the pointer (without dropping the allocation), and `ptr::read`
+/// bit-copies out the raw value.
 ///
 /// # Safety
 ///
-/// 返回的 `*mut InRaw` 指向**未初始化**内存（值已被读走）——调用方
-/// **必须**经 [`put_output`] 写回（恢复有效）或释放（不 drop 未初始化
-/// 内容），且不得重复读取或 drop 该指针（泄漏/UB 由调用方负责）。
+/// The returned `*mut InRaw` points to **uninitialized** memory (the value has been read out) —
+/// the caller **must** write it back via [`put_output`] (restoring validity) or free it (without
+/// dropping uninitialized content), and must not read it again or drop the pointer (leaks/UB are
+/// the caller's responsibility).
 pub(crate) fn take_input<InRaw: 'static>(
     boxed: Box<dyn Any + Send>,
 ) -> Result<(InRaw, *mut InRaw), Box<dyn Any + Send>> {
     match boxed.downcast::<InRaw>() {
         Ok(input_box) => {
             let raw_ptr = Box::into_raw(input_box);
-            // SAFETY: raw_ptr 指向有效的 InRaw（downcast 成功）；ptr::read
-            // 位拷贝后该内存未初始化（不得再读，见本函数 Safety 注释）。
+            // SAFETY: raw_ptr points to a valid InRaw (downcast succeeded); after the ptr::read
+            // bit copy that memory is uninitialized (must not be read again, see this fn's Safety note).
             let raw_in = unsafe { core::ptr::read(raw_ptr) };
             Ok((raw_in, raw_ptr))
         }
@@ -46,24 +49,26 @@ pub(crate) fn take_input<InRaw: 'static>(
     }
 }
 
-/// 写回输出裸值（级间免装箱的第二步）。
+/// Write back the output raw value (the second step of allocation-free inter-stage passing).
 ///
-/// **同类型**（`TypeId` 相等）：位拷贝 `raw_out` 到 `raw_ptr`（`InRaw`
-/// 分配复用，**零分配**），重建 `Box<InRaw>` 返回。
-/// **跨类型**：释放 `raw_ptr` 分配（不 drop 未初始化内容），新装箱返回。
+/// **Same type** (`TypeId` equal): bit-copy `raw_out` into `raw_ptr` (reusing the `InRaw`
+/// allocation, **zero allocation**), rebuild and return `Box<InRaw>`.
+/// **Cross type**: free the `raw_ptr` allocation (without dropping uninitialized content) and
+/// re-box the new value.
 ///
 /// # Safety
 ///
-/// `raw_ptr` 必须来自 [`take_input`]（指向未初始化内存）；同类型时位拷贝
-/// 使内容恢复有效（`Box::from_raw` 正常析构），跨类型时 `dealloc` 不触碰
-/// 内容。`raw_out` 经 `forget` 跳过析构（同类型时位已复制）。
+/// `raw_ptr` must come from [`take_input`] (pointing to uninitialized memory); for the same type
+/// the bit copy restores valid content (`Box::from_raw` drops normally), and for a cross-type
+/// `dealloc` never touches the content. `raw_out` is skipped via `forget` (the bits were already
+/// copied for the same type).
 pub(crate) fn put_output<InRaw: 'static + Send, OutRaw: Any + Send>(
     raw_ptr: *mut InRaw,
     raw_out: OutRaw,
 ) -> Box<dyn Any + Send> {
     if TypeId::of::<InRaw>() == TypeId::of::<OutRaw>() {
-        // SAFETY: TypeId 相等 ⟹ 同类型 ⟹ size/align 相同；raw_ptr 指向
-        // InRaw 大小的未初始化内存（take_input 保证）；位拷贝是合法重写。
+        // SAFETY: equal TypeIds ⟹ same type ⟹ identical size/align; raw_ptr points to
+        // InRaw-sized uninitialized memory (guaranteed by take_input); the bit copy is a legal rewrite.
         unsafe {
             core::ptr::copy_nonoverlapping(
                 &raw_out as *const OutRaw as *const u8,
@@ -74,9 +79,9 @@ pub(crate) fn put_output<InRaw: 'static + Send, OutRaw: Any + Send>(
             Box::from_raw(raw_ptr)
         }
     } else {
-        // SAFETY: raw_ptr 来自 Box<InRaw>（take_input 的 into_raw），
-        // Layout::new::<InRaw>() 是正确释放参数；内容未初始化，dealloc
-        // 不调用 drop（无 UB）。
+        // SAFETY: raw_ptr came from Box<InRaw> (take_input's into_raw), so
+        // Layout::new::<InRaw>() is the correct free argument; the content is uninitialized
+        // and dealloc does not call drop (no UB).
         unsafe {
             alloc::alloc::dealloc(raw_ptr as *mut u8, core::alloc::Layout::new::<InRaw>());
         }
@@ -90,7 +95,7 @@ mod tests {
 
     #[test]
     fn same_type_recycle_reuses_allocation() {
-        // take_input + put_output 同类型：分配复用（无新 Box）。
+        // take_input + put_output with the same type: allocation reuse (no new Box).
         let boxed: Box<dyn Any + Send> = Box::new(0i32);
         let (raw_in, raw_ptr) = take_input::<i32>(boxed).expect("i32 input");
         assert_eq!(raw_in, 0);

@@ -1,3 +1,5 @@
+/// **Maturity: stable** (the stable core, main subject of the current refactor).
+///
 /// PortSet — type-level port declarations for axiom Machines.
 ///
 /// # The problem this solves
@@ -115,36 +117,46 @@ pub trait HasPortInfo: Send + Sized + 'static {
     fn into_any(self) -> Box<dyn Any + Send>;
 }
 
-/// 从端口 enum 提取裸值（不装箱）——单输出机器的级间免装箱协议
-/// （runtime 类型化值槽的配合契约：级间裸值直传，零分配）。
+/// Extract the raw value from a port enum (without boxing) — the inter-stage
+/// box-free protocol for single-output machines (a contract with the runtime's
+/// typed value slots: raw values are passed directly between stages, zero
+/// allocation).
 ///
-/// [`declare_ports!`] 为单输出端口 enum 生成此实现（`Raw` = 唯一负载类型）。
-/// **仅单输出机器（`FusedInline`）使用**——多输出机器不进入融合链。
+/// [`declare_ports!`] generates this implementation for single-output port
+/// enums (`Raw` = the only payload type).
+/// **Used only by single-output machines (`FusedInline`)** — multi-output
+/// machines do not enter the fused chain.
 pub trait Unpack: Sized {
-    /// 裸值类型（单输出端口 enum 的负载，需可跨线程传递）。
+    /// The raw value type (the payload of a single-output port enum; must be
+    /// sendable across threads).
     type Raw: 'static + Send;
-    /// 解包：`Self` 是单输出端口 enum，返回其负载（move，零分配）。
+    /// Unpack: `Self` is a single-output port enum; return its payload
+    /// (move, zero allocation).
     fn unpack(self) -> Self::Raw;
 }
 
-/// 从裸值构造端口 enum（不装箱）——[`Unpack`] 的对偶。
+/// Construct a port enum from a raw value (without boxing) — the dual of
+/// [`Unpack`].
 ///
-/// [`declare_ports!`] 为单输入端口 enum 生成此实现。级间免装箱协议用
-/// `Pack::pack(裸值)` 构造输入 variant，避免 `from_port_name` 的 `Box`
-/// 解包消费分配。
+/// [`declare_ports!`] generates this implementation for single-input port
+/// enums. The inter-stage box-free protocol uses `Pack::pack(raw)` to construct
+/// an input variant, avoiding the `Box` allocation consumed by
+/// `from_port_name` unpacking.
 pub trait Pack: Sized {
-    /// 裸值类型（单输入端口 enum 的负载，需可跨线程传递）。
+    /// The raw value type (the payload of a single-input port enum; must be
+    /// sendable across threads).
     type Raw: 'static + Send;
-    /// 打包：从裸值构造 `Self`（move，零分配）。
+    /// Pack: construct `Self` from a raw value (move, zero allocation).
     fn pack(raw: Self::Raw) -> Self;
 }
 
-/// 单输出检测 + Unpack 生成（宏辅助）：恰好一个输出端口时生成
-/// [`Unpack`]；多输出/空输出不生成（不进融合链）。
+/// Single-output detection + Unpack generation (macro helper): generates
+/// [`Unpack`] when there is exactly one output port; nothing is generated for
+/// multi-output/empty output (they do not enter the fused chain).
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __declare_unpack {
-    // 单输出：生成 Unpack（裸值 = 唯一负载类型）。
+    // Single output: generate Unpack (raw value = the only payload type).
     ($output_enum:ident, $out_name:ident [ $out_flow:ident ] => $out_ty:ty) => {
         impl $crate::portset::Unpack for $output_enum {
             type Raw = $out_ty;
@@ -155,18 +167,21 @@ macro_rules! __declare_unpack {
             }
         }
     };
-    // 多输出：不生成（多输出机器非 FusedInline，不进融合链）。
+    // Multi-output: generate nothing (multi-output machines are not
+    // FusedInline and do not enter the fused chain).
     ($output_enum:ident, $($out_name:ident [ $out_flow:ident ] => $out_ty:ty),+ $(,)?) => {};
-    // 空输出：不生成。
+    // Empty output: generate nothing.
     ($output_enum:ident $(,)?) => {};
 }
 
-/// 单输入检测 + Pack 生成（宏辅助）：恰好一个输入端口时生成
-/// [`Pack`]；多输入/空输入不生成（级间协议仅服务单输入机器）。
+/// Single-input detection + Pack generation (macro helper): generates
+/// [`Pack`] when there is exactly one input port; nothing is generated for
+/// multi-input/empty input (the inter-stage protocol only serves single-input
+/// machines).
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __declare_pack {
-    // 单输入：生成 Pack（裸值 = 唯一负载类型）。
+    // Single input: generate Pack (raw value = the only payload type).
     ($input_enum:ident, $in_name:ident [ $in_flow:ident ] => $in_ty:ty) => {
         impl $crate::portset::Pack for $input_enum {
             type Raw = $in_ty;
@@ -175,9 +190,9 @@ macro_rules! __declare_pack {
             }
         }
     };
-    // 多输入：不生成。
+    // Multi-input: generate nothing.
     ($input_enum:ident, $($in_name:ident [ $in_flow:ident ] => $in_ty:ty),+ $(,)?) => {};
-    // 空输入：不生成。
+    // Empty input: generate nothing.
     ($input_enum:ident $(,)?) => {};
 }
 
@@ -202,13 +217,15 @@ macro_rules! __declare_pack {
 /// }
 /// ```
 ///
-/// # 端口负载类型的可见性契约
+/// # Visibility contract for port payload types
 ///
-/// 端口负载类型（`TypeA`/`TypeB`/`TypeC`/`TypeD` 等）**必须是 `pub`**：
-/// [`Unpack`]/[`Pack`]（单输入单输出机器的级间免装箱协议）公开
-/// `type Raw`，私有负载类型会导致 `E0446`（私有类型泄漏到公开接口）。
-/// 端口是跨机器链接的类型契约（`LinkSpec` 校验类型匹配），公开负载类型
-/// 是 axiom 的接口要求。
+/// Port payload types (`TypeA`/`TypeB`/`TypeC`/`TypeD`, etc.) **must be
+/// `pub`**: [`Unpack`]/[`Pack`] (the inter-stage box-free protocol for
+/// single-input/single-output machines) exposes `type Raw`, and a private
+/// payload type causes `E0446` (a private type leaking into a public
+/// interface). Ports are the type contract of cross-machine links
+/// (`LinkSpec` validates type matching), so public payload types are an
+/// interface requirement of axiom.
 ///
 /// Generates:
 /// - `InputEnumName` enum with variant `port_a(TypeA)`, `port_b(TypeB)`, etc.
@@ -222,7 +239,7 @@ macro_rules! __declare_pack {
 /// compile errors rather than runtime surprises (compile-time macro diagnostics):
 ///
 /// ```compile_fail
-/// // 流类型拼写错误：`Dta` 不是 `FlowKind` 变体 → 编译失败
+/// // Flow type typo: `Dta` is not a `FlowKind` variant → compile fails
 /// axiom::declare_ports! {
 ///     pub struct BadFlowPorts {
 ///         input type BadFlowInput {
@@ -236,7 +253,7 @@ macro_rules! __declare_pack {
 /// ```
 ///
 /// ```compile_fail
-/// // 重复端口名：生成重复枚举变体 → 编译失败
+/// // Duplicate port name: generates a duplicate enum variant → compile fails
 /// axiom::declare_ports! {
 ///     pub struct DupPorts {
 ///         input type DupInput {
@@ -365,7 +382,7 @@ macro_rules! declare_ports {
             }
         }
 
-        // ── Pack for Input（级间免装箱协议：裸值 → variant，零分配）──────
+        // ── Pack for Input (inter-stage box-free protocol: raw value → variant, zero allocation) ──────
         $crate::__declare_pack!($input_enum, $( $in_name [ $in_flow ] => $in_ty ),*);
 
         // ── HasPortInfo for Output ──────────────────────
@@ -411,7 +428,7 @@ macro_rules! declare_ports {
             }
         }
 
-        // ── Unpack for Output（级间免装箱协议：variant → 裸值，零分配）────
+        // ── Unpack for Output (inter-stage box-free protocol: variant → raw value, zero allocation) ─
         $crate::__declare_unpack!($output_enum, $( $out_name [ $out_flow ] => $out_ty ),*);
     };
 }

@@ -1,36 +1,40 @@
-//! Parallel 模式的链路载体——按 `LinkKind` 选择物理 channel 实现。
+//! Link carriers for Parallel mode — the physical channel implementation is selected by `LinkKind`.
 //!
-//! 统一 `mpsc::Sender`（无界）、`mpsc::SyncSender`（有界阻塞/丢弃）、
-//! 自定义有界覆盖载体（`Overwriting`）、单槽覆盖载体（`Latest`/`SharedState`）
-//! 四种物理载体，使路由表能持有异构 sender。
+//! Unifies four physical carriers — `mpsc::Sender` (unbounded), `mpsc::SyncSender`
+//! (bounded blocking/dropping), the custom bounded overwrite carrier (`Overwriting`), and the
+//! single-slot overwrite carrier (`Latest`/`SharedState`) — so the routing table can hold
+//! heterogeneous senders.
 
 use alloc::boxed::Box;
 use alloc::string::String;
 
-/// Parallel 模式 channel 的消息类型：(port_name, payload)。
-/// port 名随消息走——下游线程用它 inject，而非固定端口。
+/// Message type of the Parallel-mode channel: (port_name, payload).
+/// The port name travels with the message — the downstream thread uses it to inject, rather than
+/// a fixed port.
 pub(crate) type RoutedMsg = (String, Box<dyn core::any::Any + Send>);
 
-/// Parallel 模式的链路 carrier——统一异构 sender，使路由表能持有
-/// `mpsc::Sender` / `SyncSender` / 自定义载体。
+/// Link carrier for Parallel mode — unifies heterogeneous senders so the routing table can hold
+/// `mpsc::Sender` / `SyncSender` / custom carriers.
 ///
-/// `send` 按 carrier 语义投递：
-/// - `Unbounded`        → `Sender::send`（永不阻塞）；
-/// - `BoundedBlocking`  → `SyncSender::send`（满则阻塞，承载 `WritePolicy::Blocking`）；
-/// - `BoundedDropping`  → `SyncSender::try_send`（满则丢弃新消息，承载
-///   `WritePolicy::Dropping` / `Channel { drop_when_full }`）；
-/// - `Overwriting`      → 自定义有界覆盖（满时覆盖最老，承载
-///   `WritePolicy::Overwriting` 原生语义）；
-/// - `Slot`             → 单槽覆盖（`Latest` / `SharedState`，读者见最新值）。
+/// `send` delivers according to the carrier semantics:
+/// - `Unbounded`        → `Sender::send` (never blocks);
+/// - `BoundedBlocking`  → `SyncSender::send` (blocks when full, backing `WritePolicy::Blocking`);
+/// - `BoundedDropping`  → `SyncSender::try_send` (drops the new message when full, backing
+///   `WritePolicy::Dropping` / `Channel { drop_when_full }`);
+/// - `Overwriting`      → custom bounded overwrite (overwrites the oldest when full, backing
+///   `WritePolicy::Overwriting`'s native semantics);
+/// - `Slot`             → single-slot overwrite (`Latest` / `SharedState`, the reader sees the
+///   latest value).
 ///
-/// 发送失败（下游断开）静默丢弃——级联停机由 receiver 侧检测，错误不向上传播。
+/// A failed send (downstream disconnected) is silently dropped — cascaded shutdown is detected on
+/// the receiver side; errors are not propagated upward.
 pub(crate) enum ChanSender {
     Unbounded(std::sync::mpsc::Sender<RoutedMsg>),
     BoundedBlocking(std::sync::mpsc::SyncSender<RoutedMsg>),
     BoundedDropping(std::sync::mpsc::SyncSender<RoutedMsg>),
     Overwriting(OverwriteSender<RoutedMsg>),
     Slot(SlotSender<RoutedMsg>),
-    /// 无锁 SPSC 环（`CasFreeRing`：有界 FIFO，满时自旋阻塞）。
+    /// Lock-free SPSC ring (`CasFreeRing`: bounded FIFO, spin-blocks when full).
     Ring(RingSender<RoutedMsg>),
 }
 
@@ -47,10 +51,10 @@ impl ChanSender {
     }
 }
 
-/// Parallel 模式的统一接收端——机器线程 / forward 线程用它 recv。
-/// `recv`（阻塞）返回 `None` 表示载体断开（级联停机）；`try_recv`
-/// （非阻塞）返回 `None` 表示暂时无消息（`ReadPolicy::NonBlocking`
-/// 轮询用）。
+/// The unified receiving end of Parallel mode — machine threads / forward threads recv from it.
+/// `recv` (blocking) returning `None` means the carrier disconnected (cascaded shutdown);
+/// `try_recv` (non-blocking) returning `None` means temporarily no message (for
+/// `ReadPolicy::NonBlocking` polling).
 pub(crate) enum ChanReceiver {
     Mpsc(std::sync::mpsc::Receiver<RoutedMsg>),
     Overwriting(OverwriteReceiver<RoutedMsg>),
@@ -67,8 +71,8 @@ impl ChanReceiver {
             ChanReceiver::Ring(r) => r.recv(),
         }
     }
-    /// 非阻塞取消息。`Ok(Some)` 有消息；`Ok(None)` 暂无（轮询）；
-    /// `Err(())` 载体断开（级联停机）——`NonBlocking` 轮询靠它退出。
+    /// Non-blocking message fetch. `Ok(Some)` = message; `Ok(None)` = temporarily none (polling);
+    /// `Err(())` = carrier disconnected (cascaded shutdown) — `NonBlocking` polling exits on it.
     pub(crate) fn try_recv(&self) -> Result<Option<RoutedMsg>, ()> {
         match self {
             ChanReceiver::Mpsc(r) => match r.try_recv() {
@@ -83,10 +87,11 @@ impl ChanReceiver {
     }
 }
 
-// ── 有界覆盖载体 ────────────────────────────────────────────────────────────
+// ── Bounded overwrite carrier ────────────────────────────────────────────────────────────
 
-/// 有界覆盖载体：满时覆盖最老元素（`WritePolicy::Overwriting` 的原生
-/// 语义）。所有 sender 释放后 closed → `recv` 返回 `None`（级联停机）。
+/// Bounded overwrite carrier: overwrites the oldest element when full (`WritePolicy::Overwriting`'s
+/// native semantics). When all senders are released it becomes closed → `recv` returns `None`
+/// (cascaded shutdown).
 struct OverwriteSharedInner<T> {
     buf: std::sync::Mutex<std::collections::VecDeque<T>>,
     cap: usize,
@@ -110,7 +115,7 @@ impl<T> OverwriteSender<T> {
     fn send(&self, msg: T) {
         let mut b = self.0.buf.lock().unwrap();
         if b.len() == self.0.cap {
-            b.pop_front(); // 覆盖最老
+            b.pop_front(); // overwrite the oldest
         }
         b.push_back(msg);
         self.0.cv.notify_one();
@@ -119,7 +124,7 @@ impl<T> OverwriteSender<T> {
 impl<T> Drop for OverwriteSender<T> {
     fn drop(&mut self) {
         if self.0.senders.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
-            self.0.cv.notify_all(); // 最后一个 sender：唤醒 recv 检查 closed
+            self.0.cv.notify_all(); // last sender: wake recv to check closed
         }
     }
 }
@@ -137,7 +142,7 @@ impl<T> OverwriteReceiver<T> {
                 return Some(m);
             }
             if self.0.senders.load(std::sync::atomic::Ordering::SeqCst) == 0 {
-                return None; // 断开：级联停机
+                return None; // disconnected: cascaded shutdown
             }
             b = self.0.cv.wait(b).unwrap();
         }
@@ -154,11 +159,11 @@ impl<T> OverwriteReceiver<T> {
     }
 }
 
-// ── 单槽覆盖载体 ────────────────────────────────────────────────────────────
+// ── Single-slot overwrite carrier ───────────────────────────────────────────────────────
 
-/// 单槽覆盖载体：`Latest`（单槽，覆盖写，读者见最新）与 `SharedState`
-/// （共享状态，单消费者近似）。所有 sender 释放后 closed → `recv` 返回
-/// `None`。
+/// Single-slot overwrite carrier: `Latest` (single slot, overwriting write, the reader sees the
+/// latest) and `SharedState` (shared state, single-consumer approximation). When all senders are
+/// released it becomes closed → `recv` returns `None`.
 struct SlotSharedInner<T> {
     slot: std::sync::Mutex<Option<T>>,
     cv: std::sync::Condvar,
@@ -179,7 +184,7 @@ impl<T> SlotSender<T> {
     }
     fn send(&self, msg: T) {
         let mut s = self.0.slot.lock().unwrap();
-        *s = Some(msg); // 覆盖旧值：读者只见最新
+        *s = Some(msg); // overwrite the old value: the reader only sees the latest
         self.0.cv.notify_one();
     }
 }
@@ -221,28 +226,29 @@ impl<T> SlotReceiver<T> {
     }
 }
 
-/// `SlotReceiver` 可多实例化——多个 receiver 共享同一槽（`SharedState`
-/// 多读者语义的基础）。recv 保持"取最新"（竞争式：每个消息被一个
-/// receiver 消费）；真正的广播式多读者（每读者独立见最新值）是 future
-/// work，见 `docs/philosophy.md`。
+/// `SlotReceiver` can be multi-instantiated — multiple receivers share the same slot (the basis
+/// of `SharedState`'s multi-reader semantics). recv stays "take latest" (competitive: each message
+/// is consumed by one receiver); true broadcast-style multi-reader (each reader independently sees
+/// the latest value) is future work, see `docs/philosophy.md`.
 impl<T> Clone for SlotReceiver<T> {
     fn clone(&self) -> Self {
         SlotReceiver(self.0.clone())
     }
 }
 
-// ── 载体选择 ─────────────────────────────────────────────────────────────────
+// ── Carrier selection ───────────────────────────────────────────────────────────────────
 
-/// 按 `LinkKind` 选择 Parallel carrier：
+/// Select the Parallel carrier by `LinkKind`:
 /// - `BoundedBuf { write_policy: Blocking }` / `Channel { !drop_when_full }`
-///   → `sync_channel(capacity)`（满则阻塞，自然背压）；
+///   → `sync_channel(capacity)` (blocks when full, natural backpressure);
 /// - `BoundedBuf { write_policy: Dropping }` / `Channel { drop_when_full }`
-///   → `sync_channel(capacity)` + `try_send`（满则丢弃新消息）；
-/// - `BoundedBuf { write_policy: Overwriting }` → **自定义有界覆盖载体**
-///   （满时覆盖最老——`Overwriting` 的原生语义）；
-/// - `Latest` / `SharedState` → **单槽覆盖载体**（读者见最新值）；
-/// - `Inline` / `CasFreeRing` → 无界 channel（`CasFreeRing` 的无锁固定地址
-///   载体是嵌入式场景，runtime 迁移为无界 channel——文档标注）。
+///   → `sync_channel(capacity)` + `try_send` (drops the new message when full);
+/// - `BoundedBuf { write_policy: Overwriting }` → **custom bounded overwrite carrier**
+///   (overwrites the oldest when full — `Overwriting`'s native semantics);
+/// - `Latest` / `SharedState` → **single-slot overwrite carrier** (the reader sees the latest value);
+/// - `Inline` / `CasFreeRing` → unbounded channel (the `CasFreeRing` lock-free fixed-address
+///   carrier targets embedded scenarios; the runtime migrates it to an unbounded channel —
+///   noted in the docs).
 pub(crate) fn channel_for(kind: &axiom::link::LinkKind) -> (ChanSender, ChanReceiver) {
     use axiom::link::{LinkKind, WritePolicy};
     use std::sync::mpsc;
@@ -272,17 +278,17 @@ pub(crate) fn channel_for(kind: &axiom::link::LinkKind) -> (ChanSender, ChanRece
             };
             (sender, ChanReceiver::Mpsc(rx))
         }
-        // Latest / SharedState：单槽覆盖（最新值语义）。
+        // Latest / SharedState: single-slot overwrite (latest-value semantics).
         LinkKind::Latest { .. } | LinkKind::SharedState => {
             let (tx, rx) = SlotSender::<RoutedMsg>::new();
             (ChanSender::Slot(tx), ChanReceiver::Slot(rx))
         }
-        // CasFreeRing：真无锁 SPSC 环（有界 FIFO，满时自旋阻塞）。
+        // CasFreeRing: a true lock-free SPSC ring (bounded FIFO, spin-blocks when full).
         LinkKind::CasFreeRing { capacity, .. } => {
             let (tx, rx) = RingSender::<RoutedMsg>::new(*capacity.max(&1));
             (ChanSender::Ring(tx), ChanReceiver::Ring(rx))
         }
-        // Inline：跨线程即函数调用→channel 的语义迁移（无界）。
+        // Inline: cross-thread means a semantic migration from function call → channel (unbounded).
         _ => {
             let (tx, rx) = mpsc::channel::<RoutedMsg>();
             (ChanSender::Unbounded(tx), ChanReceiver::Mpsc(rx))
@@ -291,12 +297,13 @@ pub(crate) fn channel_for(kind: &axiom::link::LinkKind) -> (ChanSender, ChanRece
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// carrier 覆盖语义单元测试
+// Carrier overwrite-semantics unit tests
 //
-// 端到端测试（tests.rs 的 runtime_*）无法可靠触发覆盖——Sequential 逐跳
-// 路由让 d2 在 d1 下一个输出前消费，buffer 不积累；Parallel 下是否积累依赖
-// 线程调度（Windows 碰巧积累，Linux 抢先消费）。覆盖语义是 carrier 自身
-// 的确定性属性，在此直接验证，不经过 runtime。
+// End-to-end tests (tests.rs's runtime_*) cannot reliably trigger overwrite — Sequential's
+// per-hop routing lets d2 consume before d1's next output, so the buffer does not accumulate;
+// in Parallel, whether it accumulates depends on thread scheduling (Windows happens to accumulate,
+// Linux preemptively consumes). Overwrite semantics are a deterministic property of the carrier
+// itself, verified here directly, without going through the runtime.
 // ════════════════════════════════════════════════════════════════════════════
 
 #[cfg(test)]
@@ -305,20 +312,20 @@ mod tests {
 
     #[test]
     fn overwrite_sender_covers_oldest_when_full() {
-        // cap=2：写 1,2,3 → 满时覆盖最老（1）→ recv 得到 2,3。
+        // cap=2: write 1,2,3 → overwrite the oldest when full (1) → recv yields 2,3.
         let (tx, rx) = OverwriteSender::<i32>::new(2);
         tx.send(1);
         tx.send(2);
-        tx.send(3); // 满，覆盖 1
-        drop(tx);   // 释放 sender → recv 不阻塞
+        tx.send(3); // full, overwrites 1
+        drop(tx);   // release the sender → recv does not block
         assert_eq!(rx.recv(), Some(2));
         assert_eq!(rx.recv(), Some(3));
-        assert_eq!(rx.recv(), None); // 断开
+        assert_eq!(rx.recv(), None); // disconnected
     }
 
     #[test]
     fn overwrite_sender_keeps_all_when_not_full() {
-        // cap=4：写 1,2,3 → 未满，无覆盖 → recv 得到 1,2,3。
+        // cap=4: write 1,2,3 → not full, no overwrite → recv yields 1,2,3.
         let (tx, rx) = OverwriteSender::<i32>::new(4);
         tx.send(1);
         tx.send(2);
@@ -332,18 +339,19 @@ mod tests {
 
     #[test]
     fn overwrite_try_recv_empty_then_disconnected() {
-        // 空 → try_recv Ok(None)；drop sender 后 → Err(())。
+        // empty → try_recv Ok(None); after dropping the sender → Err(()).
         let (tx, rx) = OverwriteSender::<i32>::new(2);
         assert_eq!(rx.try_recv(), Ok(None));
         drop(tx);
         assert_eq!(rx.try_recv(), Err(()));
     }
 
-    // ── SPSC 无锁环（CasFreeRing）──
+    // ── SPSC lock-free ring (CasFreeRing) ──
 
     #[test]
     fn ring_single_thread_fifo() {
-        // 同线程（仅验证 FIFO 顺序与满/空判定；真 SPSC 在跨线程测试）。
+        // Same thread (only verifies FIFO order and full/empty determination; true SPSC is in
+        // the cross-thread test).
         let (tx, rx) = RingSender::<i32>::new(4);
         tx.send(1);
         tx.send(2);
@@ -358,14 +366,15 @@ mod tests {
 
     #[test]
     fn ring_try_send_when_full() {
-        // cap=2：物理环容量 = next_pow2(3)-1 = 3（≥ 请求的 2——capacity 是
-        // 最小保证，2 的幂环的真实容量是 2^k-1）。写满后 try_send 返回 Err。
+        // cap=2: the physical ring capacity = next_pow2(3)-1 = 3 (≥ the requested 2 — capacity
+        // is a minimum guarantee; a power-of-two ring's real capacity is 2^k-1). After filling,
+        // try_send returns Err.
         let (tx, rx) = RingSender::<i32>::new(2);
         assert!(tx.try_send(1).is_ok());
         assert!(tx.try_send(2).is_ok());
-        assert!(tx.try_send(3).is_ok()); // 环容量 3 ≥ 2
-        assert_eq!(tx.try_send(4), Err(4)); // 满
-        // 消费一个后有空位。
+        assert!(tx.try_send(3).is_ok()); // ring capacity 3 ≥ 2
+        assert_eq!(tx.try_send(4), Err(4)); // full
+        // After consuming one there is space.
         assert_eq!(rx.try_recv(), Ok(Some(1)));
         assert!(tx.try_send(5).is_ok());
         drop(tx);
@@ -377,8 +386,8 @@ mod tests {
 
     #[test]
     fn ring_spsc_cross_thread_exact_once() {
-        // 跨线程 SPSC：生产者线程写 100_000 条，消费者线程读——
-        // 顺序、不丢、不重（无锁环的正确性核心）。
+        // Cross-thread SPSC: the producer thread writes 100_000 items, the consumer thread reads —
+        // in order, none lost, none duplicated (the core correctness of the lock-free ring).
         const N: usize = 100_000;
         let (tx, rx) = RingSender::<usize>::new(64);
         let producer = std::thread::spawn(move || {
@@ -405,7 +414,7 @@ mod tests {
 
     #[test]
     fn ring_receiver_sees_disconnect_after_sender_drop() {
-        // 生产者离开 → 消费者 recv 空时 None（级联停机信号）。
+        // The producer leaves → the consumer recv returns None when empty (cascaded-shutdown signal).
         let (tx, rx) = RingSender::<i32>::new(4);
         tx.send(42);
         drop(tx);
@@ -415,7 +424,7 @@ mod tests {
 
     #[test]
     fn slot_sender_overwrites_with_latest() {
-        // 写 1,2,3 → 单槽覆盖 → recv 只得到 3。
+        // write 1,2,3 → single-slot overwrite → recv only yields 3.
         let (tx, rx) = SlotSender::<i32>::new();
         tx.send(1);
         tx.send(2);
@@ -435,8 +444,9 @@ mod tests {
 
     #[test]
     fn slot_receiver_clone_shares_slot() {
-        // 多个 receiver 共享同一槽（SharedState 多读者语义的基础）：
-        // send 后，任一 receiver 取走最新值，其余 receiver 见空槽。
+        // Multiple receivers share the same slot (the basis of SharedState's multi-reader
+        // semantics): after a send, any receiver takes the latest value and the other receivers
+        // see an empty slot.
         let (tx, rx) = SlotSender::<i32>::new();
         let rx2 = rx.clone();
         tx.send(42);
@@ -447,12 +457,13 @@ mod tests {
 
     #[test]
     fn slot_multi_sender_multi_receiver() {
-        // 多 sender + 多 receiver 共享同一槽：最新写覆盖，任一 reader 取走。
+        // Multiple senders + multiple receivers share the same slot: the latest write overwrites,
+        // any reader takes it.
         let (tx1, rx) = SlotSender::<i32>::new();
         let tx2 = tx1.clone();
         let rx2 = rx.clone();
         tx1.send(1);
-        tx2.send(2); // 覆盖 1——读者只见最新
+        tx2.send(2); // overwrites 1 — the reader only sees the latest
         drop(tx1);
         drop(tx2);
         assert_eq!(rx.recv(), Some(2));
@@ -461,50 +472,53 @@ mod tests {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// SPSC 无锁环形队列（`LinkKind::CasFreeRing` 的物理载体）
+// SPSC lock-free ring queue (the physical carrier of `LinkKind::CasFreeRing`)
 // ════════════════════════════════════════════════════════════════════════
 //
-// # 物理过程（原子 / 屏障 / 缓存行）
+// # Physical mechanics (atomics / barriers / cache lines)
 //
-// 单生产者单消费者（SPSC）无锁环——**不需要 CAS**：
+// Single-producer single-consumer (SPSC) lock-free ring — **no CAS needed**:
 //
-// - `tail` 索引只有生产者写、消费者读（Acquire）；`head` 索引只有
-//   消费者写、生产者读（Release）——每个索引是单写者，无竞争。
-// - 内存序：生产者先写槽位数据、再 `tail.store(Release)`；消费者
-//   `tail.load(Acquire)` 后再读槽位——Release/Acquire 配对保证"数据
-//   先于索引可见"。head 同理反向。
-// - 伪共享防护：`head` 与 `tail` 用 `#[repr(align(64))]` 分开——两个核
-//   各自写自己的缓存行，互不驱逐。
-// - 容量取 2 的幂（掩码 `&` 代替 `%`）；`capacity + 1` 哨兵槽区分
-//   空（head == tail）与满（head == tail + 1）。
-// - 满/空时**自旋 + 让出**（yield_now）——阻塞语义，不烧核。
+// - The `tail` index is only written by the producer and read by the consumer (Acquire); the
+//   `head` index is only written by the consumer and read by the producer (Release) — each index
+//   has a single writer, so there is no contention.
+// - Memory ordering: the producer writes the slot data first, then `tail.store(Release)`; the
+//   consumer does `tail.load(Acquire)` before reading the slot — the Release/Acquire pairing
+//   guarantees "data is visible before the index". head works the same in reverse.
+// - False-sharing protection: `head` and `tail` are separated by `#[repr(align(64))]` — each core
+//   writes only its own cache line, without evicting the other's.
+// - The capacity is a power of two (mask `&` instead of `%`); a `capacity + 1` sentinel slot
+//   distinguishes empty (head == tail) from full (head == tail + 1).
+// - On full/empty it **spins + yields** (yield_now) — blocking semantics without burning the core.
 //
-// # 安全不变量
+// # Safety invariants
 //
-// `RingInner` 含 `UnsafeCell`（槽位数据）与 `AtomicUsize` 索引；SPSC
-// 前提（sender/receiver 各在**单个**线程使用）由 runtime 的
-// thread-per-machine 结构保证。`unsafe impl Send/Sync` 以该不变量为
-// 前提——违反它（同一 sender 被两线程并发 send）是使用方错误。
+// `RingInner` contains `UnsafeCell` (slot data) and `AtomicUsize` indexes; the SPSC precondition
+// (the sender/receiver is each used on a **single** thread) is guaranteed by the runtime's
+// thread-per-machine structure. The `unsafe impl Send/Sync` assumes that invariant — violating it
+// (e.g. the same sender used concurrently by two threads) is a usage error.
 
 struct RingInner<T> {
-    /// 消费者索引：消费者独占写（Release），生产者只读（Acquire）。
-    /// 独立缓存行（伪共享防护：消费者核只写它，不驱逐生产者的 tail 行）。
+    /// Consumer index: written exclusively by the consumer (Release), read-only by the producer
+    /// (Acquire). On its own cache line (false-sharing protection: the consumer core only writes
+    /// it, never evicting the producer's tail line).
     head: HeadSlot,
-    /// 生产者索引：生产者独占写（Release），消费者只读（Acquire）。
+    /// Producer index: written exclusively by the producer (Release), read-only by the consumer
+    /// (Acquire).
     tail: TailSlot,
-    /// 环形槽位（len = next_pow2(capacity + 1)，哨兵槽在内）。
+    /// Ring slots (len = next_pow2(capacity + 1), including the sentinel slot).
     buf: Box<[std::cell::UnsafeCell<std::mem::MaybeUninit<T>>]>,
-    /// 容量掩码（2 的幂 - 1）。
+    /// Capacity mask (power of two - 1).
     mask: usize,
-    /// 存活生产者计数：归零 → recv 空时断开（级联停机）。
+    /// Live producer count: reaching zero → recv disconnects when empty (cascaded shutdown).
     senders: std::sync::atomic::AtomicUsize,
 }
 
-/// 独立缓存行的消费者索引（只被消费者写）。
+/// Consumer index on its own cache line (only written by the consumer).
 #[repr(align(64))]
 struct HeadSlot(std::sync::atomic::AtomicUsize);
 
-/// 独立缓存行的生产者索引（只被生产者写）。
+/// Producer index on its own cache line (only written by the producer).
 #[repr(align(64))]
 struct TailSlot(std::sync::atomic::AtomicUsize);
 
@@ -513,7 +527,7 @@ unsafe impl<T: Send> Sync for RingInner<T> {}
 
 impl<T> RingInner<T> {
     fn new(capacity: usize) -> Self {
-        // 2 的幂容量 + 哨兵槽（有效容量 = capacity）。
+        // Power-of-two capacity + sentinel slot (effective capacity = capacity).
         let slots = (capacity + 1).max(2).next_power_of_two();
         let mut buf = Vec::with_capacity(slots);
         for _ in 0..slots {
@@ -528,16 +542,16 @@ impl<T> RingInner<T> {
         }
     }
 
-    /// 可用的空位数量（生产者视角；head 是 Acquire 读——见多写少）。
+    /// Number of free slots (producer view; head is an Acquire read — sees more writes).
     fn free(&self) -> usize {
         let head = self.head.0.load(std::sync::atomic::Ordering::Acquire);
         let tail = self.tail.0.load(std::sync::atomic::Ordering::Relaxed);
-        // 哨兵槽保证：tail + slots > head 时未满；空闲 = (head + slots - tail - 1) & mask
+        // Sentinel slot guarantee: not full when tail + slots > head; free = (head + slots - tail - 1) & mask
         (head + self.buf.len() - tail - 1) & self.mask
     }
 
-    /// 队列中元素数（消费者视角）。
-    #[allow(dead_code)] // 诊断/测试用
+    /// Number of elements in the queue (consumer view).
+    #[allow(dead_code)] // for diagnostics/tests
     fn len(&self) -> usize {
         let head = self.head.0.load(std::sync::atomic::Ordering::Relaxed);
         let tail = self.tail.0.load(std::sync::atomic::Ordering::Acquire);
@@ -547,11 +561,11 @@ impl<T> RingInner<T> {
     fn push(&self, value: T) {
         let tail = self.tail.0.load(std::sync::atomic::Ordering::Relaxed);
         let idx = tail & self.mask;
-        // SAFETY: 单生产者——该槽位要么未初始化、要么已被消费（head 越过）。
+        // SAFETY: single producer — the slot is either uninitialized or already consumed (head passed it).
         unsafe {
             (*self.buf[idx].get()).write(value);
         }
-        // Release：槽位数据先于 tail 递增对所有消费者可见。
+        // Release: slot data becomes visible to all consumers before tail increments.
         self.tail
             .0
             .store(tail.wrapping_add(1), std::sync::atomic::Ordering::Release);
@@ -561,12 +575,12 @@ impl<T> RingInner<T> {
         let head = self.head.0.load(std::sync::atomic::Ordering::Relaxed);
         let tail = self.tail.0.load(std::sync::atomic::Ordering::Acquire);
         if head == tail {
-            return None; // 空
+            return None; // empty
         }
         let idx = head & self.mask;
-        // SAFETY: 单消费者——head 未越过 tail，该槽位有有效数据。
+        // SAFETY: single consumer — head has not passed tail, so the slot holds valid data.
         let value = unsafe { (*self.buf[idx].get()).assume_init_read() };
-        // Release：数据读取后 head 递增，生产者可见空位。
+        // Release: after the data is read, head increments so the producer sees the free slot.
         self.head
             .0
             .store(head.wrapping_add(1), std::sync::atomic::Ordering::Release);
@@ -574,10 +588,10 @@ impl<T> RingInner<T> {
     }
 }
 
-/// 无锁 SPSC 发送端（有界，满时自旋阻塞——CasFreeRing 的 Blocking 语义）。
+/// Lock-free SPSC sending end (bounded, spin-blocks when full — CasFreeRing's Blocking semantics).
 pub(crate) struct RingSender<T>(std::sync::Arc<RingInner<T>>);
 
-/// 无锁 SPSC 接收端。
+/// Lock-free SPSC receiving end.
 pub(crate) struct RingReceiver<T>(std::sync::Arc<RingInner<T>>);
 
 impl<T> RingSender<T> {
@@ -586,10 +600,10 @@ impl<T> RingSender<T> {
         (RingSender(inner.clone()), RingReceiver(inner))
     }
 
-    /// 阻塞发送：满则自旋 + 让出。
+    /// Blocking send: spins + yields when full.
     pub(crate) fn send(&self, msg: T) {
         let inner = &self.0;
-        // 等空位（head 前进）。单生产者：无并发 send 竞争。
+        // Wait for a free slot (head advances). Single producer: no concurrent send contention.
         while inner.free() == 0 {
             std::hint::spin_loop();
             std::thread::yield_now();
@@ -597,8 +611,8 @@ impl<T> RingSender<T> {
         inner.push(msg);
     }
 
-    /// 非阻塞发送：满返回 Err（供 Dropping 语义）。
-    #[allow(dead_code)] // 未来 Dropping 语义；当前环为 Blocking 语义
+    /// Non-blocking send: returns Err when full (for the Dropping semantics).
+    #[allow(dead_code)] // future Dropping semantics; the current ring has Blocking semantics
     pub(crate) fn try_send(&self, msg: T) -> Result<(), T> {
         let inner = &self.0;
         if inner.free() == 0 {
@@ -611,29 +625,30 @@ impl<T> RingSender<T> {
 
 impl<T> Drop for RingSender<T> {
     fn drop(&mut self) {
-        // 最后一个生产者离开 → 消费者 recv 空时看到断开。
+        // The last producer leaves → the consumer sees the disconnect when recv'ing on empty.
         if self
             .0
             .senders
             .fetch_sub(1, std::sync::atomic::Ordering::SeqCst)
             == 1
         {
-            // 无等待唤醒（自旋环无需通知）；标记由 senders==0 承担。
+            // No need to wake (a spinning ring needs no notification); the marker is carried
+            // by senders==0.
         }
     }
 }
 
 impl<T> RingReceiver<T> {
-    /// 阻塞接收：空则自旋 + 让出；生产者全离开且空 → None（断开）。
+    /// Blocking receive: spins + yields when empty; all producers gone and empty → None (disconnected).
     pub(crate) fn recv(&self) -> Option<T> {
         let inner = &self.0;
         loop {
             if let Some(v) = inner.try_pop() {
                 return Some(v);
             }
-            // 空：若生产者已全部离开 → 断开。
+            // Empty: if all producers have left → disconnected.
             if inner.senders.load(std::sync::atomic::Ordering::Acquire) == 0 {
-                // 最后检查一次（竞态窗口：生产者可能刚 push 完正在离开）。
+                // Check once more (race window: a producer may have just pushed and be leaving).
                 if let Some(v) = inner.try_pop() {
                     return Some(v);
                 }
@@ -644,7 +659,7 @@ impl<T> RingReceiver<T> {
         }
     }
 
-    /// 非阻塞接收。`Ok(None)` 暂时空；`Err(())` 断开。
+    /// Non-blocking receive. `Ok(None)` = temporarily empty; `Err(())` = disconnected.
     pub(crate) fn try_recv(&self) -> Result<Option<T>, ()> {
         let inner = &self.0;
         if let Some(v) = inner.try_pop() {
@@ -657,5 +672,3 @@ impl<T> RingReceiver<T> {
         }
     }
 }
-
-

@@ -1,16 +1,21 @@
-//! DAG 融合基准：Diamond 静态路径 vs 手写批循环。
+//! DAG-fusion benchmark: Diamond static path vs handwritten batch loop.
 //!
-//! 验证 **DAG 融合的语义等价与零成本**：`Diamond` 在编译期把"分叉 →
-//! 两路 → 汇合"摊平为单一驱动循环，单态化后无 `Box<dyn Any>`、无 trait
-//! dispatch、**无端口枚举标签**（P0：StraightMachine 裸载荷直传）。
+//! Verifies **semantic equivalence and zero cost of DAG fusion**: `Diamond` flattens "split →
+//! two paths → merge" into a single driving loop at compile time; after monomorphization there is no
+//! `Box<dyn Any>`, no trait dispatch, **no port-enum tag** (P0: StraightMachine passes raw payloads directly).
 //!
-//! # 验收（P0 修复后）
+//! # Acceptance (after the P0 fix + the S3 generic path)
 //!
-//! - **语义等价**：`Diamond::run_all` 与手写循环逐阶段等价。
-//! - **每输入成本**：静态路径应 ≈ 手写（`ε < 5%`，non-invasion axiom）。
-//!   对比 P0 修复前的 ~13×（端口枚举标签税）。
+//! - **Semantic equivalence**: `Diamond::run_all` is stage-for-stage equivalent to the handwritten loop.
+//! - **Per-input cost**: the static path should be ≈ handwritten (`ε < 5%`, non-invasion axiom);
+//!   compare with ~13× before the P0 fix (port-enum-tag tax).
+//! - **Zero-cost abstraction (identical execution shape)**: executed through the `T: StaticChain`
+//!   generic bound (the contract surface of a unified static entry), it should cost **bit-for-bit the same**
+//!   as directly calling `DiamondShape::run_all` — after monomorphization both produce the same execution
+//!   shape, and the abstraction adds no runtime overhead (S3 verifies the StaticTopology blueprint as a
+//!   zero-sized "compile-time projection" marker, with no runtime topology object).
 //!
-//! Run with: `cargo bench --bench dag`（release 模式）。
+//! Run with: `cargo bench --bench dag` (release mode).
 
 #[path = "bench_harness.rs"]
 mod bench_harness;
@@ -24,7 +29,7 @@ use axiom::static_exec::{
 };
 use axiom::static_exec::StaticChain;
 
-// ── 测试机器（Machine 枚举 + StraightMachine 裸载荷）────────────────────
+// ── Test machines (Machine enum + StraightMachine raw payload) ───────────
 
 declare_ports! {
     #[derive(Debug, Clone, PartialEq)]
@@ -90,7 +95,7 @@ impl Machine for Adder {
     fn process(state: &mut i32, _: &MachineContext, input: AdderInput) -> SingleOutput<AdderOutput> {
         match input {
             AdderInput::x(n) => {
-                *state += n;
+                *state = state.wrapping_add(n);
                 SingleOutput::Yield(AdderOutput::y(*state))
             }
         }
@@ -103,7 +108,7 @@ impl StraightMachine for Adder {
     type StraightOut = i32;
     #[inline]
     fn process_straight(state: &mut i32, n: i32) -> i32 {
-        *state += n;
+        *state = state.wrapping_add(n);
         *state
     }
 }
@@ -146,16 +151,16 @@ impl StraightMachine for Tripler {
     fn process_straight(_: &mut (), n: i32) -> i32 { n * 3 }
 }
 
-// ── 裸汇合（StraightMerge）──────────────────────────────────────────────
+// ── Raw merge (StraightMerge) ────────────────────────────────────────────
 
 struct Sum;
 impl StraightMerge<i32, i32> for Sum {
     type Output = i32;
     #[inline]
-    fn merge(a: i32, b: i32) -> i32 { a + b }
+    fn merge(a: i32, b: i32) -> i32 { a.wrapping_add(b) }
 }
 
-/// 菱形：Doubler → StraightClone → (Adder, Tripler) → Sum → Adder。
+/// Diamond: Doubler → StraightClone → (Adder, Tripler) → Sum → Adder.
 type DiamondShape = Diamond<
     Doubler,
     Adder,
@@ -167,31 +172,31 @@ type DiamondShape = Diamond<
     Sum,
 >;
 
-// ── 手写等价循环 ─────────────────────────────────────────────────────────
+// ── Handwritten equivalent loop ──────────────────────────────────────────
 
-/// 手写等价循环：批量模型（1 个 out Vec，值直接流过，无中间中转）。
+/// Handwritten equivalent loop: batch model (a single out Vec; values flow straight through with no intermediate staging).
 ///
-/// 每个输入 `x`：Doubler `d = 2x` → StraightClone `(d,d)` → 左臂 Adder
-/// 累加 → 右臂 Tripler `3d` → Sum 求和 → 下游 Adder 累加。
+/// For each input `x`: Doubler `d = 2x` → StraightClone `(d,d)` → left-arm Adder
+/// accumulation → right-arm Tripler `3d` → Sum → downstream Adder accumulation.
 fn handwritten(inputs: Vec<i32>) -> Vec<i32> {
     let mut acc_left = 0i32;
     let mut acc_down = 0i32;
     let mut out = Vec::with_capacity(inputs.len());
     for x in inputs {
         let d = x * 2;
-        acc_left += d;
-        let merged = acc_left + d * 3;
-        acc_down += merged;
+        acc_left = acc_left.wrapping_add(d);
+        let merged = acc_left.wrapping_add(d * 3);
+        acc_down = acc_down.wrapping_add(merged);
         out.push(acc_down);
     }
     out
 }
 
-/// 流式 Diamond（范式验证）：每台机器 State 一次初始化，单 for 循环
-/// 嵌套调用——执行形态与手写同构（无中间 Vec 中转）。
+/// Streaming Diamond (paradigm validation): each machine's State is initialized once, and a single for loop
+/// nests the calls — the execution shape is isomorphic to the handwritten version (no intermediate Vec staging).
 ///
-/// 这是"流式直通"范式的可行性证明：若它 ≈ 手写，则 StaticChain 从
-/// "Vec 中转批量递归"革新为"线性流式"后可达 ε→0。
+/// This proves the feasibility of the "streaming flow-through" paradigm: if it is ≈ handwritten, then once
+/// StaticChain evolves from "batch recursion via Vec staging" to "linear streaming", ε→0 is reachable.
 fn diamond_stream(inputs: Vec<i32>) -> Vec<i32> {
     let mut sa: () = ();
     let mut sl: i32 = 0;
@@ -199,37 +204,57 @@ fn diamond_stream(inputs: Vec<i32>) -> Vec<i32> {
     let mut sd: i32 = 0;
     let mut out = Vec::with_capacity(inputs.len());
     for x in inputs {
-        // 机器 A（Doubler）
+        // machine A (Doubler)
         let _ = &mut sa;
         let a = x * 2;
-        // StraightClone：split
+        // StraightClone: split
         let (l, r) = (a, a);
-        // 左臂（Adder）
-        sl += l;
+        // left arm (Adder)
+        sl = sl.wrapping_add(l);
         let lo = sl;
-        // 右臂（Tripler）
+        // right arm (Tripler)
         let _ = &mut sr;
         let ro = r * 3;
-        // Sum：merge
-        let m = lo + ro;
-        // 下游（Adder）
-        sd += m;
+        // Sum: merge
+        let m = lo.wrapping_add(ro);
+        // downstream (Adder)
+        sd = sd.wrapping_add(m);
         out.push(sd);
     }
     out
 }
 
-// ── 语义等价校验（bench 前的正确性门）───────────────────────────────────
+/// StaticTopology generic path: executes through the `T: StaticChain` contract surface (a unified static entry).
+///
+/// Inside the generic body, sources/sinks are fixed by the type system (`T::Head`'s raw input type), with zero
+/// physical execution checks. After monomorphization it should generate the **same execution shape** as a direct
+/// call to `T::run_all` — this is the observable promise of the zero-cost abstraction (non-invasion axiom): the
+/// abstraction layer does not change the execution shape.
+fn run_static<T>(inputs: Vec<i32>) -> Vec<T::Out>
+where
+    T: StaticChain,
+    T::Head: StraightMachine<StraightIn = i32>,
+{
+    T::run_all(inputs).expect("static run")
+}
+
+// ── Semantic-equivalence check (correctness gate before benchmarking) ────
 
 fn verify_semantic_equivalence() {
     let src: Vec<i32> = (0..50).collect();
     let via_diamond = DiamondShape::run_all(src.clone()).expect("diamond");
     let via_hand = handwritten(src.clone());
-    let via_stream = diamond_stream(src);
+    let via_stream = diamond_stream(src.clone());
     assert_eq!(via_diamond, via_hand, "Diamond must match handwritten semantics");
     assert_eq!(
         via_diamond, via_stream,
         "streaming Diamond must match batch Diamond semantics"
+    );
+    // S3: the generic-constraint path must match direct calls bit-for-bit (the abstraction does not change semantics).
+    assert_eq!(
+        via_diamond,
+        run_static::<DiamondShape>(src),
+        "generic T: StaticChain path must match direct call semantics"
     );
 }
 
@@ -240,7 +265,7 @@ fn main() {
 
     verify_semantic_equivalence();
 
-    // 大 batch 摊销固定开销（init/cleanup）——"每输入成本"的对比。
+    // a large batch amortizes fixed overhead (init/cleanup) — for the "per-input cost" comparison.
     let src: Vec<i32> = (0..100_000).collect();
 
     let mut group = BenchGroup::new("diamond_100k");
@@ -252,6 +277,11 @@ fn main() {
 
     group.bench("static_path (Diamond, straight)", || {
         let out = DiamondShape::run_all(src.clone()).expect("diamond");
+        std::hint::black_box(out);
+    });
+
+    group.bench("static_path generic (T: StaticChain, monomorphized)", || {
+        let out = run_static::<DiamondShape>(src.clone());
         std::hint::black_box(out);
     });
 

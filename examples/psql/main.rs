@@ -31,7 +31,7 @@ mod storage;
 
 use std::io::{self, BufRead, Write};
 
-use axiom::func::{Func, FuncRef};
+use axiom::func::FuncRef;
 use axiom::machine::{Init, MachineHandle, TupleOutput};
 use axiom::port::MachineContext;
 

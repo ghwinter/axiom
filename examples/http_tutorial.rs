@@ -1,89 +1,89 @@
-//! axiom 第一个应用：一个极简 HTTP 服务器（教学用例）。
+//! axiom's first application: a minimal HTTP server (teaching example).
 //!
-//! # 图结构（抽象层 —— 语义拓扑）
+//! # Graph structure (abstraction layer — semantic topology)
 //!
 //! ```text
 //!      ┌────────────────────┐  parsed   ┌─────────────────────┐  balance  ┌──────────────────┐
 //!      │      Receiver      │ (Data)    │     Calculator      │ (Data)   │     Persister    │
 //! raw  │  State: u64        │──────────►│  State: i64         │─────────►│  State: Vec<i64> │
 //! ────►│  ┌raw [Data]───┐   │           │  ┌apply [Data]───┐  │          │  ┌save [Data]───┐ │
-//!      │  └►parsed[Data]┘   │           │  └►balance[Data]┘  │          │  └►（历史快照）   │ │
+//!      │  └►parsed[Data]┘   │           │  └►balance[Data]┘  │          │  └►(history snapshot)   │ │
 //!      └────────────────────┘           │   status[Observe]──┼──┐       └──────────────────┘
 //!                                       └─────────────────────┘  │
 //!                                                                ▼
-//!                                                      [ 日志 / 监控 ]
-//!                                                        （观察端口）
+//!                                                      [ log / monitoring ]
+//!                                                        (observation port)
 //!
-//! 链接（LinkKind）：两条边都是 BoundedBuf{cap:16, Blocking} ——
-//! 声明"有界缓冲 + 背压"的物理语义（部署者可换成 Inline / Channel，
-//! 三个模块的代码一个字都不用改）。
+//! Links (LinkKind): both edges are `BoundedBuf { cap: 16, Blocking }` —
+//! declaring the physical semantics of "bounded buffer + backpressure" (deployers can switch to
+//! Inline / Channel without changing a single character in the three modules' code).
 //! ```
 //!
-//! # 物理过程（手写驱动 = 最小 runtime，单线程顺序执行）
+//! # Physical process (handwritten driver = minimal runtime, single-threaded sequential execution)
 //!
 //! ```text
-//!  main 线程（唯一线程 —— 无锁、无通道，链接退化为直接函数调用）
+//!  main thread (the only thread — no locks, no channels; links degenerate to direct function calls)
 //!
 //!  ┌──────────────────────────────────────────────────────────────────────┐
-//!  │ ① Receiver::process(raw)       ← 栈帧；State(u64) 在堆             │
-//!  │ ② Calculator::process(parsed)  ← 栈帧；State(i64) 在堆，余额 += δ   │
-//!  │ ③ Persister::process(balance)  ← 栈帧；State(Vec<i64>) 在堆，push  │
+//!  │ ① Receiver::process(raw)       ← stack frame; State(u64) on heap    │
+//!  │ ② Calculator::process(parsed)  ← stack frame; State(i64) heap += δ  │
+//!  │ ③ Persister::process(balance)  ← stack frame; State(Vec<i64>) push  │
 //!  └──────────────────────────────────────────────────────────────────────┘
 //!
-//!  数据移动（物理载体）：
-//!   RawRequest ─move→ Receiver 栈 ─move→ ParsedRequest（栈上构造）
-//!   ParsedRequest ─move→ Calculator 栈 ─move→ Balance（栈上构造）
-//!   Balance ─move→ Persister 栈 ─push→ Vec<i64>（堆，可能 realloc）
+//!  Data movement (physical carrier):
+//!   RawRequest ─move→ Receiver stack ─move→ ParsedRequest (constructed on stack)
+//!   ParsedRequest ─move→ Calculator stack ─move→ Balance (constructed on stack)
+//!   Balance ─move→ Persister stack ─push→ Vec<i64> (heap, may realloc)
 //!
-//!  注意：BoundedBuf 链接在单线程驱动下"物化"为直接 move —— 没有缓冲区、
-//!  没有锁 —— 与 Inline 链接的物理展开一致（抽象消解：图上有一条边，
-//!  物理上只是函数调用）。若未来 runtime 把 Receiver 与 Calculator 放在
-//!  不同线程，BoundedBuf 才物化为真实的环形缓冲 + 锁。
+//!  Note: under a single-threaded driver, a BoundedBuf link "materializes" as a direct move — no buffer,
+//!  no locks — identical to the physical expansion of an Inline link (abstraction resolution: one edge
+//!  on the graph, physically just a function call). If a future runtime places Receiver and Calculator on
+//!  different threads, only then does BoundedBuf materialize as a real ring buffer + locks.
 //! ```
 //!
-//! 三个模块各是一个 `Machine`：
-//! - **Receiver**：接收原始请求、解析出操作数（记接收数，无业务状态）
-//! - **Calculator**：核心计算，持有累计余额状态；状态随数据变化，
-//!   变化通过 balance 端口驱动下游持久化
-//! - **Persister**：把每次余额快照持久化（内存历史；换磁盘只改这一处）
+//! Each of the three modules is a `Machine`:
+//! - **Receiver**: receives raw requests, parses out the operand (counts received; no business state)
+//! - **Calculator**: core computation, holds the running balance; state changes with data,
+//!   and each change drives downstream persistence through the balance port
+//! - **Persister**: persists every balance snapshot (in-memory history; switching to disk only changes this one spot)
 //!
-//! axiom core 不带 runtime，因此这里手写了一个最小驱动（每个 Machine
-//! 一个 handle，顺序 process）——它就是未来 runtime adapter 会从
-//! `DeploySpec` 自动生成的代码的最小等价物。末尾的 `DeploySpec` 声明了
-//! 与驱动完全相同的拓扑（纯数据、可序列化、可验证）。
+//! axiom core ships without a runtime, so this example hand-writes a minimal driver (one handle per
+//! Machine, sequential process) — it is the minimal equivalent of the code a future runtime adapter
+//! would auto-generate from `DynamicTopology`. The `DynamicTopology` at the end declares exactly the
+//! same topology as the driver (pure data, serializable, verifiable).
 
 use axiom::declare_ports;
 use axiom::machine::{
     CleanupError, InitError, Machine, MachineHandle, SingleOutput, TupleOutput, Init,
 };
 use axiom::port::{ConfigSchema, MachineContext};
-use axiom::prelude_all::*; // DeploySpec / MachineInstance / LinkSpec / LinkKind 等
+use axiom::prelude_all::*; // DynamicTopology / MachineInstance / LinkSpec / LinkKind etc.
 
 // ════════════════════════════════════════════════════════════════════════
-// 数据类型 —— 在模块之间流动的消息
+// Data types — messages that flow between modules
 // ════════════════════════════════════════════════════════════════════════
 
-/// 模拟从 socket 读到的原始请求（真实世界会是字节流 + 解析）。
+/// Simulates a raw request read from a socket (in the real world this would be a byte stream + parsing).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawRequest {
     delta: i64,
     src: String,
 }
 
-/// Receiver 解析后的请求：只保留操作数。
+/// Request after Receiver's parsing: keeps only the operand.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedRequest {
     delta: i64,
 }
 
-/// Calculator 产出的余额快照。
+/// Balance snapshot produced by Calculator.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Balance {
     value: i64,
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 1：Receiver —— 接收 + 解析
+// Module 1: Receiver — receive + parse
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -101,11 +101,11 @@ declare_ports! {
 pub struct Receiver;
 
 impl Machine for Receiver {
-    type State = u64; // 接收计数
+    type State = u64; // received count
     type Input = ReceiverInput;
     type Output = ReceiverOutput;
     type Ports = ReceiverPorts;
-    type ProcessOutput = SingleOutput<ReceiverOutput>; // 1:1 机器
+    type ProcessOutput = SingleOutput<ReceiverOutput>; // 1:1 machine
 
     fn name() -> &'static str { "receiver" }
     fn config_schema() -> ConfigSchema { ConfigSchema::new() }
@@ -119,7 +119,7 @@ impl Machine for Receiver {
     ) -> SingleOutput<ReceiverOutput> {
         let ReceiverInput::raw(req) = input;
         *state += 1;
-        // 模拟协议解析：丢弃 src，只提取操作数
+        // simulate protocol parsing: drop src, extract only the operand
         SingleOutput::Yield(ReceiverOutput::parsed(ParsedRequest { delta: req.delta }))
     }
 
@@ -127,7 +127,7 @@ impl Machine for Receiver {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 2：Calculator —— 核心逻辑，状态随数据变化
+// Module 2: Calculator — core logic, state changes with data
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -137,8 +137,8 @@ declare_ports! {
             apply [Data] => ParsedRequest,
         }
         output type CalculatorOutput {
-            balance [Data]    => Balance, // 数据端口：驱动下游持久化
-            status  [Observe] => String,  // 观察端口：给日志/监控
+            balance [Data]    => Balance, // data port: drives downstream persistence
+            status  [Observe] => String,  // observation port: for log/monitoring
         }
     }
 }
@@ -146,11 +146,11 @@ declare_ports! {
 pub struct Calculator;
 
 impl Machine for Calculator {
-    type State = i64; // 累计余额 —— 状态随数据变化
+    type State = i64; // running balance — state changes with data
     type Input = CalculatorInput;
     type Output = CalculatorOutput;
     type Ports = CalculatorPorts;
-    // 数据 + 观察各产出一个：固定双输出（TupleOutput），可进融合流水线
+    // one data output + one observation output: fixed dual output (TupleOutput), can enter a fused pipeline
     type ProcessOutput = TupleOutput<CalculatorOutput>;
 
     fn name() -> &'static str { "calculator" }
@@ -164,7 +164,7 @@ impl Machine for Calculator {
         input: CalculatorInput,
     ) -> TupleOutput<CalculatorOutput> {
         let CalculatorInput::apply(req) = input;
-        *state += req.delta; // 状态变化
+        *state += req.delta; // state change
         TupleOutput::Yield(
             CalculatorOutput::balance(Balance { value: *state }),
             CalculatorOutput::status(format!("balance={}", *state)),
@@ -175,7 +175,7 @@ impl Machine for Calculator {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 3：Persister —— 持久化（内存历史；换磁盘只改这一处）
+// Module 3: Persister — persistence (in-memory history; switching to disk only changes this one spot)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -185,7 +185,7 @@ declare_ports! {
             save [Data] => Balance,
         }
         output type PersisterOutput {
-            // 无输出端口 —— 纯汇
+            // no output ports — pure sink
         }
     }
 }
@@ -193,7 +193,7 @@ declare_ports! {
 pub struct Persister;
 
 impl Machine for Persister {
-    type State = Vec<i64>; // 历史快照（模拟磁盘持久化）
+    type State = Vec<i64>; // history snapshots (simulating disk persistence)
     type Input = PersisterInput;
     type Output = PersisterOutput;
     type Ports = PersisterPorts;
@@ -210,20 +210,20 @@ impl Machine for Persister {
         input: PersisterInput,
     ) -> SingleOutput<PersisterOutput> {
         let PersisterInput::save(b) = input;
-        // 真实实现：append 到文件 / 写 WAL。这里用内存历史。
+        // real implementation: append to a file / write a WAL. Here we use in-memory history.
         state.push(b.value);
-        SingleOutput::Idle // 汇：无输出
+        SingleOutput::Idle // sink: no output
     }
 
     fn cleanup(_: Vec<i64>, _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 拓扑声明（DeploySpec）—— 纯数据，与下面的手写驱动等价
+// Topology declaration (DynamicTopology) — pure data, equivalent to the handwritten driver below
 // ════════════════════════════════════════════════════════════════════════
 
-fn declare_topology() -> DeploySpec {
-    DeploySpec::new()
+fn declare_topology() -> DynamicTopology {
+    DynamicTopology::new()
         .with_machine(MachineInstance::new(
             "receiver", "receiver", MachinePhysicalSpec::default(),
         ))
@@ -254,15 +254,15 @@ fn declare_topology() -> DeploySpec {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// main —— 手写最小驱动（runtime 的雏形）
+// main — handwritten minimal driver (prototype of a runtime)
 // ════════════════════════════════════════════════════════════════════════
 
 fn main() {
-    // 拓扑声明：当前 core 无 runtime，它描述"图长什么样"；
-    // 未来的 runtime adapter 会按它物化出下面的驱动代码。
+    // Topology declaration: current core has no runtime; it describes "what the graph looks like";
+    // a future runtime adapter will materialize the driver code below from it.
     let _spec = declare_topology();
 
-    // 物化：每个 Machine 一个 handle（typestate：Init → Running）
+    // Materialize: one handle per Machine (typestate: Init → Running)
     let mut receiver = MachineHandle::<Receiver, Init>::new(MachineContext::new("receiver"))
         .expect("receiver init")
         .start();
@@ -273,7 +273,7 @@ fn main() {
         .expect("persister init")
         .start();
 
-    // 模拟 HTTP 请求流：/add/10, /add/-5, /add/3
+    // simulate an HTTP request stream: /add/10, /add/-5, /add/3
     let requests = vec![
         RawRequest { delta: 10, src: "client-1".into() },
         RawRequest { delta: -5, src: "client-2".into() },
@@ -281,20 +281,20 @@ fn main() {
     ];
 
     for req in requests {
-        // Receiver：raw → parsed（手写驱动扮演 runtime 的链接投递）
+        // Receiver: raw → parsed (the handwritten driver plays the runtime's link delivery)
         let ReceiverOutput::parsed(parsed) = match receiver.process(ReceiverInput::raw(req)) {
             SingleOutput::Yield(o) => o,
             _ => unreachable!(),
         };
 
-        // Calculator：apply → (balance, status)
+        // Calculator: apply → (balance, status)
         let out = calculator.process(CalculatorInput::apply(parsed));
         let (balance, status) = match out {
             TupleOutput::Yield(a, b) => (a, b),
             _ => unreachable!(),
         };
 
-        // status 观察端口 → 日志；balance 数据端口 → Persister
+        // status observation port → log; balance data port → Persister
         let s = match status {
             CalculatorOutput::status(s) => s,
             _ => unreachable!(),
@@ -308,10 +308,10 @@ fn main() {
         let _ = persister.process(PersisterInput::save(b));
     }
 
-    // 优雅停机前取出持久化历史（typestate 允许 Running 读 state）
+    // take the persisted history before graceful shutdown (typestate allows Running to read state)
     let history: Vec<i64> = persister.state().clone();
 
-    // 优雅停机（typestate：Running → Stopping → Stopped → cleanup）
+    // graceful shutdown (typestate: Running → Stopping → Stopped → cleanup)
     let receiver = receiver.stop().finish();
     let calculator = calculator.stop().finish();
     let persister = persister.stop().finish();
@@ -319,7 +319,7 @@ fn main() {
     calculator.cleanup().expect("calculator cleanup");
     persister.cleanup().expect("persister cleanup");
 
-    // 验证持久化内容
+    // verify persisted content
     println!("persisted history: {:?}", history);
     println!("expected          : [10, 5, 8]");
     assert_eq!(history, vec![10, 5, 8]);

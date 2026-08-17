@@ -1,4 +1,4 @@
-//! 机器类型注册表——`machine_type` 字符串 → `RegisterFn` 构造函数。
+//! Machine type registry — maps `machine_type` strings to `RegisterFn` constructors.
 
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
@@ -7,14 +7,23 @@ use alloc::string::String;
 use axiom::machine::Machine;
 use axiom::port::MachineContext;
 
-// CompositeSpec 现在从 core 引用——复合是结构定义能力，属于 axiom core。
+// CompositeSpec is now referenced from core — composition is a structural definition capability that belongs to axiom core.
 use axiom::composite::CompositeSpec;
 use crate::erasure::{MachineWrapper, RunningMachine, ScratchMachine};
 use crate::error::RuntimeError;
 
-/// 机器构造函数——从 `MachineContext` 构造 `Box<dyn RunningMachine>`。
+/// Machine constructor — builds `Box<dyn RunningMachine>` from `MachineContext`.
 pub trait RegisterFn: Send + Sync {
     fn build(&self, ctx: MachineContext) -> Result<Box<dyn RunningMachine>, RuntimeError>;
+
+    /// Whether the machine type this registrar corresponds to guarantees implementation of [`axiom::machine::Moore`].
+    ///
+    /// Defaults to `false`. Only machines registered via [`Registry::register_moore`] (type-level
+    /// `M: Moore` constraint) return `true`. Used during materialization to validate consistency
+    /// between the deployment declaration `MachineInstance::is_moore` and the implementation (S3-2).
+    fn is_moore(&self) -> bool {
+        false
+    }
 }
 
 struct TypedRegisterFn<M: Machine>
@@ -23,6 +32,8 @@ where
     M::Output: core::any::Any + Send,
 {
     fused: bool,
+    /// Whether registered via `register_moore` (type-level guarantee of `M: Moore`).
+    moore: bool,
     _phantom: core::marker::PhantomData<M>,
 }
 
@@ -35,11 +46,15 @@ where
         let wrapper = MachineWrapper::<M>::new(ctx, self.fused)?;
         Ok(Box::new(wrapper))
     }
+
+    fn is_moore(&self) -> bool {
+        self.moore
+    }
 }
 
-/// 类型化融合注册器——构建 [`ScratchMachine`]（unsafe 破局后的级间免装箱）。
-/// `M::Input: Pack` + `M::Output: Unpack`（FusedInline 单输入单输出机器
-/// 由 declare_ports 自动满足）。
+/// Typed fused registrar — builds [`ScratchMachine`] (allocation-free inter-stage passing after the unsafe workaround).
+/// `M::Input: Pack` + `M::Output: Unpack` (automatically satisfied for FusedInline
+/// single-input single-output machines via declare_ports).
 struct TypedFusedRegisterFn<M: Machine>
 where
     M::Input: core::any::Any + Send + axiom::portset::Pack,
@@ -58,10 +73,10 @@ where
     }
 }
 
-/// 机器类型注册表——`machine_type` 字符串 → `RegisterFn` 或复合定义。
+/// Machine type registry — maps `machine_type` strings to `RegisterFn` or composite definitions.
 pub struct Registry {
     builders: BTreeMap<String, Box<dyn RegisterFn>>,
-    /// 复合 machine_type → 子拓扑 + 端口映射。materialize 时展开。
+    /// Composite machine_type → sub-topology + port mapping. Expanded during materialization.
     composites: BTreeMap<String, CompositeSpec>,
 }
 
@@ -83,16 +98,42 @@ impl Registry {
             machine_type.to_string(),
             Box::new(TypedRegisterFn::<M> {
                 fused: false,
+                moore: false,
                 _phantom: core::marker::PhantomData,
             }),
         );
     }
 
-    /// 注册一个可融合机器——`M: FusedInline` 在类型层保证 `ProcessOutput`
-    /// 为 `SingleOutput`/`TupleOutput`（输出数量固定，无 `YieldMulti`），
-    /// `M::Input: Pack` + `M::Output: Unpack`（单输入单输出，declare_ports
-    /// 自动满足）——`materialize` 可将其纳入 `FusedPipeline` 链，级间经
-    /// `ScratchMachine` 类型化单槽免装箱（unsafe 破局，同类型级间 0 分配）。
+    /// Register a machine with **Moore semantics** — `M: axiom::machine::Moore` guarantees at the
+    /// type level that outputs depend only on the pre-update state (can break algebraic cycles in
+    /// feedback loops).
+    ///
+    /// The only difference from [`Self::register`] is the `moore: true` flag: during materialization
+    /// it validates that the deployment declaration `MachineInstance::is_moore` matches the
+    /// implementation (S3-2) — only machine types registered via `register_moore` are allowed to
+    /// declare Moore semantics, otherwise [`crate::error::RuntimeError::MooreMismatch`] is returned.
+    pub fn register_moore<M>(&mut self, machine_type: &str)
+    where
+        M: Machine + axiom::machine::Moore,
+        M::Input: core::any::Any + Send,
+        M::Output: core::any::Any + Send,
+    {
+        self.builders.insert(
+            machine_type.to_string(),
+            Box::new(TypedRegisterFn::<M> {
+                fused: false,
+                moore: true,
+                _phantom: core::marker::PhantomData,
+            }),
+        );
+    }
+
+    /// Register a fusible machine — `M: FusedInline` guarantees at the type level that `ProcessOutput`
+    /// is `SingleOutput`/`TupleOutput` (fixed output count, no `YieldMulti`), and
+    /// `M::Input: Pack` + `M::Output: Unpack` (single-input single-output, automatically satisfied
+    /// via declare_ports) — `materialize` can then include it in a `FusedPipeline` chain, passing
+    /// between stages through a `ScratchMachine` typed single slot without boxing (unsafe workaround,
+    /// zero allocation between same-type stages).
     pub fn register_fused<M>(&mut self, machine_type: &str)
     where
         M: Machine + axiom::machine::FusedInline,
@@ -108,13 +149,13 @@ impl Registry {
         );
     }
 
-    /// 注册一个复合 Machine——子拓扑 + 端口映射。materialize 时展开为
-    /// 名字空间化的子机器 + 重定向的外部链接。
+    /// Register a composite Machine — sub-topology + port mapping. Expanded during materialization
+    /// into namespaced sub-machines + redirected external links.
     pub fn register_composite(&mut self, machine_type: &str, spec: CompositeSpec) {
         self.composites.insert(machine_type.to_string(), spec);
     }
 
-    /// 已注册的复合定义（materialize 展开用）。
+    /// Registered composite definitions (for materialization expansion).
     pub(crate) fn composites(&self) -> &BTreeMap<String, CompositeSpec> {
         &self.composites
     }
@@ -126,6 +167,16 @@ impl Registry {
                 error: axiom::machine::InitError::Other(format!("type `{machine_type}` not registered")),
             })?;
         builder.build(ctx)
+    }
+
+    /// Whether the registered `machine_type` guarantees Moore semantics (for S3-2 contract validation).
+    /// Unregistered types return `false` — the materialization layer rejects their Moore declaration
+    /// with `MooreMismatch` (if declared).
+    pub(crate) fn is_moore(&self, machine_type: &str) -> bool {
+        self.builders
+            .get(machine_type)
+            .map(|b| b.is_moore())
+            .unwrap_or(false)
     }
 }
 

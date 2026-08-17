@@ -13,7 +13,7 @@ mod bench_harness;
 
 use bench_harness::BenchGroup;
 use axiom::prelude_all::*;
-use axiom::topology::{DynamicTopology, TopologyOp};
+use axiom::topology::{TopologyMutation, TopologyOp};
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ fn gen_names(count: usize) -> Vec<&'static str> {
     (0..count).map(|i| leak_str(format!("m{}", i))).collect()
 }
 
-fn build_linear_chain(topo: &mut DynamicTopology, n: usize) {
+fn build_linear_chain(topo: &mut TopologyMutation, n: usize) {
     let names = gen_names(n);
     for &name in &names {
         topo.apply(TopologyOp::Spawn {
@@ -46,7 +46,7 @@ fn build_linear_chain(topo: &mut DynamicTopology, n: usize) {
     }
 }
 
-fn build_star(topo: &mut DynamicTopology, n: usize) {
+fn build_star(topo: &mut TopologyMutation, n: usize) {
     let names = gen_names(n);
     for &name in &names {
         topo.apply(TopologyOp::Spawn {
@@ -78,7 +78,7 @@ fn main() {
     for n in [50, 100, 200] {
         let names = gen_names(n);
         group.bench(&format!("n={}", n), || {
-            let mut topo = DynamicTopology::new();
+            let mut topo = TopologyMutation::new();
             for &name in &names {
                 topo.apply(TopologyOp::Spawn {
                     name,
@@ -98,7 +98,7 @@ fn main() {
 
     for n in [50, 200, 500] {
         // Pre-build topology outside the measured region.
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         build_linear_chain(&mut topo, n);
         let extra_a = leak_str(format!("extra_a_{}", n));
         let extra_b = leak_str(format!("extra_b_{}", n));
@@ -135,7 +135,7 @@ fn main() {
     let mut group = BenchGroup::new("link_cycle_allow");
 
     for n in [50, 200, 500] {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         build_linear_chain(&mut topo, n);
         let first = "m0";
         let last = leak_str(format!("m{}", n - 1));
@@ -178,7 +178,7 @@ fn main() {
         }
 
         group.bench(&format!("batch={}", batch_size), || {
-            let mut topo = DynamicTopology::new();
+            let mut topo = TopologyMutation::new();
             topo.apply_batch(ops.clone()).unwrap();
             std::hint::black_box(topo);
         });
@@ -217,7 +217,7 @@ fn main() {
         });
 
         group.bench(&format!("batch={}", batch_size), || {
-            let mut topo = DynamicTopology::new();
+            let mut topo = TopologyMutation::new();
             // This should fail and trigger rollback.
             let _ = topo.apply_batch(ops.clone());
             std::hint::black_box(topo);
@@ -229,7 +229,7 @@ fn main() {
     let mut group = BenchGroup::new("snapshot");
 
     for n in [50, 200, 500] {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         build_star(&mut topo, n);
 
         group.bench(&format!("V={}", n), || {

@@ -1,7 +1,7 @@
-// E90-derive 验证：derive feature 下 builtin 机器零开销
+// E90-derive verification: builtin machines are zero-overhead under the derive feature
 //
-// 这是 E90-builtin-machines 探针的 derive 模式版本。
-// 用 `cargo run --example verify-derive-zero-cost --features derive --release` 运行。
+// This is the derive-mode version of the E90-builtin-machines probe.
+// Run with `cargo run --example verify-derive-zero-cost --features derive --release`.
 
 use axiom::prelude_all::*;
 use axiom::builtin::{
@@ -12,7 +12,7 @@ use axiom::builtin::{
 };
 use axiom::flow::FlowKind;
 
-// ── 分配计数器 ─────────────────────────────────────────────────────────────
+// ── Allocation counter ────────────────────────────────────────────────────
 
 use std::alloc::{GlobalAlloc, Layout, System};
 
@@ -52,11 +52,11 @@ fn check(label: &str, ok: bool) -> bool {
 }
 
 fn main() {
-    println!("=== E90-derive: derive feature 下 builtin 机器零开销验证 ===\n");
+    println!("=== E90-derive: zero-overhead verification of builtin machines under the derive feature ===\n");
     let mut all_ok = true;
 
-    // ── Identity（宏生成端口） ──
-    println!("Identity（#[ports] 宏生成）");
+    // ── Identity (macro-generated ports) ──
+    println!("Identity (#[ports] macro-generated)");
     let ctx = MachineContext::new("test");
     let mut state = <Identity<u32> as Machine>::init(&ctx).unwrap();
 
@@ -69,49 +69,49 @@ fn main() {
     let (_, delta) = alloc_delta(|| {
         <Identity<u32> as Machine>::process(&mut state, &ctx, input)
     });
-    all_ok &= check(&format!("Identity process 零堆分配（实际 {}）", delta), delta == 0);
+    all_ok &= check(&format!("Identity process zero heap allocations (actual {})", delta), delta == 0);
     println!();
 
-    // ── Tee（宏生成端口，双输出） ──
-    println!("Tee（#[ports] 宏生成，双输出）");
+    // ── Tee (macro-generated ports, dual output) ──
+    println!("Tee (#[ports] macro-generated, dual output)");
     let mut state = <Tee<u32> as Machine>::init(&ctx).unwrap();
 
     let out = <Tee<u32> as Machine>::process(&mut state, &ctx, TeeInput::Input(100));
     match out {
         MultiOutput::YieldMulti(v) => {
-            all_ok &= check("Tee YieldMulti 包含 2 个输出", v.len() == 2);
-            all_ok &= check("Tee 第一项是 OutputA(100)",
+            all_ok &= check("Tee YieldMulti contains 2 outputs", v.len() == 2);
+            all_ok &= check("Tee first item is OutputA(100)",
                 matches!(v[0], TeeOutput::OutputA(x) if x == 100));
-            all_ok &= check("Tee 第二项是 OutputB(100)",
+            all_ok &= check("Tee second item is OutputB(100)",
                 matches!(v[1], TeeOutput::OutputB(x) if x == 100));
         }
-        _ => all_ok &= check("Tee 应返回 YieldMulti", false),
+        _ => all_ok &= check("Tee should return YieldMulti", false),
     }
     println!();
 
-    // ── Latch（宏生成端口，有状态） ──
-    println!("Latch（#[ports] 宏生成，有状态）");
+    // ── Latch (macro-generated ports, stateful) ──
+    println!("Latch (#[ports] macro-generated, stateful)");
     let mut state = <Latch<u32> as Machine>::init(&ctx).unwrap();
 
     let out1 = <Latch<u32> as Machine>::process(&mut state, &ctx, LatchInput::Input(10));
-    all_ok &= check("Latch 首次输入 → Idle", matches!(out1, SingleOutput::Idle));
+    all_ok &= check("Latch first input → Idle", matches!(out1, SingleOutput::Idle));
 
     let out2 = <Latch<u32> as Machine>::process(&mut state, &ctx, LatchInput::Input(20));
-    all_ok &= check("Latch 第二次输入 → Yield(Output(10))",
+    all_ok &= check("Latch second input → Yield(Output(10))",
         matches!(out2, SingleOutput::Yield(LatchOutput::Output(v)) if v == 10));
     println!();
 
-    // ── Collector（宏生成端口，Observe 流） ──
-    println!("Collector（#[ports] 宏生成，Observe 流）");
+    // ── Collector (macro-generated ports, Observe stream) ──
+    println!("Collector (#[ports] macro-generated, Observe stream)");
     let mut state = <Collector<u32> as Machine>::init(&ctx).unwrap();
 
     let out1 = <Collector<u32> as Machine>::process(&mut state, &ctx, CollectorInput::Input(10));
     match &out1 {
         SingleOutput::Yield(CollectorOutput::Snapshots(snap)) => {
-            all_ok &= check("Collector 第一次输入后快照长度 == 1", snap.len() == 1);
-            all_ok &= check("Collector 快照内容 == [10]", snap == &vec![10u32]);
+            all_ok &= check("Collector snapshot length == 1 after first input", snap.len() == 1);
+            all_ok &= check("Collector snapshot content == [10]", snap == &vec![10u32]);
         }
-        _ => all_ok &= check("Collector 应 Yield Snapshots", false),
+        _ => all_ok &= check("Collector should Yield Snapshots", false),
     }
 
     let observe_kind = CollectorOutput::<u32>::Snapshots(vec![]).flow_kind();
@@ -119,13 +119,13 @@ fn main() {
         observe_kind == FlowKind::Observe);
     println!();
 
-    // ── 汇总 ──
-    println!("=== 汇总 ===");
+    // ── Summary ──
+    println!("=== Summary ===");
     if all_ok {
-        println!("derive feature 下 builtin 机器零开销验证全部通过 ✓");
+        println!("zero-overhead verification of builtin machines under the derive feature: all passed ✓");
         std::process::exit(0);
     } else {
-        println!("存在失败子命题 ✗");
+        println!("some sub-assertions failed ✗");
         std::process::exit(1);
     }
 }

@@ -1,10 +1,12 @@
-//! Graph-theoretic topology analysis for [`DeploySpec`].
+//! **Maturity: stable** (the stable core, main subject of the current refactor).
 //!
-//! A `DeploySpec` is a labeled directed multigraph $\Sigma = (V, E, \ell)$
+//! Graph-theoretic topology analysis for [`DynamicTopology`].
+//!
+//! A `DynamicTopology` is a labeled directed multigraph $\Sigma = (V, E, \ell)$
 //! (see `docs/architecture.md` §1). This module provides the static analysis
 //! algorithms described in `docs/architecture.md` §3, split into two tiers:
 //!
-//! - **Enforced** (wired into [`DeploySpec::validate_deep`](crate::deploy::DeploySpec::validate_deep)):
+//! - **Enforced** (wired into [`DynamicTopology::validate_deep`](crate::deploy::DynamicTopology::validate_deep)):
 //!   edge-degree constraints, Inline acyclicity. These are correctness
 //!   invariants — a violation is a `ValidationError`, not a warning.
 //!
@@ -28,7 +30,7 @@
 #[cfg(not(feature = "std"))]
 use crate::compat::prelude::*;
 use crate::compat::{HashMap, HashSet, VecDeque};
-use crate::deploy::DeploySpec;
+use crate::deploy::DynamicTopology;
 use crate::link::LinkKind;
 use crate::port::PortSchema;
 use alloc::collections::BTreeMap;
@@ -42,7 +44,7 @@ use alloc::format;
 /// An advisory warning from topology analysis.
 ///
 /// Warnings describe potential design issues. They do **not** make a topology
-/// invalid — [`validate_deep`](crate::deploy::DeploySpec::validate_deep) is the
+/// invalid — [`validate_deep`](crate::deploy::DynamicTopology::validate_deep) is the
 /// authority on validity. A clean topology may still produce warnings.
 #[derive(Debug, Clone)]
 pub enum TopologyWarning {
@@ -166,7 +168,7 @@ pub struct SinglePointOfFailure {
 ///
 /// Produced by [`analyze`]. An empty report means no advisory issues were
 /// found — but this does **not** mean the topology is valid; call
-/// [`validate_deep`](crate::deploy::DeploySpec::validate_deep) for validity.
+/// [`validate_deep`](crate::deploy::DynamicTopology::validate_deep) for validity.
 #[derive(Debug, Clone, Default)]
 pub struct TopologyReport {
     pub warnings: Vec<TopologyWarning>,
@@ -194,14 +196,14 @@ impl TopologyReport {
 // ════════════════════════════════════════════════════════════════════════════
 
 /// Collect machine names from the spec, sorted for deterministic output.
-fn machine_names_sorted(spec: &DeploySpec) -> Vec<&str> {
+fn machine_names_sorted(spec: &DynamicTopology) -> Vec<&str> {
     let mut names: Vec<&str> = spec.machines.iter().map(|m| m.name.as_ref()).collect();
     names.sort();
     names
 }
 
 /// Build a set of machine name references for fast membership testing.
-fn machine_name_set(spec: &DeploySpec) -> HashSet<&str> {
+fn machine_name_set(spec: &DynamicTopology) -> HashSet<&str> {
     spec.machines.iter().map(|m| m.name.as_ref()).collect()
 }
 
@@ -210,7 +212,7 @@ fn machine_name_set(spec: &DeploySpec) -> HashSet<&str> {
 /// Funcs are excluded — they have no output edges and cannot participate in a
 /// cycle. Self-loops are excluded (already rejected by `validate()`).
 /// Edges to the same destination are kept (multigraph).
-fn build_adjacency_all(spec: &DeploySpec) -> HashMap<&str, Vec<&str>> {
+fn build_adjacency_all(spec: &DynamicTopology) -> HashMap<&str, Vec<&str>> {
     let machine_set = machine_name_set(spec);
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for m in &spec.machines {
@@ -231,7 +233,7 @@ fn build_adjacency_all(spec: &DeploySpec) -> HashMap<&str, Vec<&str>> {
 }
 
 /// Build an adjacency list from `Inline` links only.
-fn build_adjacency_inline(spec: &DeploySpec) -> HashMap<&str, Vec<&str>> {
+fn build_adjacency_inline(spec: &DynamicTopology) -> HashMap<&str, Vec<&str>> {
     let machine_set = machine_name_set(spec);
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
     for m in &spec.machines {
@@ -553,7 +555,7 @@ fn chk_intersect(
 ///
 /// Returns a sorted list of violations (machine, port, kind, limit, actual).
 /// An empty vector means no violations.
-pub fn degree_violations(spec: &DeploySpec) -> Vec<DegreeViolation> {
+pub fn degree_violations(spec: &DynamicTopology) -> Vec<DegreeViolation> {
     // Key: (machine, port, is_outgoing, kind_tag)
     // We count only constrained kinds.
     let mut counts: HashMap<(&str, &str, bool, u8), usize> = HashMap::new();
@@ -617,7 +619,7 @@ pub struct DegreeViolation {
 ///
 /// Returns `Ok(())` if the Inline subgraph is acyclic, or `Err(cycle)` with
 /// the machine names that form the cycle.
-pub fn inline_cycle(spec: &DeploySpec) -> Option<Vec<String>> {
+pub fn inline_cycle(spec: &DynamicTopology) -> Option<Vec<String>> {
     let nodes = machine_names_sorted(spec);
     let adj = build_adjacency_inline(spec);
     match kahn_toposort(&adj, &nodes) {
@@ -635,7 +637,7 @@ pub fn inline_cycle(spec: &DeploySpec) -> Option<Vec<String>> {
 /// Returns `Ok(order)` if the Inline subgraph is a DAG, or `Err(cycle)` if a
 /// cycle exists. The order is a valid execution sequence for Inline-linked
 /// machines on the same thread.
-pub fn inline_topological_order(spec: &DeploySpec) -> Result<Vec<String>, Vec<String>> {
+pub fn inline_topological_order(spec: &DynamicTopology) -> Result<Vec<String>, Vec<String>> {
     let nodes = machine_names_sorted(spec);
     let adj = build_adjacency_inline(spec);
     match kahn_toposort(&adj, &nodes) {
@@ -660,7 +662,7 @@ pub fn inline_topological_order(spec: &DeploySpec) -> Result<Vec<String>, Vec<St
 ///
 /// Longest-path DP over a Kahn topological order:
 /// `dist[v] = latency(v) + max(dist[u] for u → v)`.
-pub fn critical_path_latency(spec: &DeploySpec) -> Result<u64, Vec<String>> {
+pub fn critical_path_latency(spec: &DynamicTopology) -> Result<u64, Vec<String>> {
     let nodes = machine_names_sorted(spec);
     let adj = build_adjacency_all(spec);
 
@@ -711,7 +713,7 @@ pub fn critical_path_latency(spec: &DeploySpec) -> Result<u64, Vec<String>> {
 /// ```text
 /// A → (B, C) → D          levels: A=0, B=1, C=1, D=2
 /// ```
-pub fn topological_levels(spec: &DeploySpec) -> Result<HashMap<String, usize>, Vec<String>> {
+pub fn topological_levels(spec: &DynamicTopology) -> Result<HashMap<String, usize>, Vec<String>> {
     let nodes = machine_names_sorted(spec);
     let adj = build_adjacency_all(spec);
 
@@ -744,7 +746,7 @@ pub fn topological_levels(spec: &DeploySpec) -> Result<HashMap<String, usize>, V
 /// Returns all SCCs with size > 1 (feedback loops). Each `FeedbackLoop`
 /// includes whether all machines on it are Moore and whether any edge is
 /// Inline.
-pub fn feedback_loops(spec: &DeploySpec) -> Vec<FeedbackLoop> {
+pub fn feedback_loops(spec: &DynamicTopology) -> Vec<FeedbackLoop> {
     let nodes = machine_names_sorted(spec);
     let adj = build_adjacency_all(spec);
     let sccs = tarjan_scc(&adj, &nodes);
@@ -789,7 +791,7 @@ pub fn feedback_loops(spec: &DeploySpec) -> Vec<FeedbackLoop> {
 
 /// All machines reachable from `source` (excluding `source` itself, unless
 /// there is a cycle back).
-pub fn reachable_from(spec: &DeploySpec, source: &str) -> Vec<String> {
+pub fn reachable_from(spec: &DynamicTopology, source: &str) -> Vec<String> {
     let adj = build_adjacency_all(spec);
     let mut reached: Vec<&str> = bfs_reachable(&adj, source).into_iter().collect();
     reached.sort();
@@ -797,7 +799,7 @@ pub fn reachable_from(spec: &DeploySpec, source: &str) -> Vec<String> {
 }
 
 /// Whether `target` is reachable from `source`.
-pub fn can_reach(spec: &DeploySpec, source: &str, target: &str) -> bool {
+pub fn can_reach(spec: &DynamicTopology, source: &str, target: &str) -> bool {
     let adj = build_adjacency_all(spec);
     bfs_reachable(&adj, source).contains(target)
 }
@@ -808,7 +810,7 @@ pub fn can_reach(spec: &DeploySpec, source: &str, target: &str) -> bool {
 /// least one sink (out-degree 0) passes through `v`. The virtual root
 /// connects to all sources, so `v` dominates a sink from the virtual root iff
 /// it dominates that sink from every source.
-pub fn single_points_of_failure(spec: &DeploySpec) -> Vec<SinglePointOfFailure> {
+pub fn single_points_of_failure(spec: &DynamicTopology) -> Vec<SinglePointOfFailure> {
     let names = machine_names_sorted(spec);
     let n = names.len();
     if n == 0 {
@@ -910,7 +912,7 @@ pub fn single_points_of_failure(spec: &DeploySpec) -> Vec<SinglePointOfFailure> 
 /// build internal edges. Machines with unknown schemas are treated as
 /// collectors (the "unknown → benign" policy to avoid false positives).
 pub fn observe_completeness(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     schemas: &HashMap<&str, PortSchema>,
 ) -> Vec<TopologyWarning> {
     // ── 1. Identify collectors (machines with no observe output port) ──────
@@ -1023,7 +1025,7 @@ pub fn observe_completeness(
 }
 
 /// Detect orphan machines: no inbound edges, no outbound edges, or both.
-pub fn orphans(spec: &DeploySpec) -> Vec<TopologyWarning> {
+pub fn orphans(spec: &DynamicTopology) -> Vec<TopologyWarning> {
     let machine_set = machine_name_set(spec);
     let mut has_inbound: HashSet<&str> = HashSet::new();
     let mut has_outbound: HashSet<&str> = HashSet::new();
@@ -1077,7 +1079,7 @@ pub fn orphans(spec: &DeploySpec) -> Vec<TopologyWarning> {
 /// a → (shared_slot "shared"), b → (shared_slot "shared")  →  conflict (writers [a, b])
 /// a → (shared_slot "shared")                              →  clean (single writer)
 /// ```
-pub fn shared_slot_conflicts(spec: &DeploySpec) -> Vec<TopologyWarning> {
+pub fn shared_slot_conflicts(spec: &DynamicTopology) -> Vec<TopologyWarning> {
     // Group `SharedState`/`Latest` links by their destination slot.
     let mut writers: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     for link in &spec.links {
@@ -1115,7 +1117,7 @@ pub fn shared_slot_conflicts(spec: &DeploySpec) -> Vec<TopologyWarning> {
 /// This function does **not** validate the topology — it assumes structural
 /// validity (call `validate_deep` first). Warnings are advisory.
 pub fn analyze(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     schemas: Option<&HashMap<&str, PortSchema>>,
 ) -> TopologyReport {
     let mut warnings: Vec<TopologyWarning> = Vec::new();
@@ -1158,7 +1160,7 @@ pub fn analyze(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::deploy::{DeploySpec, MachineInstance};
+    use crate::deploy::{DynamicTopology, MachineInstance};
     use crate::link::{LinkKind, LinkSpec, WritePolicy, ReadPolicy, MemoryRegion};
     use crate::port::{PortDecl, PortSchema};
     use crate::resource::MachinePhysicalSpec;
@@ -1205,7 +1207,7 @@ mod tests {
 
     #[test]
     fn test_kahn_dag() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1219,7 +1221,7 @@ mod tests {
 
     #[test]
     fn test_kahn_cycle_detected() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(inline("a", "out", "b", "in"))
@@ -1234,7 +1236,7 @@ mod tests {
     #[test]
     fn test_inline_cycle_not_triggered_by_bounded() {
         // BoundedBuf cycle is allowed (sequential feedback).
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"))
@@ -1246,7 +1248,7 @@ mod tests {
 
     #[test]
     fn test_scc_no_loops() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1258,7 +1260,7 @@ mod tests {
 
     #[test]
     fn test_scc_feedback_loop() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine_moore("a"))
             .with_machine(machine_moore("b"))
             .with_link(bounded("a", "out", "b", "in"))
@@ -1271,7 +1273,7 @@ mod tests {
 
     #[test]
     fn test_scc_has_inline() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(inline("a", "out", "b", "in"))
@@ -1285,7 +1287,7 @@ mod tests {
 
     #[test]
     fn test_reachable() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1306,7 +1308,7 @@ mod tests {
     #[test]
     fn test_spof_linear() {
         // a → b → c → d  (b and c are SPOFs for d)
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1326,7 +1328,7 @@ mod tests {
     fn test_spof_no_spof_with_redundancy() {
         // a → b → d
         // a → c → d  (b and c are NOT SPOFs — redundancy)
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1343,7 +1345,7 @@ mod tests {
 
     #[test]
     fn test_degree_inline_ok() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(inline("a", "out", "b", "in"));
@@ -1353,7 +1355,7 @@ mod tests {
     #[test]
     fn test_degree_inline_violation() {
         // Two Inline links from the same output port → violation
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1369,7 +1371,7 @@ mod tests {
     #[test]
     fn test_degree_channel_violation() {
         // Two Channel links into the same input port → violation
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1384,7 +1386,7 @@ mod tests {
     #[test]
     fn test_degree_casfree_spsc() {
         // CasFreeRing: both outdeg and indeg must be ≤ 1
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1399,7 +1401,7 @@ mod tests {
     #[test]
     fn test_degree_boundedbuf_no_constraint() {
         // BoundedBuf has no degree constraint — multiple links OK
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1412,7 +1414,7 @@ mod tests {
 
     #[test]
     fn test_orphans() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))   // root (no inbound)
             .with_machine(machine("b"))   // middle
             .with_machine(machine("c"))   // leaf (no outbound)
@@ -1436,7 +1438,7 @@ mod tests {
 
     #[test]
     fn test_observe_disconnected() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("sensor"))
             .with_machine(machine("store"));
         let mut schemas = HashMap::new();
@@ -1459,7 +1461,7 @@ mod tests {
 
     #[test]
     fn test_observe_connected() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("sensor"))
             .with_machine(machine("store"))
             .with_link(bounded("sensor", "metrics", "store", "in"));
@@ -1476,7 +1478,7 @@ mod tests {
 
     #[test]
     fn test_analyze_clean() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"));
@@ -1490,8 +1492,8 @@ mod tests {
 
     #[test]
     fn critical_path_linear() {
-        // A(1) → B(2) → C(3)：关键路径 = 1 + 2 + 3 = 6
-        let spec = DeploySpec::new()
+        // A(1) → B(2) → C(3): critical path = 1 + 2 + 3 = 6
+        let spec = DynamicTopology::new()
             .with_machine(machine_lat("a", 1))
             .with_machine(machine_lat("b", 2))
             .with_machine(machine_lat("c", 3))
@@ -1502,8 +1504,8 @@ mod tests {
 
     #[test]
     fn critical_path_diamond_takes_longer_branch() {
-        // A(1) → (B(2), C(3)) → D(4)：关键路径 = 1 + max(2,3) + 4 = 8
-        let spec = DeploySpec::new()
+        // A(1) → (B(2), C(3)) → D(4): critical path = 1 + max(2,3) + 4 = 8
+        let spec = DynamicTopology::new()
             .with_machine(machine_lat("a", 1))
             .with_machine(machine_lat("b", 2))
             .with_machine(machine_lat("c", 3))
@@ -1517,8 +1519,8 @@ mod tests {
 
     #[test]
     fn critical_path_undeclared_latency_is_zero() {
-        // 全部 latency=0（默认）：关键路径 = 0
-        let spec = DeploySpec::new()
+        // All latencies are 0 (default): critical path = 0
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"));
@@ -1527,8 +1529,8 @@ mod tests {
 
     #[test]
     fn critical_path_cycle_is_unbounded() {
-        // A → B → A（环）：关键路径无界，返回 Err
-        let spec = DeploySpec::new()
+        // A → B → A (cycle): the critical path is unbounded, so Err is returned
+        let spec = DynamicTopology::new()
             .with_machine(machine_lat("a", 1))
             .with_machine(machine_lat("b", 1))
             .with_link(bounded("a", "out", "b", "in"))
@@ -1536,12 +1538,12 @@ mod tests {
         assert!(critical_path_latency(&spec).is_err());
     }
 
-    // ── Topological levels（波次调度基础）───────────────────────────────
+    // ── Topological levels (the basis for wave scheduling) ───────────────
 
     #[test]
     fn levels_linear_chain() {
         // A → B → C：A=0, B=1, C=2
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1556,7 +1558,7 @@ mod tests {
     #[test]
     fn levels_diamond() {
         // A → (B, C) → D：A=0, B=1, C=1, D=2
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1574,7 +1576,7 @@ mod tests {
 
     #[test]
     fn levels_cycle_is_err() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"))
@@ -1582,17 +1584,17 @@ mod tests {
         assert!(topological_levels(&spec).is_err());
     }
 
-    // ── 共享槽写者互斥（调度歧义检测的部署期形态）───────────────
+    // ── Shared-slot writer exclusivity (deploy-time scheduling-ambiguity) ─
 
-    /// SharedState 链接。
+    /// A `SharedState` link.
     fn shared(a: &'static str, pa: &'static str, b: &'static str, pb: &'static str) -> LinkSpec {
         LinkSpec::new((a, pa), (b, pb), LinkKind::SharedState)
     }
 
     #[test]
     fn shared_slot_single_writer_is_clean() {
-        // 单写者共享槽：a → (shared 槽) → b，无冲突。
-        let spec = DeploySpec::new()
+        // Single-writer shared slot: a → (shared slot) → b, no conflict.
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(shared("a", "out", "b", "status"));
@@ -1601,8 +1603,9 @@ mod tests {
 
     #[test]
     fn shared_slot_multi_writer_conflicts() {
-        // 多写者共享槽：a、b 都写 "shared" 槽 → 冲突（并行写顺序不确定）。
-        let spec = DeploySpec::new()
+        // Multi-writer shared slot: both a and b write the "shared" slot →
+        // conflict (the parallel write order is undefined).
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1621,8 +1624,9 @@ mod tests {
 
     #[test]
     fn shared_slot_non_shared_links_ignored() {
-        // 非共享载体（BoundedBuf）不受检查——即使多源指向同一端口。
-        let spec = DeploySpec::new()
+        // Non-shared carriers (BoundedBuf) are not checked — even when
+        // multiple sources target the same port.
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))

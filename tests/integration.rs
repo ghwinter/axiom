@@ -1,7 +1,7 @@
 /// Integration tests for axiom core abstractions.
 ///
 /// Tests the Func and Machine traits, PortDecl compatibility,
-/// DeploySpec validation, and Clock implementations.
+/// DynamicTopology validation, and Clock implementations.
 
 use axiom::prelude_all::*;
 use axiom::builtin::{TeeInput, TeeOutput};
@@ -121,11 +121,11 @@ fn test_machine_init() {
 
 #[test]
 fn test_machine_is_ready_default_and_override() {
-    // 默认 is_ready = true（同步机器）。
+    // is_ready defaults to true (synchronous machine).
     let ctx = MachineContext::new("test");
     assert!(SimpleCounter::is_ready(&ctx), "default readiness is true");
 
-    // 覆盖 is_ready：声明"异步初始化未完成"。
+    // Override is_ready: declare that async initialization is not complete.
     struct AsyncBackend;
     impl Machine for AsyncBackend {
         type State = ();
@@ -145,7 +145,7 @@ fn test_machine_is_ready_default_and_override() {
             SingleOutput::Yield(CounterOutput::out(v))
         }
         fn cleanup(_: (), _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
-        // 异步就绪声明：驱动者轮询 is_ready，就绪前不驱动。
+        // Async readiness declaration: the driver polls is_ready and does not drive until ready.
         fn is_ready(_: &MachineContext) -> bool { false }
     }
 
@@ -253,7 +253,7 @@ fn test_link_compat_schema_migration() {
 
 #[test]
 fn test_deploy_spec_empty() {
-    let spec = DeploySpec::new();
+    let spec = DynamicTopology::new();
     assert_eq!(spec.machines.len(), 0);
     assert_eq!(spec.links.len(), 0);
     assert!(spec.validate().is_ok());
@@ -261,7 +261,7 @@ fn test_deploy_spec_empty() {
 
 #[test]
 fn test_deploy_spec_with_machine() {
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new(
             "counter", "SimpleCounter", MachinePhysicalSpec::default(),
         ));
@@ -272,7 +272,7 @@ fn test_deploy_spec_with_machine() {
 
 #[test]
 fn test_deploy_spec_validation_unknown_machine() {
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "A", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(
             ("nonexistent", "out"),

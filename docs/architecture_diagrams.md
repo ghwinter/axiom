@@ -155,7 +155,7 @@ graph TB
 
 ```mermaid
 graph TB
-  subgraph Spec["DeploySpec (pure data, no execution)"]
+  subgraph Spec["DynamicTopology (pure data, no execution)"]
     direction LR
     MI["MachineInstance[]
     {name, type, physical, config}"]
@@ -177,19 +177,13 @@ graph TB
 
   Validate --> Runtimes["Runtime adapters"]
 
-  subgraph RuntimesBox["Runtime adapters"]
-    R1["axiom_linear
-    single-thread for-loop
-    zero-alloc Inline links"]
-    R2["axiom_tokio
-    Tokio multi-thread
-    spawn_blocking"]
-    R3["axiom_replay (planned)
-    deterministic single-thread
-    backtest / simulation"]
-    R4["axiom_embassy (planned)
-    no_std embedded
-    Embassy async"]
+  subgraph RuntimesBox["Runtime adapter"]
+    R1["axiom-runtime (single unified runtime)
+    materialize / tick / shutdown
+    ExecMode: Inline | Sequential | Parallel(n)
+    IO multiplexing: epoll / kqueue / WSAEventSelect
+    deterministic replay: Replayer
+    static_path combinators: pipeline_chain / diamond / feedback"]
   end
 
   subgraph Exec["ExecutionHint"]
@@ -500,8 +494,8 @@ graph TB
   subgraph Invariants["Invariant checks"]
     I1["Type compat: all edges type_id match"]
     I2["FlowKind: all edges flow match"]
-    I3["No Inline cycles: Kahn toposort -- analysis::inline_cycle, enforced in validate_deep (E121)"]
-    I4["Degree: Channel indeg=1, CasFreeRing SPSC -- analysis::degree_violations, enforced in validate_deep (E120)"]
+    I3["No Inline cycles: Kahn toposort -- analysis::inline_cycle, enforced in validate_deep"]
+    I4["Degree: Channel indeg=1, CasFreeRing SPSC -- analysis::degree_violations, enforced in validate_deep"]
   end
 
   subgraph Feedback["Feedback topology"]
@@ -537,7 +531,7 @@ gantt
   axisFormat  %H:%M
 
   section t=0: Init
-  DeploySpec::validate_deep()     :00:00, 1min
+  DynamicTopology::validate_deep()     :00:00, 1min
   Machine::init() all modules      :00:01, 1min
   Lifecycle: Init -> Running       :00:02, 1min
 
@@ -584,4 +578,4 @@ gantt
 | Feedback loop | HVAC -> EnergyOpt -> HVAC (legal: BoundedBuf edges, no algebraic loop) |
 | Deployment invariance | Same Machine code, different LinkKinds for testing vs production |
 | Type safety | Compiler prevents sending temperature to lighting controller |
-| Runtime agnostic | Single-thread for-loop / Tokio / Embassy: zero code change |
+| Runtime agnostic | Single-thread for-loop / async runtime / embedded runtime: zero code change |

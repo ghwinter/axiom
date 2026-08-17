@@ -1,28 +1,30 @@
+//! **Maturity: tool** (a development-time tool, reinforced per the unified convention).
+//!
 //! AI-native blueprint interface (feature = "serialize").
 //!
-//! This module turns [`DeploySpec`] into a **machine-readable work medium**:
+//! This module turns [`DynamicTopology`] into a **machine-readable work medium**:
 //!
 //! - [`schema`] exports a JSON Schema (draft-07) describing the exact
-//!   serialized shape of a `DeploySpec`. An AI (or any tool) can generate
+//!   serialized shape of a `DynamicTopology`. An AI (or any tool) can generate
 //!   blueprints as plain JSON against this schema, without writing Rust
 //!   builder chains.
 //! - [`from_json_str`] / [`from_json_value`] parse such JSON back into a
-//!   `DeploySpec` **and** run structural validation, so malformed blueprints
+//!   `DynamicTopology` **and** run structural validation, so malformed blueprints
 //!   (unknown machine references, duplicate names, self-loops) are rejected
 //!   with a structured [`BlueprintError`] instead of failing later at deploy
 //!   time.
-//! - [`to_json`] serializes a `DeploySpec` (pretty-printed) for inspection or
+//! - [`to_json`] serializes a `DynamicTopology` (pretty-printed) for inspection or
 //!   persistence.
 //!
 //! The round-trip is exact: `to_json` → `from_json_str` reproduces the same
-//! `DeploySpec` (proved by `tests/serde_roundtrip.rs` and the E-evidence
+//! `DynamicTopology` (proved by `tests/serde_roundtrip.rs` and the E-evidence
 //! probe). No schema library is used — the schema is hand-written and mirrors
 //! the serde representation exactly, keeping the dependency surface minimal
 //! and the schema auditable.
 //!
 //! ## Contract position
 //!
-//! A `DeploySpec` is pure data; `schema`/`from_json`/`to_json` are pure
+//! A `DynamicTopology` is pure data; `schema`/`from_json`/`to_json` are pure
 //! functions on that data. They add no physical meaning — the blueprint is
 //! still just the structure graph. What this module adds is the **interface**
 //! an AI can close a loop on: generate JSON → validate → get structured
@@ -35,7 +37,7 @@ use alloc::string::{String, ToString};
 
 use serde_json::{json, Value};
 
-use crate::deploy::{DeploySpec, MachineInstance, ValidationError};
+use crate::deploy::{DynamicTopology, MachineInstance, ValidationError};
 use crate::link::{LinkKind, LinkSpec};
 use crate::resource::MachinePhysicalSpec;
 
@@ -48,9 +50,9 @@ use crate::resource::MachinePhysicalSpec;
 ///
 /// - [`Parse`](BlueprintError::Parse) — JSON syntax error, with line/column.
 /// - [`Invalid`](BlueprintError::Invalid) — structurally well-formed JSON that
-///   is not a `DeploySpec` shape (missing/unknown field, wrong type), with the
+///   is not a `DynamicTopology` shape (missing/unknown field, wrong type), with the
 ///   serde path.
-/// - [`Validate`](BlueprintError::Validate) — a valid `DeploySpec` shape that
+/// - [`Validate`](BlueprintError::Validate) — a valid `DynamicTopology` shape that
 ///   violates deployment invariants (unknown reference, duplicate name,
 ///   self-loop, …), carrying the full [`ValidationError`].
 #[derive(Debug)]
@@ -61,12 +63,12 @@ pub enum BlueprintError {
         line: usize,
         column: usize,
     },
-    /// The JSON parsed but does not match the `DeploySpec` shape.
+    /// The JSON parsed but does not match the `DynamicTopology` shape.
     Invalid {
         message: String,
         path: String,
     },
-    /// The shape is a `DeploySpec`, but it violates structural invariants.
+    /// The shape is a `DynamicTopology`, but it violates structural invariants.
     Validate(ValidationError),
 }
 
@@ -108,23 +110,23 @@ fn map_serde_err(e: serde_json::Error) -> BlueprintError {
 
 /// Parse a blueprint from a JSON string, then run structural validation.
 ///
-/// The parsed spec must pass [`DeploySpec::validate`] (unknown machine/port
+/// The parsed spec must pass [`DynamicTopology::validate`] (unknown machine/port
 /// references, duplicate names, self-loops) — otherwise the error is a
 /// [`BlueprintError::Validate`].
-pub fn from_json_str(s: &str) -> Result<DeploySpec, BlueprintError> {
+pub fn from_json_str(s: &str) -> Result<DynamicTopology, BlueprintError> {
     let value: Value = serde_json::from_str(s).map_err(map_serde_err)?;
     from_json_value(value)
 }
 
 /// Parse a blueprint from a `serde_json::Value`, then validate structurally.
-pub fn from_json_value(value: Value) -> Result<DeploySpec, BlueprintError> {
-    let spec: DeploySpec = serde_json::from_value(value).map_err(map_serde_err)?;
+pub fn from_json_value(value: Value) -> Result<DynamicTopology, BlueprintError> {
+    let spec: DynamicTopology = serde_json::from_value(value).map_err(map_serde_err)?;
     spec.validate().map_err(BlueprintError::Validate)?;
     Ok(spec)
 }
 
-/// Serialize a `DeploySpec` to pretty JSON.
-pub fn to_json(spec: &DeploySpec) -> Result<String, BlueprintError> {
+/// Serialize a `DynamicTopology` to pretty JSON.
+pub fn to_json(spec: &DynamicTopology) -> Result<String, BlueprintError> {
     let bytes = serde_json::to_vec_pretty(spec).map_err(map_serde_err)?;
     String::from_utf8(bytes).map_err(|e| BlueprintError::Invalid {
         message: format!("serializer produced non-UTF-8: {e}"),
@@ -140,7 +142,7 @@ pub fn schema() -> Value {
     json!({
         "$schema": "http://json-schema.org/draft-07/schema#",
         "$id": "https://axiom.dev/schema/deployspec.schema.json",
-        "title": "Axiom DeploySpec",
+        "title": "Axiom DynamicTopology",
         "description": "Structural blueprint of an axiom deployment: machines, funcs, links, settings.",
         "type": "object",
         "properties": {
@@ -435,8 +437,8 @@ mod tests {
     use crate::link::{LinkKind, LinkSpec, ReadPolicy, WritePolicy};
     use crate::resource::{ExecutionHint, MachinePhysicalSpec};
 
-    fn sample_spec() -> DeploySpec {
-        DeploySpec::new()
+    fn sample_spec() -> DynamicTopology {
+        DynamicTopology::new()
             .with_machine(machine(
                 "receiver",
                 "Receiver",
@@ -497,7 +499,7 @@ mod tests {
 
     #[test]
     fn from_json_rejects_unknown_machine_reference() {
-        let spec = DeploySpec::new().with_link(LinkSpec::new(
+        let spec = DynamicTopology::new().with_link(LinkSpec::new(
             ("ghost", "out"),
             ("store", "in"),
             LinkKind::Inline,
@@ -515,7 +517,7 @@ mod tests {
 
     #[test]
     fn from_json_rejects_wrong_shape() {
-        // Valid JSON, but not a DeploySpec (machines is a string).
+        // Valid JSON, but not a DynamicTopology (machines is a string).
         let err = from_json_str(r#"{"machines": "nope"}"#).expect_err("shape error");
         assert!(matches!(err, BlueprintError::Invalid { .. }));
     }

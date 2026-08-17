@@ -1,3 +1,5 @@
+//! **Maturity: experimental** (an extension; advanced as part of the core, not dropped).
+//!
 //! Hybrid System Extension — continuous dynamics + discrete state machines.
 //!
 //! # Theoretical foundation

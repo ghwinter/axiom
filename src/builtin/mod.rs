@@ -1,3 +1,5 @@
+//! **Maturity: experimental** (an extension; core is being advanced, this will not be dropped).
+//!
 //! ## Generic built-in Machines
 //!
 //! Each corresponds to a fundamental computation pattern.

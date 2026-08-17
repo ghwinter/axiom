@@ -8,15 +8,19 @@ use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
-// 注：本文件未采用 `#[crate::ports]` 宏。Sink 的端口签名是不对称泛型：
-// `SinkInput<I>` 带泛型 `I`，而 `SinkOutput` 无泛型（零变体枚举，uninhabited）。
-// `#[ports]` 宏会把 struct 的全部泛型统一传播到 Input/Output 两个枚举，
-// 这将产生 `SinkOutput<I>`——一个零变体却带泛型 `I` 的枚举。由于零变体枚举
-// 没有任何变体引用 `I`，rustc 报 E0392（type parameter `I` is never used）。
-// 因此保留手写，`SinkOutput` 维持无泛型。
+// Note: this file does not use the `#[crate::ports]` macro. Sink's port
+// signature is an asymmetric generic: `SinkInput<I>` carries the generic
+// parameter `I`, while `SinkOutput` has no generic parameter (a
+// zero-variant, uninhabited enum). The `#[ports]` macro propagates all of
+// the struct's generic parameters uniformly to both the Input and Output
+// enums, which would produce a `SinkOutput<I>` — a zero-variant enum that
+// nonetheless carries a generic parameter `I`. Since no variant of a
+// zero-variant enum references `I`, rustc reports E0392 (type parameter `I`
+// is never used). The hand-written version is therefore kept, and
+// `SinkOutput` stays non-generic.
 //
-// 其余对称泛型且 Output 非零变体的 builtin（Identity/Tee/Latch/Collector）
-// 均已迁移到宏。
+// The remaining builtins with symmetric generic parameters and a non-empty
+// Output (Identity/Tee/Latch/Collector) have been migrated to the macro.
 
 pub struct SinkPorts<I>(PhantomData<I>);
 
@@ -93,4 +97,18 @@ impl<I: Send + Sync + Clone + 'static> Machine for Sink<I> {
     }
     fn cleanup(_state: (), _ctx: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
     fn deterministic() -> bool { true }
+}
+
+// ── Straight contract (unified static entry point) ──────────
+//
+// Sink acts as the "discard terminal" of the static path: `I → ()`.
+// `StraightOut = ()` means there is no downstream; when used as the tail
+// machine of a `Chain`/`Diamond` it naturally swallows the payload.
+
+impl<I: Send + Sync + Clone + 'static> StraightMachine for Sink<I> {
+    type StraightIn = I;
+    type StraightOut = ();
+
+    #[inline]
+    fn process_straight(_state: &mut (), _input: I) {}
 }

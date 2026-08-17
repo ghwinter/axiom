@@ -1,36 +1,48 @@
-//! 受控共享数据——封装与组合的折中。
+//! **Maturity: experimental** (an extension; advanced as part of the core, not dropped).
 //!
-//! `Machine` 默认**封装**状态（局部性、可验证：状态只被自己的 `process`
-//! 改），但跨机器数据共享受限。本模块提供 [`SharedResource`]——一个可被
-//! 多个计算单元声明读写的全局单例数据——兼得封装的局部性与数据驱动的
-//! 组合性（共享数据原语（`Resource` 类）在 axiom 的受控形态）。
+//! Controlled shared data — a compromise between encapsulation and composition.
 //!
-//! # 与 `Machine` 封装的关系
+//! `Machine` **encapsulates** state by default (locality and verifiability:
+//! state is only mutated by its own `process`), but cross-machine data sharing
+//! is limited. This module provides [`SharedResource`] — a global singleton
+//! that multiple computation units can declare reads/writes on — combining the
+//! locality of encapsulation with data-driven compositionality (axiom's
+//! controlled form of the shared-data primitive (`Resource` class)).
 //!
-//! - 默认：机器状态有主（`Machine::State` 只被自己的 `process` 修改）。
-//! - 需要跨机器共享的数据：用 `SharedResource` **显式**承载——共享是声明
-//!   式的（构造一个句柄，传给使用方），而非隐式全局。
-//! - 读写经 `RwLock`：多个读者可并行、写者互斥（对应调度可验证性 D8——
-//!   多写者需显式串行，`SharedResource` 的 `write()` 正是互斥点）。
+//! # Relationship to `Machine` encapsulation
 //!
-//! # 零成本说明
+//! - Default: machine state has an owner (`Machine::State` is only modified by
+//!   its own `process`).
+//! - Data that needs cross-machine sharing: carried **explicitly** by
+//!   `SharedResource` — sharing is declarative (construct a handle and hand it
+//!   to consumers), not an implicit global.
+//! - Reads/writes go through `RwLock`: multiple readers can proceed in
+//!   parallel, writers are mutually exclusive (corresponding to scheduling
+//!   verifiability D8 — multiple writers need explicit serialization;
+//!   `SharedResource::write()` is exactly the mutual-exclusion point).
 //!
-//! `SharedResource` 是**物理层原语**（锁保护共享内存），不替代抽象层的
-//! 端口/拓扑验证；它只在"确实需要跨机器共享"时引入锁开销——不需要共享
-//! 的机器保持零成本封装。
+//! # Zero-cost note
+//!
+//! `SharedResource` is a **physical-layer primitive** (lock-protected shared
+//! memory); it does not replace abstraction-layer port/topology validation. It
+//! only introduces lock overhead when "cross-machine sharing is truly needed"
+//! — machines that do not need sharing keep zero-cost encapsulation.
 
 #[cfg(feature = "std")]
 use alloc::sync::Arc;
 #[cfg(feature = "std")]
 use std::sync::RwLock;
 
-/// 受控共享数据：多个计算单元共享的全局单例。
+/// Controlled shared data: a global singleton shared by multiple computation
+/// units.
 ///
-/// - [`read`](Self::read)：共享读（多个读者可并行）；
-/// - [`write`](Self::write)：独占写（写者互斥）；
-/// - [`clone_handle`](Self::clone_handle)：复制共享句柄（底层同一份数据）。
+/// - [`read`](Self::read): shared read (multiple readers may run in parallel);
+/// - [`write`](Self::write): exclusive write (writers are mutually exclusive);
+/// - [`clone_handle`](Self::clone_handle): duplicate the shared handle (same
+///   underlying data).
 ///
-/// 仅 `std` 提供（`RwLock`）；`no_std` 配置不含本原语。
+/// Provided only under `std` (`RwLock`); the `no_std` configuration does not
+/// include this primitive.
 #[cfg(feature = "std")]
 pub struct SharedResource<T> {
     inner: Arc<RwLock<T>>,
@@ -38,24 +50,27 @@ pub struct SharedResource<T> {
 
 #[cfg(feature = "std")]
 impl<T> SharedResource<T> {
-    /// 构造共享资源（初始值）。
+    /// Construct a shared resource (initial value).
     pub fn new(value: T) -> Self {
         Self {
             inner: Arc::new(RwLock::new(value)),
         }
     }
 
-    /// 共享读——返回读锁（多个读者可并行持有）。
+    /// Shared read — returns a read guard (multiple readers may hold it in
+    /// parallel).
     pub fn read(&self) -> std::sync::RwLockReadGuard<'_, T> {
         self.inner.read().expect("shared resource poisoned")
     }
 
-    /// 独占写——返回写锁（写者互斥，对应 D8 的多写者串行）。
+    /// Exclusive write — returns a write guard (writers mutually exclusive;
+    /// corresponds to D8's serialization of multiple writers).
     pub fn write(&self) -> std::sync::RwLockWriteGuard<'_, T> {
         self.inner.write().expect("shared resource poisoned")
     }
 
-    /// 复制共享句柄（`Arc` 克隆——所有句柄指向同一份数据）。
+    /// Duplicate the shared handle (`Arc` clone — all handles point to the
+    /// same data).
     pub fn clone_handle(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -71,7 +86,7 @@ impl<T> Clone for SharedResource<T> {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 单元测试
+// Unit tests
 // ════════════════════════════════════════════════════════════════════════════
 
 #[cfg(all(test, feature = "std"))]
@@ -90,7 +105,8 @@ mod tests {
 
     #[test]
     fn shared_resource_multi_handle() {
-        // 多个句柄共享同一份数据（共享数据原语（`Resource` 类）的受控形态）。
+        // Multiple handles share the same data (the controlled form of the
+        // shared-data primitive (`Resource` class)).
         let shared = SharedResource::new(vec![1i32, 2, 3]);
         let handle_a = shared.clone_handle();
         let handle_b = shared.clone_handle();

@@ -1,150 +1,86 @@
-# 结构模型：axiom 的严格形式化
+# Structural Model: The Strict Formalization of axiom
 
-> **文档级别**：正式设计文档（`docs/`，入 git）。
-> **内容**：用集合论、图论、范畴论严格定义 axiom 的结构模型——系统即类型化
-> 图、结构层与行为层分离、静态/动态分界、静态覆盖边界。这是
-> `philosophy.md`"结构范围约束"与 `README` 定位的数学基础。
-> **状态**：2026-08 确立（静态为主的定位修正）。
+## 1. System as a Typed Graph (Set Theory + Graph Theory)
 
----
+**Definition 1.1 (System).** A system is a directed graph $S = (V, E)$, where:
+- $V$ is a finite set of nodes (machines, `Machine`);
+- $E \subseteq V \times V$ is a set of directed edges (links).
 
-## 1. 系统 = 类型化图（集合论 + 图论）
-
-**定义 1.1（系统）**：系统是一个有向图 $S = (V, E)$，其中：
-- $V$ 是有限节点集（机器 Machine）；
-- $E \subseteq V \times V$ 是有向边集（链接）。
-
-**定义 1.2（类型化端口）**：每节点 $v \in V$ 有端口集
-$P(v) = \mathrm{In}(v) \sqcup \mathrm{Out}(v)$（输入/输出不相交），每端口
-$p \in P(v)$ 有负载类型 $\tau(p)$（如 `i32`）。边是有类型的：
+**Definition 1.2 (Typed Ports).** Each node $v \in V$ has a port set $P(v) = \mathrm{In}(v) \sqcup \mathrm{Out}(v)$ (inputs and outputs are disjoint), and each port $p \in P(v)$ has a payload type $\tau(p)$ (e.g., `i32`). Edges are typed:
 
 $$E = \{ (u, p_{\text{out}}, v, p_{\text{in}}) \mid u,v \in V,\ p_{\text{out}} \in \mathrm{Out}(u),\ p_{\text{in}} \in \mathrm{In}(v),\ \tau(p_{\text{out}}) = \tau(p_{\text{in}}) \}$$
 
-类型相等是边合法性的**静态前提**（编译期可判定）。
+Type equality is the **static precondition** for edge validity (decidable at compile time).
 
-**定义 1.3（流分类）**：边集分割为三类
-$E = E_D \sqcup E_C \sqcup E_O$（Data / Control / Observe），对应
-`FlowKind`。分类是**语义契约**（不改变物理流动，见 2）。
+**Definition 1.3 (Flow Annotation).** Each edge $e \in E$ carries a flow annotation $f(e) \in \{ \texttt{Data}, \texttt{Control}, \texttt{Observe} \}$ inherited from its endpoint ports (matching kinds are required to connect). The annotation is a **semantic contract**: it does not alter physical flow (Section 2) — its only physical effect is a carrier-selection preference on explicitly annotated edges (`Observe` → non-blocking, `Control` → droppable), enforced by the materialization-compatibility matrix. `Data` is the un-annotated default and carries no constraint.
 
-**定义 1.4（行为）**：每节点 $v \in V$ 有行为 $B_v = (\sigma_v, \phi_v)$：
-状态 $\sigma_v$ 与转移函数 $\phi_v$（`process`）。axiom 不规定 $B_v$ 的内部
-结构。
+**Definition 1.4 (Behavior).** Each node $v \in V$ has a behavior $B_v = (\sigma_v, \phi_v)$: a state $\sigma_v$ and a transition function $\phi_v$ (`process`). axiom does not prescribe the internal structure of $B_v$.
 
-## 2. 结构层与行为层分离（核心公理）
+## 2. Separation of the Structural and Behavioral Layers (Core Axiom)
 
-**公理 2.1（结构可声明性）**：axiom 的定义域是结构 $S = (V, E)$ 及其
-类型化/流分类标注；行为 $B_v$ 是**黑盒**——axiom 不预测、不约束、不验证
-$\phi_v$ 的内部。
+**Axiom 2.1 (Structural Declarability).** The domain of axiom is the structure $S = (V, E)$ together with its typing and flow-classification annotations; behavior $B_v$ is a **black box** — axiom neither predicts, constrains, nor verifies the interior of $\phi_v$.
 
-**定理 2.2（行为无关性）**：$\forall$ 行为集合 $\{B_v\}_{v \in V}$，
-$S$ 的可声明性（类型检查）、可验证性（`validate_deep`/`lint`）、可执行性
-（调度合法性）与 $B_v$ 无关。
+**Theorem 2.2 (Behavior Independence).** For every collection of behaviors $\{B_v\}_{v \in V}$, the declarability (type checking), verifiability (`validate_deep` / `lint`), and executability (scheduling legality) of $S$ are independent of $B_v$.
 
-> 证明要点：验证规则（环检测、度约束、端口兼容、共享槽互斥）全部是
-> $S$ 的结构属性；执行（tick/FlowThrough）把 $\phi_v$ 当作不透明函数调用。
+> Proof sketch: The validation rules (cycle detection, degree constraints, port compatibility, shared-slot mutual exclusion) are all structural properties of $S$; execution (tick / `FlowThrough`) treats $\phi_v$ as an opaque function call.
 
-**推论 2.3（行为动态 ≠ 结构动态）**：行为 $B_v$ 的运行期多样性（如查询
-计划、调度决策、内容生成）**不改变 $S$**——因此不构成 axiom 动态路径的
-理由。行为动态性应封装在 $\phi_v$ 内部（Machine 黑盒）。
+**Corollary 2.3 (Behavioral Dynamism Is Not Structural Dynamism).** Run-time diversity of behavior $B_v$ (e.g., query plans, scheduling decisions, content generation) **does not change $S$** — and therefore does not justify a dynamic path in axiom. Behavioral dynamism should be encapsulated inside $\phi_v$ (the machine black box).
 
-## 3. 静态与动态（范畴论视角）
+## 3. Static and Dynamic (Category-Theoretic Perspective)
 
-**定义 3.1（静态结构）**：$S$ 编码为**类型**——编译期已知：
+**Definition 3.1 (Static Structure).** $S$ is encoded as a **type**, known at compile time:
 
 $$S_{\text{static}} = \mathrm{Chain}\langle A, B, C \rangle,\ \mathrm{Diamond}\langle A, L, R, D, \dots \rangle$$
 
-拓扑是类型参数，编译器单态化，运行时为直接函数调用（零分配）。
+The topology is a type parameter; the compiler monomorphizes it, and at run time execution is a direct function call (zero allocation).
 
-**定义 3.2（动态结构）**：$S$ 编码为**值**（`DeploySpec`）——运行时
-物化为类型化实例：
+**Definition 3.2 (Dynamic Structure).** $S$ is encoded as a **value** (`DynamicTopology`) and materialized at run time into typed instances:
 
-$$\text{materialize}: \mathrm{DeploySpec} \to \bigcup_{v \in V} \mathrm{Instance}_{M_v}$$
+$$\text{materialize}: \mathrm{DynamicTopology} \to \bigcup_{v \in V} \mathrm{Instance}_{M_v}$$
 
-其中每节点物化为**类型化**实例（`MachineWrapper<M_v>`，$M_v$ 是编译期
-类型）——节点是类型，图是值（"半值半类型"）。
+Each node is materialized as a **typed** instance (`MachineWrapper<M_v>`, where $M_v$ is a compile-time type) — nodes are types, the graph is a value ("half value, half type").
 
-**范畴论表述**：组合子（`Chain`/`Diamond`/复合）是**态射组合**
-（machine 的端口类型是对象，机器是态射，链接是合成）。静态路径在
-**类型范畴** $\mathcal{C}_{\text{type}}$ 中组合（编译期闭合）；
-动态路径在**值范畴** $\mathcal{C}_{\text{value}}$ 中声明，经
-`materialize`（函子 $\mathcal{C}_{\text{value}} \to \mathcal{C}_{\text{runtime}}$）
-提升为运行时类型化实例。**类型化承诺在两条路径都保留**（节点始终是
-类型；解释器模式（节点也是值）不在 axiom 定义域内）。
+**Category-theoretic formulation.** Combinators (`Chain` / `Diamond` / composites) are **morphism composition** (machine port types are objects, machines are morphisms, links are composition). The static path composes in the **category of types** $\mathcal{C}_{\text{type}}$ (closed at compile time); the dynamic path declares structures in the **category of values** $\mathcal{C}_{\text{value}}$ and lifts them to run-time typed instances via `materialize` (a functor $\mathcal{C}_{\text{value}} \to \mathcal{C}_{\text{runtime}}$). **The typing commitment is preserved on both paths** (a node is always a type; an interpreter-style encoding in which nodes are also values lies outside the domain of axiom).
 
-**定理 3.3（动态路径的正当性）**：动态路径必要 ⟺ **结构来自运行时数据**
-——拓扑的节点集/边集依赖配置、插件、或运行时决策（结构层的运行时来源）。
-行为动态（推论 2.3）不构成正当性。
+**Theorem 3.3 (Justification of the Dynamic Path).** A dynamic path is necessary **iff the structure originates from run-time data** — the node set or edge set of the topology depends on configuration, plugins, or run-time decisions (a run-time source for the structural layer). Behavioral dynamism (Corollary 2.3) does not constitute such justification.
 
-## 4. 静态覆盖边界（图论）
+## 4. The Static Coverage Boundary (Graph Theory)
 
-**定义 4.1（串并联图）**：串并联图（series-parallel graph）由递归规则
-生成：单边是；$G_1$ 串联 $G_2$（$G_1$ 尾接 $G_2$ 头）是；$G_1$ 并联 $G_2$
-（共享源与汇）是。`Chain` 生成串联、`Diamond` 生成并联——静态组合子生成
-恰为串并联图类。
+**Definition 4.1 (Series-Parallel Graph).** A series-parallel graph is generated by the recursive rules: a single edge is series-parallel; the series composition of $G_1$ and $G_2$ (the tail of $G_1$ joined to the head of $G_2$) is series-parallel; the parallel composition of $G_1$ and $G_2$ (sharing source and sink) is series-parallel. `Chain` generates series composition and `Diamond` generates parallel composition — the static combinators generate exactly the class of series-parallel graphs.
 
-**定义 4.2（复合层次化）**：复合（composite）把**子结构** $G' \subseteq S$
-封装为单节点（端口映射 $\partial G' \to P(v)$）。复合可递归：顶层 $S$
-分解为复合树，叶子是原始机器。**类型化复合 `Composite<Inner>`**（静态
-路径，2026-08 已实现）透明转发 `Inner: FlowThrough`——提供**命名/抽象/
-复用/层次化**，执行与直接展开等价（零成本）。
+**Definition 4.2 (Composite Hierarchization).** A composite encapsulates a **substructure** $G' \subseteq S$ into a single node (via a port mapping $\partial G' \to P(v)$). Composites may be recursive: the top-level $S$ decomposes into a composite tree whose leaves are primitive machines. **The typed composite `Composite<Inner>`** (static path) transparently forwards `Inner: FlowThrough` — providing **naming / abstraction / reuse / hierarchization** while executing exactly like an inline expansion (zero cost).
 
-**定理 4.3（复合提供抽象，不扩展图类）**：`Composite<Inner>` 的图类等于
-`Inner` 的图类（透明转发）——它把"已静态可表达的子结构"封装为命名节点，
-**不扩展**静态可表达的形状。复合的价值是**抽象与层次化**（顶层串并联树
-的节点可以是复合），不是表达力扩展。
+**Theorem 4.3 (Composites Provide Abstraction, Not Extended Graph Classes).** The graph class of `Composite<Inner>` equals that of `Inner` (transparent forwarding) — it encapsulates an already statically expressible substructure as a named node and **does not extend** the statically expressible shapes. The value of composites is **abstraction and hierarchization** (nodes of the top-level series-parallel tree may themselves be composites), not expressive power.
 
-**定义 4.4（并行组合）**：独立并行 `run_parallel::<A, B>`（2026-08 已
-实现）并行执行两个独立 `FlowThrough` 流（各自单进单出、独立输入输出）——
-同步模型下顺序执行与并行结果一致（无共享状态）。这是**多流**静态表达的
-起点（两个独立子系统并行，可各包 `Composite`）。
+**Definition 4.4 (Parallel Composition).** Independent parallelism `run_parallel::<A, B>` executes two independent `FlowThrough` streams in parallel (each single-in/single-out with independent inputs and outputs) — under the synchronous model, sequential execution and parallel execution yield identical results (no shared state). This is the starting point for **multi-stream** static expression (two independent subsystems run in parallel, each optionally wrapped in a `Composite`).
 
-**定理 4.5（静态边界）**：静态路径覆盖**单进单出的串并联代数**：
-$$S \text{ 静态可表达} \iff S \text{ 是 Chain/Diamond/Composite 生成的单进单出串并联图，}\\
-\text{或 run_parallel 并行的此类流的组合}$$
+**Theorem 4.5 (The Static Boundary).** The static path covers **the single-in/single-out series-parallel algebra**:
 
-边界之外（多进多出交叉边、非层次化任意 DAG、依赖运行时数据的结构）
-需动态路径（定理 3.3 的正当性 + 本定理的边界外）。**该边界是结构层的**
-（拓扑形状），与行为复杂度无关（推论 2.3）。`Composite` 提供抽象，
-`Parallel` 提供独立多流——**完整的任意多流图（交叉汇合）仍在静态代数
-之外**（需新的多流执行模型，属后续工作）。
+$$S \text{ is statically expressible} \iff S \text{ is a single-in/single-out series-parallel graph generated by Chain/Diamond/Composite,}\\\text{or a combination of such streams run in parallel via run_parallel}$$
 
-## 5. 时间与环（图论 + 时间结构）
+Structures beyond this boundary (multi-in/multi-out crossing edges, arbitrary non-hierarchical DAGs, structures depending on run-time data) require the dynamic path (the justification of Theorem 3.3, applied outside this boundary). **The boundary is structural** (topological shape) and is independent of behavioral complexity (Corollary 2.3). `Composite` provides abstraction and `Parallel` provides independent multi-streams — **full arbitrary multi-stream graphs (with converging junctions) still lie outside the static algebra** and require a new multi-stream execution model.
 
-**定义 5.1（环）**：$S$ 的环 = 强连通分量（SCC）。环引入**时间结构**：
-$S$ 的输出依赖历史（状态演化）。
+## 5. Time and Cycles (Graph Theory + Time Structure)
 
-**定理 5.2（组合环非法）**：无延迟环（$\forall v$ 在环中无状态/延迟元素）
-是组合悖论（同一时刻自引用），非法。**时间环**（环中含延迟：Moore 机器
-初值或 `BoundedBuf` 缓冲）合法——axiom 的 `validate_deep` 判定"环上每
-节点要么自带延迟破环，要么有界缓冲吸收波动"。
+**Definition 5.1 (Cycle).** A cycle of $S$ is a strongly connected component (SCC). Cycles introduce a **time structure**: the outputs of $S$ depend on history (state evolution).
 
-**推论 5.3（时间在结构层）**：环是**结构的时间维度**（不是行为）——含环
-的结构固定系统仍"结构固定"，但其时间驱动（逐 tick 演化）由 runtime 的
-`feedback`/驱动提供。**环 ≠ 结构动态**：环是时间结构，动态是结构来源。
+**Theorem 5.2 (Combinational Cycles Are Invalid).** A cycle without delay (no node on the cycle carries a state or delay element) is a combinational paradox (self-reference at the same instant) and is invalid. **Temporal cycles** (cycles containing a delay: a Moore machine initial value or a `BoundedBuf` buffer) are valid — axiom's `validate_deep` determines that every node on a cycle either carries its own delay that breaks the cycle or has a bounded buffer that absorbs the fluctuation.
 
-## 6. 定位（静态为主，runtime 为适配器）
+**Corollary 5.3 (Time Belongs to the Structural Layer).** A cycle is the **time dimension of structure** (not of behavior) — a system with fixed structure that contains cycles remains structurally fixed, but its time-driven evolution (tick by tick) is supplied by the runtime's `feedback` / driving mechanism. **A cycle is not structural dynamism**: a cycle is time structure, whereas dynamism concerns the source of structure.
 
-**命题 6.1（静态为主）**：结构固定的系统（无论行为复杂度——推论 2.3）
-应走静态路径：拓扑是类型，零成本，编译期验证。静态不是"优化子集"，
-而是**结构固定系统的主执行层**。
+## 6. Positioning (Static-First, Runtime as Adapter)
 
-**命题 6.2（runtime 的正当范围）**：runtime（动态路径）服务
-**结构来自运行时**的系统（定理 3.3）：配置定义的拓扑、插件装配、动态
-连接、时间驱动（环的 tick 演化）。它是**结构动态适配器**，不是主执行层。
+**Proposition 6.1 (Static-First).** Systems with fixed structure (regardless of behavioral complexity — Corollary 2.3) should take the static path: topology as type, zero cost, compile-time verification. Static is not an "optimized subset" but the **principal execution layer for structurally fixed systems**.
 
-**推论 6.3（选择准则）**：给定系统，判定次序：
-1. 结构 $S$ 是否编译期可枚举/可参数化？（是 → 静态：类型拓扑 + 配置选实例）
-2. 否则 $S$ 是否可复合层次化？（是 → 静态：复合树）
-3. 否则 $S$ 是否含非层次化交叉边？（是 → 动态：`DeploySpec` + runtime）
-4. 结构是否来自运行时数据？（是 → 动态）
-5. 否则静态（含环的系统：静态结构 + runtime 时间驱动）。
+**Proposition 6.2 (The Legitimate Scope of the Runtime).** The runtime (dynamic path) serves **systems whose structure comes from run time** (Theorem 3.3): configuration-defined topologies, plugin assembly, dynamic linking, and time driving (tick evolution of cycles). It is a **structural-dynamism adapter**, not the principal execution layer.
 
----
+**Corollary 6.3 (Selection Criteria).** Given a system, decide in order:
+1. Is the structure $S$ enumerable or parameterizable at compile time? (Yes → static: typed topology plus configuration to select instances)
+2. Otherwise, can $S$ be composed hierarchically? (Yes → static: composite tree)
+3. Otherwise, does $S$ contain non-hierarchical crossing edges? (Yes → dynamic: `DynamicTopology` plus runtime)
+4. Does the structure originate from run-time data? (Yes → dynamic)
+5. Otherwise static (systems with cycles: static structure plus runtime time driving).
 
-> **总结**：axiom 的严格形式化——系统是类型化图（集合/图论）；axiom
-> 的定义域是结构层（公理 2.1），行为是黑盒（推论 2.3：行为动态 ≠ 结构
-> 动态）；静态 = 类型范畴组合，动态 = 值范畴声明 + materialize 函子提升
-> （节点保持类型化）；静态覆盖单进单出串并联 + 独立并行流 + 复合抽象
-> （定理 4.1–4.5），边界是结构形状（非行为）；环是时间结构（定理 5.2），
-> 不是结构动态。**定位**：静态为主（结构固定的一切系统零成本），runtime
-> 为结构动态适配器。
+## Summary
+
+axiom's strict formalization is as follows: a system is a typed graph (set / graph theory); the domain of axiom is the structural layer (Axiom 2.1), with behavior as a black box (Corollary 2.3: behavioral dynamism is not structural dynamism); static composition happens in the category of types, while dynamic structures are declared in the category of values and lifted by the `materialize` functor (nodes remain typed); the static path covers single-in/single-out series-parallel flows, independent parallel streams, and composite abstraction (Definitions 4.1–4.5), with the boundary determined by structural shape (not behavior); cycles are time structure (Theorem 5.2), not structural dynamism. Positioning: static-first (zero cost for every structurally fixed system), with the runtime as a structural-dynamism adapter.

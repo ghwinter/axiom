@@ -1,25 +1,28 @@
 #![allow(dead_code)]
 
-//! Linux IO 多路复用——基于 epoll（readiness 模型，level-triggered）。
+//! Linux IO multiplexing — based on epoll (readiness model, level-triggered).
 //!
-//! ## 模型
+//! ## Model
 //!
-//! `epoll_create1` 创建实例；`epoll_ctl(ADD/MOD/DEL)` 管理 fd 兴趣；
-//! `epoll_wait` 阻塞等待就绪事件。level-triggered（不设 `EPOLLET`）——
-//! 若数据仍可读，下次 `epoll_wait` 会再次报告。
+//! `epoll_create1` creates the instance; `epoll_ctl(ADD/MOD/DEL)` manages fd
+//! interest; `epoll_wait` blocks waiting for readiness events. level-triggered
+//! (no `EPOLLET`) — if data is still readable, the next `epoll_wait` will
+//! report it again.
 //!
 //! ## FFI
 //!
-//! 最小声明集——`epoll_create1` / `epoll_ctl` / `epoll_wait` +
-//! `__errno_location`。零外部依赖（不链接 libc crate，直接声明）。
-//! epoll 是 Linux 专有 syscall，通过 VDSO / syscall wrapper 可直接 FFI。
+//! Minimal declaration set — `epoll_create1` / `epoll_ctl` / `epoll_wait` +
+//! `__errno_location`. Zero external dependencies (the libc crate is not
+//! linked; the symbols are declared directly). epoll is a Linux-specific
+//! syscall and can be reached via FFI directly through VDSO / syscall
+//! wrappers.
 
 use alloc::vec::Vec;
 use core::time::Duration;
 
 use crate::io::{IoError, IoEvent, IoInterest, IoReactor, IoToken, RawIo};
 
-// ── epoll 常量（sys/epoll.h）───────────────────────────────────────────────
+// ── epoll constants (sys/epoll.h) ──────────────────────────────────────────
 const EPOLL_CLOEXEC: i32 = 0x80000;
 const EPOLL_CTL_ADD: i32 = 1;
 const EPOLL_CTL_DEL: i32 = 2;
@@ -31,13 +34,14 @@ const EPOLLERR: u32 = 0x008;
 const EPOLLHUP: u32 = 0x010;
 const EPOLLRDHUP: u32 = 0x2000;
 
-/// epoll_event（Linux 64-bit）：events(u32) + data(u64)。
+/// epoll_event (Linux 64-bit): events(u32) + data(u64).
 ///
-/// **必须用 `#[repr(C)]` 而非 `#[repr(C, packed)]`**——Linux 内核的
-/// `struct epoll_event` 在 64-bit 上 data 字段对齐 8（offset 8，前面有
-/// 4 字节 padding）。packed 会把 data 放到 offset 4，导致内核写入的
-/// token 被从错误偏移读取。x86_64 宽松对齐下碰巧工作，aarch64 严格
-/// 对齐会读到垃圾值（token 错位 → 测试失败）。
+/// **Must use `#[repr(C)]`, not `#[repr(C, packed)]`** — the Linux kernel's
+/// `struct epoll_event` aligns `data` to 8 bytes on 64-bit (offset 8, with 4
+/// bytes of padding before it). `packed` would place `data` at offset 4,
+/// causing the kernel-written token to be read from the wrong offset. On
+/// x86_64 this happens to work under relaxed alignment; on aarch64 strict
+/// alignment would read garbage (misaligned token → test failure).
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct EpollEvent {
@@ -60,7 +64,7 @@ fn errno() -> i32 {
 
 pub struct EpollReactor {
     epfd: i32,
-    /// 复用的 event 缓冲区（避免每次 poll 分配）。
+    /// Reused event buffer (avoids allocating on every poll).
     events: Vec<EpollEvent>,
 }
 
@@ -145,7 +149,7 @@ impl IoReactor for EpollReactor {
             epoll_wait(self.epfd, self.events.as_mut_ptr(), max, timeout_ms)
         };
         if n < 0 {
-            // EINTR（信号中断）不是真错误——返回空（调用方可重试）。
+            // EINTR (interrupted by a signal) is not a real error — return empty (the caller may retry).
             let e = errno();
             if e == 4 { return Ok(Vec::new()); }
             return Err(IoError::PollFailed { raw_errno: e });
@@ -163,8 +167,9 @@ impl IoReactor for EpollReactor {
 
 impl Drop for EpollReactor {
     fn drop(&mut self) {
-        // close(epfd)——用 std 的 raw fd close（Rust 的 std::os::unix::io
-        // 不暴露 close()，但 libc close 是 C ABI，可直接声明）。
+        // close(epfd) — close via a raw fd. The standard library's
+        // std::os::unix::io does not expose close(), but libc close is a C ABI
+        // and can be declared directly.
         unsafe extern "C" { fn close(fd: i32) -> i32; }
         if self.epfd >= 0 {
             unsafe { close(self.epfd); }

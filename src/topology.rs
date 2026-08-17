@@ -1,20 +1,26 @@
-//! Dynamic Topology — runtime mutation of the **instance** graph.
+//! **Maturity: stable** (the stable core, main subject of the current refactor).
+//!
+//! TopologyMutation — runtime mutation of the **instance** graph.
+//!
+//! # Blueprint projection (T1 positioning)
+//!
+//! This module is one of the **runtime projections** of the `Topology`
+//! blueprint (the unified topology-declaration language): see [`Topology`] /
+//! [`StaticTopology`] for the blueprint concept. `DynamicTopology` is the
+//! declared value form; `TopologyMutation` (formerly named `DynamicTopology`)
+//! is the time-ordered form of instance mutation.
 //!
 //! # Static-first worldview
 //!
 //! axiom's default worldview is **static topology + deploy-time validation**:
-//! a `DeploySpec` declares the complete topology before the system starts,
+//! a `DynamicTopology` declares the complete topology before the system starts,
 //! `validate_deep()` checks it once, and it never changes afterwards. Static
 //! topologies are zero-cost (monomorphized `static_path` functions) and
-//! verifiable *before* deployment — the checks in `DeploySpec::validate_deep`
+//! verifiable *before* deployment — the checks in `DynamicTopology::validate_deep`
 //! and `analysis` (degree constraints, Inline acyclicity, Moore cycle
 //! safety) only have meaning because the topology is fixed.
 //!
-//! This module is **not** the recommended default. It exists because
-//! `DeploySpec` is pure data — and therefore a runtime mirror of the
-//! topology is a type that must exist for the contract to be
-//! self-consistent (the same reason `LinkKind::Latest` carries a
-//! physically-inert `capacity` field). Runtime mutation is an *optional
+//! Runtime mutation is an *optional
 //! capability* for the few systems that genuinely need it; using it
 //! elsewhere is a negative optimization (the dynamic tax, Theorem 15.3).
 //!
@@ -89,18 +95,18 @@
 //! # Cycles are ALLOWED
 //!
 //! Cycles between **different** machines are allowed, consistent with
-//! `DeploySpec::validate()`. In a channel-based runtime, every
+//! `DynamicTopology::validate()`. In a channel-based runtime, every
 //! link introduces a one-tick delay (the receiver gets the previously-sent
 //! value, not the current-tick one). This is the Moore delay in concrete
 //! form — the channel IS the delay element. Feedback loops (thermostats,
 //! PID controllers, autoregressive models) are first-class supported.
 //!
-//! Users who want strict acyclic enforcement can call [`crate::topology::DynamicTopology::detect_cycle`]
+//! Users who want strict acyclic enforcement can call [`crate::topology::TopologyMutation::detect_cycle`]
 //! (Kahn's algorithm) manually — it is `pub` for opt-in strict mode.
 //!
 //! # Batch operations
 //!
-//! [`crate::topology::DynamicTopology::apply_batch`] applies multiple operations atomically — either all
+//! [`crate::topology::TopologyMutation::apply_batch`] applies multiple operations atomically — either all
 //! succeed, or none do (rollback on first failure). This is essential for
 //! reconfigurations that must be atomic, e.g., "replace machine A with B
 //! and rewire 3 links".
@@ -120,10 +126,10 @@
 //! # Usage
 //!
 //! ```ignore
-//! use axiom::topology::{DynamicTopology, TopologyOp, TopologyDelta};
+//! use axiom::topology::{TopologyMutation, TopologyOp, TopologyDelta};
 //! use axiom::prelude_all::*;
 //!
-//! let mut topo = DynamicTopology::new();
+//! let mut topo = TopologyMutation::new();
 //!
 //! // Single operation
 //! topo.apply(TopologyOp::Spawn {
@@ -156,16 +162,77 @@
 #[cfg(not(feature = "std"))]
 use crate::compat::prelude::*;
 use crate::compat::{HashMap, HashSet, VecDeque};
-use crate::deploy::{MachineInstance, DeploySpec};
+use crate::deploy::{MachineInstance, DynamicTopology};
 use crate::link::{LinkKind, LinkSpec};
 use crate::resource::MachinePhysicalSpec;
+
+// ════════════════════════════════════════════════════════════════════════════
+// Section 0: Topology blueprint concept (T1 — the unified topology-declaration language)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// axiom's "one topology-declaration language" is expressed by a single
+// blueprint concept, materialized as two paths:
+//
+//   Topology (blueprint) ──┬─ StaticTopology  compile-time projection (typed, monomorphized, zero cost)
+//                          │                   Chain/Diamond/Composite + StraightMachine
+//                          └─ runtime projection  valued, type-erased
+//                                                  DynamicTopology (the declared value form)
+//                                                  TopologyMutation (the time-ordered form of instance mutation)
+//                                                  CompositeSpec (subgraph reuse)
+//
+// Structural validation (acyclicity, degree constraints, SPOF, observability
+// completeness) is defined at the language layer (DynamicTopology's
+// validate/analysis), and the static and dynamic forms share the same
+// semantics. The static form introduces no runtime topology object —
+// `StaticTopology` is a zero-sized type marker, serving only as a
+// compile-time anchor.
+
+/// Blueprint — the type-level expression of "one topology".
+///
+/// In axiom, every topology form is an implementation of the same blueprint
+/// concept [`Topology`]:
+///
+/// - **Compile-time projection** ([`StaticTopology`]): the `Chain`/`Diamond`/
+///   `Composite` combinators and `StraightMachine` machines — the shape is
+///   fully known at compile time, zero cost.
+/// - **Runtime projection**: [`DynamicTopology`](crate::deploy::DynamicTopology)
+///   (the declared value form) and [`TopologyMutation`] (the time-ordered form
+///   of instance mutation).
+/// - **Composite**: `CompositeSpec` (the subgraph-reuse mechanism, merged into
+///   the blueprint concept).
+///
+/// This is a **structural-layer contract**: it unifies "one
+/// topology-declaration language" and specifies no execution behavior. How the
+/// physical layer places it (single-threaded pass-through ↔ multi-threaded
+/// cross-core) is decided by deploy-time physical decisions
+/// (`MachinePhysicalSpec`), not part of the blueprint concept.
+pub trait Topology {}
+
+/// Compile-time projection — the blueprint's monomorphized materialization in
+/// the type system.
+///
+/// Implementors: the `Chain`/`Diamond`/`Composite` combinators, and any
+/// `StraightMachine` machine (via blanket impl, see `static_exec`).
+/// Implementing `StaticTopology` means "this topology's shape is fully known at
+/// compile time; the execution form can be monomorphized by the type system,
+/// with no runtime topology object".
+///
+/// `StaticTopology` is a **zero-sized marker** — it carries no runtime state;
+/// it only lifts the fact of "compile-time materialization" into a constrainable
+/// contract at the type level (e.g. a generic function can require `T:
+/// StaticTopology`).
+pub trait StaticTopology: Topology {}
+
+// Blanket: any `StaticTopology` is a `Topology` (the compile-time projection
+// is one form of the blueprint).
+impl<T: StaticTopology> Topology for T {}
 
 // ── Topology operation ──────────────────────────────────────────────────────
 
 /// A single mutation to the runtime topology.
 ///
 /// Each variant corresponds to one atomic change. The runtime applies
-/// these via [`DynamicTopology::apply`], which validates and records
+/// these via [`TopologyMutation::apply`], which validates and records
 /// each operation.
 #[derive(Debug, Clone)]
 pub enum TopologyOp {
@@ -261,7 +328,7 @@ pub enum TopologyError {
     /// Contains the cycle path (machine names) for diagnostics.
     ///
     /// Owned `String`s because cycle nodes are discovered by inspecting the
-    /// runtime topology, whose names may come from a deserialized `DeploySpec`
+    /// runtime topology, whose names may come from a deserialized `DynamicTopology`
     /// rather than `&'static str` literals.
     ///
     /// **Note**: `apply_link()` no longer returns this error — cycles between
@@ -319,22 +386,22 @@ impl std::error::Error for TopologyError {}
 /// A mutable runtime topology that tracks all spawn/link/unlink/retire
 /// operations.
 ///
-/// Wraps a `DeploySpec`-like structure but allows in-place mutation.
+/// Wraps a `DynamicTopology`-like structure but allows in-place mutation.
 /// Each mutation is recorded as a `TopologyDelta` for audit and replay.
 ///
 /// # Cycle policy
 ///
 /// Cycles between **different** machines are ALLOWED, consistent with
-/// `DeploySpec::validate()`. In a channel-based runtime, every link
+/// `DynamicTopology::validate()`. In a channel-based runtime, every link
 /// introduces a one-tick delay (Moore delay), making feedback loops safe.
 /// Self-loops (a machine linking to itself) are rejected.
 ///
-/// For opt-in strict acyclic enforcement, call [`crate::topology::DynamicTopology::detect_cycle`] manually
+/// For opt-in strict acyclic enforcement, call [`crate::topology::TopologyMutation::detect_cycle`] manually
 /// after `apply_link()`.
 ///
 /// # Thread safety
 ///
-/// `DynamicTopology` is **not** internally synchronized: it has no `RwLock`
+/// `TopologyMutation` is **not** internally synchronized: it has no `RwLock`
 /// and must be owned by a single thread (or guarded externally). Operations
 /// take `&mut self` and mutate the machine/link maps in place; `apply`/
 /// `apply_batch` are atomic from the caller's perspective (snapshot +
@@ -342,11 +409,11 @@ impl std::error::Error for TopologyError {}
 /// threads must wrap it in its own `Mutex`/`RwLock` — the type deliberately
 /// stays free of synchronization primitives for `no_std` compatibility.
 #[derive(Clone)]
-pub struct DynamicTopology {
+pub struct TopologyMutation {
     /// Current set of machine instances.
     ///
     /// Keys are owned `String`s because a topology may be seeded from a
-    /// deserialized `DeploySpec` (whose names are `Cow<'static, str>`, possibly
+    /// deserialized `DynamicTopology` (whose names are `Cow<'static, str>`, possibly
     /// owned) and then mutated at runtime. Owned keys keep lookups and removals
     /// simple regardless of where a name originated.
     machines: HashMap<String, MachineInstance>,
@@ -358,7 +425,7 @@ pub struct DynamicTopology {
     next_seq: u64,
 }
 
-impl DynamicTopology {
+impl TopologyMutation {
     /// Create an empty topology.
     pub fn new() -> Self {
         Self {
@@ -369,10 +436,10 @@ impl DynamicTopology {
         }
     }
 
-    /// Create a topology from a static `DeploySpec`.
+    /// Create a topology from a static `DynamicTopology`.
     /// This is the typical starting point: deploy a static spec, then
     /// mutate it dynamically as needed.
-    pub fn from_spec(spec: &DeploySpec) -> Self {
+    pub fn from_spec(spec: &DynamicTopology) -> Self {
         let mut topo = Self::new();
         for m in &spec.machines {
             topo.machines.insert(m.name.to_string(), m.clone());
@@ -470,10 +537,10 @@ impl DynamicTopology {
         &self.links
     }
 
-    /// Snapshot the current topology as a `DeploySpec`.
+    /// Snapshot the current topology as a `DynamicTopology`.
     /// Useful for checkpointing or migrating to a static deployment.
-    pub fn snapshot(&self) -> DeploySpec {
-        DeploySpec {
+    pub fn snapshot(&self) -> DynamicTopology {
+        DynamicTopology {
             machines: self.machines.values().cloned().collect(),
             funcs: Vec::new(),
             links: self.links.clone(),
@@ -523,7 +590,7 @@ impl DynamicTopology {
         // Even with Moore delay (channel provides one-tick delay), a self-loop
         // is degenerate (the machine holds both its own sender and receiver)
         // and almost always a configuration bug. This aligns with
-        // DeploySpec::validate() which also rejects self-loops.
+        // DynamicTopology::validate() which also rejects self-loops.
         if out.0 == into.0 {
             return Err(TopologyError::SelfLoop { machine: out.0 });
         }
@@ -538,7 +605,7 @@ impl DynamicTopology {
         // cycles between DIFFERENT machines are ALLOWED.
         //
         // Previously, apply_link() ran Kahn's algorithm here to reject any
-        // cycle. This was inconsistent with DeploySpec::validate() (which was
+        // cycle. This was inconsistent with DynamicTopology::validate() (which was
         // later changed to allow cycles). In a channel-based runtime, every
         // link introduces a one-tick delay — the Moore delay that breaks
         // algebraic cycles. Feedback loops are first-class supported.
@@ -640,7 +707,7 @@ impl DynamicTopology {
     ///
     /// Returns `Some(cycle_path)` if a cycle exists, `None` otherwise.
     /// The cycle path is a list of machine names (owned, since they may
-    /// originate from a deserialized `DeploySpec` rather than `&'static str`).
+    /// originate from a deserialized `DynamicTopology` rather than `&'static str`).
     ///
     /// **Note**: This is NOT called by `apply_link()` — cycles between
     /// different machines are allowed. This method is
@@ -701,15 +768,15 @@ impl DynamicTopology {
     }
 }
 
-impl Default for DynamicTopology {
+impl Default for TopologyMutation {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl core::fmt::Debug for DynamicTopology {
+impl core::fmt::Debug for TopologyMutation {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("DynamicTopology")
+        f.debug_struct("TopologyMutation")
             .field("machine_count", &self.machines.len())
             .field("link_count", &self.links.len())
             .field("history_len", &self.history.len())
@@ -717,12 +784,23 @@ impl core::fmt::Debug for DynamicTopology {
     }
 }
 
+impl Topology for TopologyMutation {}
+
+// ════════════════════════════════════════════════════════════════════════════
+// Note: S1 kept a `pub type DynamicTopology = TopologyMutation;` migration
+// alias; after the S2-2 naming convergence, `DynamicTopology` uniformly refers
+// to the "runtime projection (declared value form)" — i.e.
+// `crate::deploy::DynamicTopology` (formerly `DeploySpec`). The old alias
+// collided with the new type's name and was removed; the original "instance
+// mutation" concept is always expressed via [`TopologyMutation`].
+// ════════════════════════════════════════════════════════════════════════════
+
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::deploy::{DeploySpec, MachineInstance};
+    use crate::deploy::{DynamicTopology, MachineInstance};
     use crate::link::{LinkKind, LinkSpec};
     use crate::resource::MachinePhysicalSpec;
 
@@ -770,8 +848,8 @@ mod tests {
     }
 
     /// Build a topology with two spawned machines "a" and "b".
-    fn topo_with_ab() -> DynamicTopology {
-        let mut topo = DynamicTopology::new();
+    fn topo_with_ab() -> TopologyMutation {
+        let mut topo = TopologyMutation::new();
         topo.apply(spawn_op("a")).unwrap();
         topo.apply(spawn_op("b")).unwrap();
         topo
@@ -781,7 +859,7 @@ mod tests {
 
     #[test]
     fn apply_spawn_ok() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         let delta = topo.apply(spawn_op("m1")).unwrap();
         assert_eq!(topo.machine_count(), 1);
         assert_eq!(topo.history().len(), 1);
@@ -791,7 +869,7 @@ mod tests {
 
     #[test]
     fn apply_spawn_duplicate() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         topo.apply(spawn_op("m1")).unwrap();
         let err = topo.apply(spawn_op("m1")).unwrap_err();
         assert!(matches!(err, TopologyError::DuplicateName("m1")));
@@ -813,7 +891,7 @@ mod tests {
     #[test]
     fn apply_link_unknown_src() {
         // Only "b" exists; "ghost" is the unknown source.
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         topo.apply(spawn_op("b")).unwrap();
         let err = topo.apply(link_op(("ghost", "out"), ("b", "in"))).unwrap_err();
         assert!(matches!(err, TopologyError::UnknownMachine("ghost")));
@@ -821,7 +899,7 @@ mod tests {
 
     #[test]
     fn apply_link_self_loop() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         topo.apply(spawn_op("a")).unwrap();
         let err = topo.apply(link_op(("a", "x"), ("a", "y"))).unwrap_err();
         assert!(matches!(err, TopologyError::SelfLoop { machine: "a" }));
@@ -863,7 +941,7 @@ mod tests {
 
     #[test]
     fn apply_retire_ok() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         topo.apply(spawn_op("a")).unwrap();
         assert_eq!(topo.machine_count(), 1);
         let delta = topo.apply(retire_op("a")).unwrap();
@@ -873,7 +951,7 @@ mod tests {
 
     #[test]
     fn apply_retire_unknown() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         let err = topo.apply(retire_op("ghost")).unwrap_err();
         assert!(matches!(err, TopologyError::UnknownMachine("ghost")));
     }
@@ -909,7 +987,7 @@ mod tests {
 
     #[test]
     fn apply_replace_unknown_old() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         let err = topo.apply(replace_op("ghost", "c")).unwrap_err();
         assert!(matches!(err, TopologyError::UnknownMachine("ghost")));
     }
@@ -924,7 +1002,7 @@ mod tests {
     #[test]
     fn apply_replace_same_name() {
         // new_name == old_name is allowed (in-place hot-swap).
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         topo.apply(spawn_op("a")).unwrap();
         let delta = topo.apply(replace_op("a", "a")).unwrap();
         assert!(matches!(
@@ -938,7 +1016,7 @@ mod tests {
 
     #[test]
     fn apply_batch_all_ok() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         let deltas = topo
             .apply_batch(vec![
                 spawn_op("a"),
@@ -958,7 +1036,7 @@ mod tests {
 
     #[test]
     fn apply_batch_rollback_on_failure() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         let err = topo
             .apply_batch(vec![spawn_op("a"), spawn_op("a")])
             .unwrap_err();
@@ -977,7 +1055,7 @@ mod tests {
 
     #[test]
     fn apply_batch_partial_then_fail() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         let err = topo
             .apply_batch(vec![
                 spawn_op("a"),
@@ -1002,7 +1080,7 @@ mod tests {
 
     #[test]
     fn detect_cycle_acyclic() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         topo.apply(spawn_op("a")).unwrap();
         topo.apply(spawn_op("b")).unwrap();
         topo.apply(spawn_op("c")).unwrap();
@@ -1013,7 +1091,7 @@ mod tests {
 
     #[test]
     fn detect_cycle_cyclic() {
-        let mut topo = DynamicTopology::new();
+        let mut topo = TopologyMutation::new();
         topo.apply(spawn_op("a")).unwrap();
         topo.apply(spawn_op("b")).unwrap();
         topo.apply(link_op(("a", "out"), ("b", "in"))).unwrap();
@@ -1026,7 +1104,7 @@ mod tests {
 
     #[test]
     fn detect_cycle_empty() {
-        let topo = DynamicTopology::new();
+        let topo = TopologyMutation::new();
         assert!(topo.detect_cycle().is_none());
     }
 
@@ -1034,7 +1112,7 @@ mod tests {
 
     #[test]
     fn from_spec_snapshot_roundtrip() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(MachineInstance::new(
                 "a",
                 "test",
@@ -1046,7 +1124,7 @@ mod tests {
                 MachinePhysicalSpec::default(),
             ))
             .with_link(LinkSpec::new(("a", "out"), ("b", "in"), LinkKind::Inline));
-        let topo = DynamicTopology::from_spec(&spec);
+        let topo = TopologyMutation::from_spec(&spec);
         assert_eq!(topo.machine_count(), 2);
         assert_eq!(topo.link_count(), 1);
         let snap = topo.snapshot();

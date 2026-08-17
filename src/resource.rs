@@ -1,3 +1,5 @@
+/// **Maturity: stable** (the stable core, main subject of the current refactor).
+///
 /// Resource classes for lifecycle-aware resource tracking.
 ///
 /// Every `Machine` consumes resources. Some are reclaimable when the machine
@@ -54,7 +56,7 @@ pub enum ResourceClass {
 
 /// Physical resource requirements for a `Machine` instance.
 ///
-/// This is specified by the **deployer** in the `DeploySpec`, not by the
+/// This is specified by the **deployer** in the `DynamicTopology`, not by the
 /// machine author. The same machine type can have different physical specs
 /// in different deployments (backtest vs. production).
 #[derive(Debug, Clone)]
@@ -80,6 +82,8 @@ pub struct MachinePhysicalSpec {
     /// Used by critical-path / latency-budget analysis
     /// ([`critical_path_latency`](crate::analysis::critical_path_latency)).
     /// `0` means "undeclared" — analysis treats it as zero latency.
+    /// `#[serde(default)]`: when omitted in a config file, treated as undeclared (`0`).
+    #[cfg_attr(feature = "serialize", serde(default))]
     pub per_message_latency_us: u64,
 }
 

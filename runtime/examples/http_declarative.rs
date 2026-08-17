@@ -4,7 +4,7 @@
 //! `MachineHandle` 驱动循环，而是交给 `axiom-runtime`：
 //!
 //! ```text
-//!   register 三个机器类型 ──► materialize(DeploySpec) ──► tick(输入序列)
+//!   register 三个机器类型 ──► materialize(DynamicTopology) ──► tick(输入序列)
 //! ```
 //!
 //! 验证：
@@ -16,7 +16,7 @@
 //! 运行：cargo run --manifest-path runtime/Cargo.toml --example http_declarative
 
 use axiom::declare_ports;
-use axiom::deploy::{DeploySpec, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance};
 use axiom::link::{LinkKind, LinkSpec};
 use axiom::machine::{CleanupError, InitError, Machine, SingleOutput, TupleOutput};
 use axiom::port::{ConfigSchema, MachineContext};
@@ -174,8 +174,8 @@ impl Machine for Persister {
 // 拓扑 + 驱动
 // ════════════════════════════════════════════════════════════════════════
 
-fn topology() -> DeploySpec {
-    DeploySpec::new()
+fn topology() -> DynamicTopology {
+    DynamicTopology::new()
         .with_machine(MachineInstance::new("receiver", "receiver", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("calc", "calculator", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("persist", "persister", MachinePhysicalSpec::default()))

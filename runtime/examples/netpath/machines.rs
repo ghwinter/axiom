@@ -1,15 +1,15 @@
-//! # 网络收包路径 — 机器集
+//! # Network receive path — machine set
 //!
-//! 蓝图 `blueprint.rs` 中 6 个模块的 Machine 实现：
+//! Machine implementations for the 6 modules in the `blueprint.rs` blueprint:
 //!
-//! | 模块 | 职责 | 输入 | 输出 | 状态 |
+//! | Module | Responsibility | Input | Output | State |
 //! |---|---|---|---|---|
-//! | `PcapReader` | pcap 文件逐包读取（物理读） | `next` (()) | `pkt` (PktRaw) | 文件句柄 + 游标 |
-//! | `EthParser` | 以太帧头剥离（只放行 IPv4） | `pkt` | `ip` (EthOut) | — |
-//! | `IpParser` | IP 头剥离（只放行 TCP） | `ip` | `tcp` (IpOut) | — |
-//! | `TcpParser` | TCP 载荷提取（按 4 元组定流） | `tcp` | `seg` (TcpSeg) | — |
-//! | `AppDeliver` | 流聚合统计 | `seg` | `report` + `stats` | 流 → 字节表 |
-//! | `PktStats` | 低速观测（Observe 流，Dropping） | `log` | — | 聚合统计 |
+//! | `PcapReader` | Reads pcap file packet by packet (physical read) | `next` (()) | `pkt` (PktRaw) | file handle + cursor |
+//! | `EthParser` | Strips Ethernet frame header (passes only IPv4) | `pkt` | `ip` (EthOut) | — |
+//! | `IpParser` | Strips IP header (passes only TCP) | `ip` | `tcp` (IpOut) | — |
+//! | `TcpParser` | Extracts TCP payload (streams keyed by 4-tuple) | `tcp` | `seg` (TcpSeg) | — |
+//! | `AppDeliver` | Stream aggregation statistics | `seg` | `report` + `stats` | stream → bytes table |
+//! | `PktStats` | Low-rate observation (Observe stream, Dropping) | `log` | — | aggregate stats |
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -19,17 +19,17 @@ use axiom::machine::{CleanupError, InitError, Machine, MultiOutput, SingleOutput
 use axiom::port::{ConfigSchema, MachineContext};
 
 // ════════════════════════════════════════════════════════════════════════
-// 数据类型（包 / 协议语义）
+// Data types (packet / protocol semantics)
 // ════════════════════════════════════════════════════════════════════════
 
-/// 原始包：`(pkt_id, 以太帧字节)`。
+/// Raw packet: `(pkt_id, Ethernet frame bytes)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PktRaw {
     pub pkt_id: u64,
     pub bytes: Vec<u8>,
 }
 
-/// 以太解析结果（已剥 14 字节以太头）。
+/// Ethernet parse result (14-byte Ethernet header already stripped).
 #[derive(Debug, Clone, PartialEq)]
 pub struct EthOut {
     pub pkt_id: u64,
@@ -37,7 +37,7 @@ pub struct EthOut {
     pub payload: Vec<u8>,
 }
 
-/// IP 解析结果（已剥 IP 头）。
+/// IP parse result (IP header already stripped).
 #[derive(Debug, Clone, PartialEq)]
 pub struct IpOut {
     pub pkt_id: u64,
@@ -47,7 +47,7 @@ pub struct IpOut {
     pub payload: Vec<u8>,
 }
 
-/// TCP 流标识（4 元组）。
+/// TCP flow identifier (4-tuple).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FlowId {
     pub src_ip: [u8; 4],
@@ -56,14 +56,14 @@ pub struct FlowId {
     pub dport: u16,
 }
 
-/// TCP 段：流标识 + 应用载荷。
+/// TCP segment: flow identifier + application payload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TcpSeg {
     pub flow: FlowId,
     pub payload: Vec<u8>,
 }
 
-/// 应用交付统计（流数 + 总字节）。
+/// Application delivery statistics (stream count + total bytes).
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppReport {
     pub pkt_id: u64,
@@ -72,14 +72,14 @@ pub struct AppReport {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 1：PcapReader — pcap 文件逐包读取（物理读）
+// Module 1: PcapReader — reads pcap file packet by packet (physical read)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
     #[derive(Debug, Clone, PartialEq)]
     pub struct PcapReaderPorts {
         input type PcapReaderInput {
-            next [Data] => (), // main 逐包驱动
+            next [Data] => (), // driven by main, one packet at a time
         }
         output type PcapReaderOutput {
             pkt [Data] => PktRaw,
@@ -121,13 +121,13 @@ impl Machine for PcapReader {
         if state.done {
             return SingleOutput::Idle;
         }
-        // 惰性打开 + 跳过 pcap global header（24 字节）
+        // lazy open + skip the pcap global header (24 bytes)
         let f = state.file.get_or_insert_with(|| {
             let mut f = std::fs::File::open("packets.pcap").expect("open packets.pcap");
             let mut g = [0u8; 24];
             f.read_exact(&mut g)
                 .expect("read pcap global header");
-            // magic 0xa1b2c3d4（little-endian）验证
+            // verify magic 0xa1b2c3d4 (little-endian)
             assert_eq!(
                 u32::from_le_bytes(g[0..4].try_into().unwrap()),
                 0xa1b2c3d4,
@@ -155,14 +155,14 @@ impl Machine for PcapReader {
     fn cleanup(_: PcapState, _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
 }
 
-/// 读一个 pcap 包记录：`ts_sec(4) ts_usec(4) incl_len(4) orig_len(4) data[incl_len]`。
+/// Read one pcap packet record: `ts_sec(4) ts_usec(4) incl_len(4) orig_len(4) data[incl_len]`.
 fn read_packet(f: &mut std::fs::File) -> std::io::Result<Option<Vec<u8>>> {
     let mut hdr = [0u8; 16];
     match f.read_exact(&mut hdr) {
         Ok(_) => {
             let incl = u32::from_le_bytes(hdr[8..12].try_into().unwrap()) as usize;
             if incl > 65_535 {
-                return Ok(None); // 畸形长度：终止
+                return Ok(None); // malformed length: terminate
             }
             let mut data = vec![0u8; incl];
             f.read_exact(&mut data)?;
@@ -174,7 +174,7 @@ fn read_packet(f: &mut std::fs::File) -> std::io::Result<Option<Vec<u8>>> {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 2：EthParser — 以太帧头剥离（只放行 IPv4）
+// Module 2: EthParser — strips Ethernet frame header (passes only IPv4)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -209,11 +209,11 @@ impl Machine for EthParser {
     ) -> SingleOutput<EthParserOutput> {
         let EthParserInput::pkt(raw) = input;
         if raw.bytes.len() < 14 {
-            return SingleOutput::Idle; // 截断帧：丢弃
+            return SingleOutput::Idle; // truncated frame: discard
         }
         let ethertype = u16::from_be_bytes([raw.bytes[12], raw.bytes[13]]);
         if ethertype != 0x0800 {
-            return SingleOutput::Idle; // 非 IPv4：丢弃
+            return SingleOutput::Idle; // not IPv4: discard
         }
         SingleOutput::Yield(EthParserOutput::ip(EthOut {
             pkt_id: raw.pkt_id,
@@ -225,7 +225,7 @@ impl Machine for EthParser {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 3：IpParser — IP 头剥离（只放行 TCP）
+// Module 3: IpParser — strips IP header (passes only TCP)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -269,7 +269,7 @@ impl Machine for IpParser {
         }
         let proto = p[9];
         if proto != 6 {
-            return SingleOutput::Idle; // 非 TCP：丢弃
+            return SingleOutput::Idle; // not TCP: discard
         }
         let src = [p[12], p[13], p[14], p[15]];
         let dst = [p[16], p[17], p[18], p[19]];
@@ -285,7 +285,7 @@ impl Machine for IpParser {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 4：TcpParser — TCP 载荷提取（按 4 元组定流）
+// Module 4: TcpParser — extracts TCP payload (streams keyed by 4-tuple)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -344,7 +344,7 @@ impl Machine for TcpParser {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 5：AppDeliver — 流聚合统计（应用交付）
+// Module 5: AppDeliver — stream aggregation statistics (application delivery)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -354,8 +354,8 @@ declare_ports! {
             seg [Data] => TcpSeg,
         }
         output type AppDeliverOutput {
-            report [Data]    => AppReport, // 流统计（无下游 → 终端输出，供断言）
-            stats  [Observe] => AppReport, // 观测流 → PktStats
+            report [Data]    => AppReport, // stream stats (no downstream → terminal output, for assertions)
+            stats  [Observe] => AppReport, // observe stream → PktStats
         }
     }
 }
@@ -363,7 +363,7 @@ declare_ports! {
 pub struct AppDeliver;
 
 impl Machine for AppDeliver {
-    type State = (HashMap<FlowId, u64>, u64); // (流 → 字节数, 累计包数)
+    type State = (HashMap<FlowId, u64>, u64); // (stream → byte count, cumulative packet count)
     type Input = AppDeliverInput;
     type Output = AppDeliverOutput;
     type Ports = AppDeliverPorts;
@@ -399,7 +399,7 @@ impl Machine for AppDeliver {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 6：PktStats — 低速观测（Observe 流，Dropping 载体）
+// Module 6: PktStats — low-rate observation (Observe stream, Dropping carrier)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -409,7 +409,7 @@ declare_ports! {
             log [Observe] => AppReport,
         }
         output type PktStatsOutput {
-            // 纯汇：聚合到 State（观测不反作用）
+            // pure sink: aggregates into State (observation has no side effects)
         }
     }
 }

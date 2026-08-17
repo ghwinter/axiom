@@ -1,3 +1,5 @@
+//! **Maturity: tool** (a development-time tool, reinforced per the unified convention).
+//!
 //! Architecture lint rules — the anti-narrowing axioms as executable checks.
 //!
 //! axiom's philosophy documents (philosophy.md, architecture.md) establish
@@ -14,9 +16,9 @@
 //!   and no `FuncBinding`s narrows the pure/stateful split to "everything is
 //!   stateful".
 //!
-//! [`lint`] runs these checks against a [`DeploySpec`] and returns a
+//! [`lint`] runs these checks against a [`DynamicTopology`] and returns a
 //! [`ValidationReport`] (reusing the structured violation type from
-//! [`DeploySpec::validate_report`]): hard violations go to `violations`,
+//! [`DynamicTopology::validate_report`]): hard violations go to `violations`,
 //! advisory findings to `warnings`. Unlike `validate_deep`, lint rules are
 //! **heuristics over the blueprint**, not correctness checks — a clean lint
 //! report is not required for a valid deployment, but each finding names an
@@ -28,7 +30,7 @@
 //! straight back to the documented axiom.
 
 use crate::compat::HashMap;
-use crate::deploy::{DeploySpec, RuleViolation, ValidationReport};
+use crate::deploy::{DynamicTopology, RuleViolation, ValidationReport};
 use crate::flow::FlowKind;
 use crate::link::LinkKind;
 use crate::port::PortSchema;
@@ -60,7 +62,7 @@ pub struct LintRule {
     /// One-line description of the axiom this rule enforces.
     pub description: &'static str,
     /// Pure check: returns the violations this rule finds.
-    pub check: fn(&DeploySpec, Option<&HashMap<&str, PortSchema>>) -> Vec<RuleViolation>,
+    pub check: fn(&DynamicTopology, Option<&HashMap<&str, PortSchema>>) -> Vec<RuleViolation>,
 }
 
 /// The built-in lint rule set (anti-narrowing axioms).
@@ -122,7 +124,7 @@ pub const RULES: &[LintRule] = &[
 /// skip those. Findings are appended in rule order; each
 /// [`RuleViolation::rule_id`] equals the rule id.
 pub fn lint(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     schemas: Option<&HashMap<&str, PortSchema>>,
 ) -> ValidationReport {
     let mut report = ValidationReport::default();
@@ -139,7 +141,7 @@ pub fn lint(
 
 /// Run a single rule by id.
 pub fn lint_rule(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     schemas: Option<&HashMap<&str, PortSchema>>,
     rule_id: &str,
 ) -> Vec<RuleViolation> {
@@ -153,7 +155,7 @@ pub fn lint_rule(
 // ── Individual checks ──────────────────────────────────────────────────────────
 
 fn check_orphan_machine(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     _: Option<&HashMap<&str, PortSchema>>,
 ) -> Vec<RuleViolation> {
     let mut used: Vec<&str> = Vec::new();
@@ -176,7 +178,7 @@ fn check_orphan_machine(
 }
 
 fn check_unused_output_port(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     schemas: Option<&HashMap<&str, PortSchema>>,
 ) -> Vec<RuleViolation> {
     let Some(schemas) = schemas else { return Vec::new() };
@@ -206,7 +208,7 @@ fn check_unused_output_port(
 }
 
 fn check_no_observation(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     schemas: Option<&HashMap<&str, PortSchema>>,
 ) -> Vec<RuleViolation> {
     let Some(schemas) = schemas else { return Vec::new() };
@@ -229,7 +231,7 @@ fn check_no_observation(
 }
 
 fn check_no_control(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     schemas: Option<&HashMap<&str, PortSchema>>,
 ) -> Vec<RuleViolation> {
     let Some(schemas) = schemas else { return Vec::new() };
@@ -252,7 +254,7 @@ fn check_no_control(
 }
 
 fn check_uniform_link_kind(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     _: Option<&HashMap<&str, PortSchema>>,
 ) -> Vec<RuleViolation> {
     let mut kinds: Vec<&str> = Vec::new();
@@ -282,7 +284,7 @@ fn check_uniform_link_kind(
 }
 
 fn check_default_physical(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     _: Option<&HashMap<&str, PortSchema>>,
 ) -> Vec<RuleViolation> {
     if spec.machines.is_empty() {
@@ -309,7 +311,7 @@ fn check_default_physical(
 }
 
 fn check_no_funcs(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     _: Option<&HashMap<&str, PortSchema>>,
 ) -> Vec<RuleViolation> {
     if spec.funcs.is_empty() && !spec.machines.is_empty() {
@@ -325,7 +327,7 @@ fn check_no_funcs(
 }
 
 fn check_no_moore_headroom(
-    spec: &DeploySpec,
+    spec: &DynamicTopology,
     _: Option<&HashMap<&str, PortSchema>>,
 ) -> Vec<RuleViolation> {
     if spec.machines.is_empty() {
@@ -350,13 +352,13 @@ fn check_no_moore_headroom(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::deploy::{DeploySpec, MachineInstance};
+    use crate::deploy::{DynamicTopology, MachineInstance};
     use crate::link::{LinkKind, LinkSpec};
     use crate::port::PortDecl;
     use crate::resource::MachinePhysicalSpec;
 
-    fn spec_io() -> (DeploySpec, HashMap<&'static str, PortSchema>) {
-        let spec = DeploySpec::new()
+    fn spec_io() -> (DynamicTopology, HashMap<&'static str, PortSchema>) {
+        let spec = DynamicTopology::new()
             .with_machine(MachineInstance::new(
                 "a",
                 "A",
@@ -419,7 +421,7 @@ mod tests {
     #[test]
     fn lint_clean_when_axioms_satisfied() {
         // Machine with Observe port + non-default physical + func + Moore headroom.
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(
                 MachineInstance::new(
                     "a",

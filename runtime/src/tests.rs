@@ -1,9 +1,9 @@
-//! runtime 单元测试——覆盖配置、物化、路由、确定性、停机传播、fan-in、
-//! B 档载体（Overwriting/Latest/NonBlocking）。
+//! Runtime unit tests — covering configuration, materialization, routing, determinism,
+//! shutdown propagation, fan-in, and the B-tier carriers (Overwriting/Latest/NonBlocking).
 
 use crate::*;
 use axiom::declare_ports;
-use axiom::deploy::{DeploySpec, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance};
 use axiom::link::{LinkKind, LinkSpec};
 use axiom::machine::Machine;
 use axiom::port::MachineContext;
@@ -50,9 +50,14 @@ impl Machine for Doubler {
     }
 }
 
-// Doubler 的输出是 SingleOutput（恰好一个输出），满足 FusedInline 的
-// 类型约束——可安全进入融合流水线。
+// Doubler's output is a SingleOutput (exactly one output), satisfying FusedInline's type
+// constraints — safe to enter a fusion pipeline.
 impl axiom::machine::FusedInline for Doubler {}
+
+// Doubler is marked Moore-semantics — used by the S3-2 contract check tests: a machine
+// declaring `is_moore` must be registered via `register_moore` (the type-level guarantee of
+// `M: Moore`).
+impl axiom::machine::Moore for Doubler {}
 
 #[test]
 fn runtime_config_defaults_to_sequential() {
@@ -96,7 +101,7 @@ fn runtime_materialize_single_machine() {
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()));
 
     rt.materialize(&spec).expect("materialize");
@@ -106,14 +111,16 @@ fn runtime_materialize_single_machine() {
 
 #[test]
 fn runtime_materialize_rejects_dangling_port() {
-    // validate_endpoint 修复：链接引用不存在的端口时，物化阶段即报
-    // DanglingRef（而非 tick 时 inject 静默返回 Idle 吞掉消息）。
-    // 用两台机器避免触发 DeploySpec::validate 的 SelfLoop 检查——
-    // 这里专门测试 runtime 的端口存在性校验，而非 core 的环检查。
+    // validate_endpoint fix: when a link references a nonexistent port, materialization
+    // reports DanglingRef (rather than inject silently returning Idle at tick time and
+    // swallowing the message).
+    // Two machines are used to avoid triggering DynamicTopology::validate's SelfLoop check —
+    // this specifically tests the runtime's port-existence validation, not the core's cycle
+    // check.
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("d1", "nonexistent"), ("d2", "x"), LinkKind::Inline));
@@ -127,12 +134,12 @@ fn runtime_materialize_rejects_dangling_port() {
 
 #[test]
 fn runtime_materialize_rejects_wrong_port_direction() {
-    // validate_endpoint 修复：src 端口必须是输出端口（PortDir::Out）。
-    // DoublerInput::x 是输入端口——作为 link 的 out 端应被拒绝。
+    // validate_endpoint fix: the src port must be an output port (PortDir::Out).
+    // DoublerInput::x is an input port — it should be rejected as a link's out end.
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("d1", "x"), ("d2", "x"), LinkKind::Inline));
@@ -145,16 +152,66 @@ fn runtime_materialize_rejects_wrong_port_direction() {
 }
 
 #[test]
+fn runtime_materialize_rejects_moore_declared_on_plain_register() {
+    // S3-2: `is_moore` declared true, but the type is registered via plain `register` (no
+    // Moore guarantee) → declaration mismatches implementation, rejected at deployment time
+    // with `MooreMismatch`.
+    // (Declaring Moore is only allowed when registered via `register_moore`; see the next
+    // test.)
+    let mut rt = Runtime::default();
+    rt.register::<Doubler>("doubler");
+
+    let spec = DynamicTopology::new()
+        .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()).moore());
+
+    let err = rt.materialize(&spec).unwrap_err();
+    assert!(
+        matches!(err, RuntimeError::MooreMismatch { ref machine, ref machine_type } if machine == "d1" && machine_type == "doubler"),
+        "expected MooreMismatch for Moore-declared machine registered without Moore guarantee, got {err:?}"
+    );
+}
+
+#[test]
+fn runtime_materialize_accepts_moore_declared_on_moore_registered() {
+    // S3-2: type registered via `register_moore` (the type-level guarantee of `M: Moore`) +
+    // `is_moore` declaration → contract consistent, materialization succeeds.
+    let mut rt = Runtime::default();
+    rt.register_moore::<Doubler>("doubler");
+
+    let spec = DynamicTopology::new()
+        .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()).moore());
+
+    rt.materialize(&spec).expect("materialize");
+    assert!(rt.topology().is_some());
+    assert_eq!(rt.topology().unwrap().machines.len(), 1);
+}
+
+#[test]
+fn runtime_materialize_accepts_moore_type_without_declaration() {
+    // S3-2: the type implements Moore and is registered via `register_moore`, but the
+    // deployment does not declare `is_moore` (conservative declaration) → legal.
+    // Over-declaration is the inconsistency; under-declaration is safe.
+    let mut rt = Runtime::default();
+    rt.register_moore::<Doubler>("doubler");
+
+    let spec = DynamicTopology::new()
+        .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()));
+
+    rt.materialize(&spec).expect("materialize");
+    assert!(rt.topology().is_some());
+}
+
+#[test]
 fn runtime_tick_processes_input() {
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()));
 
     rt.materialize(&spec).expect("materialize");
 
-    // tick 签名：(machine, port, payload) —— 端口 x 注入 21
+    // tick signature: (machine, port, payload) — inject 21 on port x
     let results = rt
         .tick(vec![("d1".to_string(), "x".to_string(), Box::new(21i32))])
         .expect("tick");
@@ -171,18 +228,18 @@ fn runtime_tick_processes_input() {
 
 #[test]
 fn runtime_routes_output_to_downstream() {
-    // 链式拓扑：d1.y ──► d2.x（Doubler → Doubler）
+    // Chain topology: d1.y ──► d2.x (Doubler → Doubler)
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("d1", "y"), ("d2", "x"), LinkKind::Inline));
 
     rt.materialize(&spec).expect("materialize");
 
-    // 输入 3 → d1 产出 6 → 路由到 d2 → 产出 12（终端输出，无下游）
+    // Input 3 → d1 yields 6 → routed to d2 → yields 12 (terminal output, no downstream)
     let results = rt
         .tick(vec![("d1".to_string(), "x".to_string(), Box::new(3i32))])
         .expect("tick");
@@ -199,9 +256,9 @@ fn runtime_routes_output_to_downstream() {
 
 #[test]
 fn runtime_routes_fanout_via_tee() {
-    // 扇出拓扑：source ──► Tee ──┬──► d2
-    //                            └──► d3
-    // 用内置 Tee<i32>（MultiOutput 扇出）验证路由对多输出的处理。
+    // Fan-out topology: source ──► Tee ──┬──► d2
+    //                                  └──► d3
+    // Uses the built-in Tee<i32> (MultiOutput fan-out) to verify routing of multiple outputs.
     use axiom::builtin::{Tee, TeeInput, TeeOutput};
 
     struct Src;
@@ -228,7 +285,7 @@ fn runtime_routes_fanout_via_tee() {
     rt.register::<Tee<i32>>("tee");
     rt.register::<Doubler>("doubler");
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("s", "src", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("t", "tee", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
@@ -239,7 +296,7 @@ fn runtime_routes_fanout_via_tee() {
 
     rt.materialize(&spec).expect("materialize");
 
-    // 输入 5 → src 产出 5 → Tee 扇出两份 5 → d2/d3 各 ×2 → 两个终端 10
+    // Input 5 → src yields 5 → Tee fans out two 5s → d2/d3 each ×2 → two terminal 10s
     let results = rt
         .tick(vec![("s".to_string(), "input".to_string(), Box::new(5i32))])
         .expect("tick");
@@ -250,15 +307,15 @@ fn runtime_routes_fanout_via_tee() {
     }).collect();
     vals.sort();
     assert_eq!(vals, vec![10, 10]);
-    // Tee 输入端口 payload 类型是 TeeInput<i32>（from_port_name 构造）
+    // The Tee input port's payload type is TeeInput<i32> (constructed by from_port_name)
     let _ = TeeInput::Input(1i32);
     let _ = TeeOutput::OutputA(1i32);
 }
 
 #[test]
 fn runtime_parallel_chain_matches_sequential() {
-    // 链式拓扑在 Parallel(2) 下结果与 Sequential 一致（3 → 6 → 12）。
-    let spec = DeploySpec::new()
+    // The chain topology under Parallel(2) produces the same result as Sequential (3 → 6 → 12).
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("d1", "y"), ("d2", "x"), LinkKind::Inline));
@@ -293,10 +350,11 @@ fn runtime_parallel_chain_matches_sequential() {
 
 #[test]
 fn runtime_parallel_boundedbuf_matches_sequential() {
-    // BoundedBuf 链（capacity=2, Blocking）在 Parallel(2) 下走 sync_channel
-    // 阻塞背压路径，结果须与 Sequential 一致（3 → 6 → 12）。
-    // 这锁定 R001 确定性对有界 carrier 仍成立——背压是物理参数，不是语义参数。
-    let spec = DeploySpec::new()
+    // The BoundedBuf chain (capacity=2, Blocking) under Parallel(2) uses the sync_channel
+    // blocking-backpressure path; the result must match Sequential (3 → 6 → 12).
+    // This locks R001: determinism still holds for bounded carriers — backpressure is a
+    // physical parameter, not a semantic one.
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(
@@ -330,10 +388,11 @@ fn runtime_parallel_boundedbuf_matches_sequential() {
 
 #[test]
 fn runtime_parallel_channel_drop_matches_sequential() {
-    // Channel { capacity=4, drop_when_full=true } 走 sync_channel + try_send
-    // 路径。单消息场景下不会触发丢弃，结果与 Sequential 一致——锁定
-    // Channel carrier 的物化在正常投递下不改变语义。
-    let spec = DeploySpec::new()
+    // Channel { capacity=4, drop_when_full=true } uses the sync_channel + try_send path. In
+    // a single-message scenario no dropping is triggered, so the result matches Sequential —
+    // locking that the Channel carrier's physicalization does not change semantics under
+    // normal delivery.
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(
@@ -360,7 +419,7 @@ fn runtime_parallel_channel_drop_matches_sequential() {
 
 #[test]
 fn runtime_parallel_fanout_matches_sequential() {
-    // 扇出拓扑在 Parallel(2) 下结果与 Sequential 一致（5 → 10, 10）。
+    // The fan-out topology under Parallel(2) produces the same result as Sequential (5 → 10, 10).
     use axiom::builtin::Tee;
 
     struct Src;
@@ -382,7 +441,7 @@ fn runtime_parallel_fanout_matches_sequential() {
     }
     impl axiom::machine::FusedInline for Src {}
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("s", "src", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("t", "tee", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
@@ -414,9 +473,11 @@ fn runtime_parallel_fanout_matches_sequential() {
 
 #[test]
 fn runtime_done_stops_machine_sequential() {
-    // A1：Done = 停机信号——机器返回 Done 后不再接收新输入（积压丢弃）。
-    // Stopper 第 2 次 process 返回 Done；注入 3 条 → 输出 [1]（第 1 条 Yield），
-    // 第 2 条 Done 停机，第 3 条被丢弃。若未停机（旧行为）会输出 [1, 2]。
+    // A1: Done = shutdown signal — once a machine returns Done it no longer receives new
+    // inputs (backlog dropped).
+    // Stopper returns Done on its 2nd process; inject 3 messages → output [1] (1st yields),
+    // the 2nd Done stops the machine, the 3rd is dropped. Without shutdown (old behavior) the
+    // output would be [1, 2].
     use axiom::machine::{CleanupError, InitError, SingleOutput};
     use axiom::port::ConfigSchema;
 
@@ -444,7 +505,8 @@ fn runtime_done_stops_machine_sequential() {
             let StopperInput::x(n) = input;
             *state += 1;
             if *state >= 2 {
-                // Done 的机器通过 `unified` 转换——这里直接构造统一类型。
+                // Done machines go through the `unified` conversion — here the unified type is
+                // constructed directly.
                 let _ = n;
                 SingleOutput::Done
             } else {
@@ -456,7 +518,7 @@ fn runtime_done_stops_machine_sequential() {
 
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<Stopper>("stopper");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("s", "stopper", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
 
@@ -468,7 +530,8 @@ fn runtime_done_stops_machine_sequential() {
         ])
         .expect("tick");
 
-    // 停机生效：只有第 1 条产生输出；第 2 条 Done、第 3 条被丢弃。
+    // Shutdown in effect: only the 1st message produces output; the 2nd returns Done, the 3rd
+    // is dropped.
     let vals: Vec<i64> = results.iter().map(|r| match r {
         ProcessResult::Yield { value, .. } => *value.downcast_ref::<i64>().unwrap(),
         other => panic!("expected Yield, got {other:?}"),
@@ -478,7 +541,8 @@ fn runtime_done_stops_machine_sequential() {
 
 #[test]
 fn runtime_done_stops_machine_parallel() {
-    // A1 的 Parallel 形态：线程收到 Done 后立即退出，不再处理积压。
+    // A1 in Parallel form: the thread exits immediately upon receiving Done, no longer
+    // processing the backlog.
     use axiom::machine::{CleanupError, InitError, SingleOutput};
     use axiom::port::ConfigSchema;
 
@@ -516,7 +580,7 @@ fn runtime_done_stops_machine_parallel() {
 
     let mut rt = Runtime::new(RuntimeConfig::parallel(2));
     rt.register::<Stopper>("stopper");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("s", "stopper", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
 
@@ -537,9 +601,9 @@ fn runtime_done_stops_machine_parallel() {
 
 #[test]
 fn runtime_fanin_merges_multi_source_parallel() {
-    // A2：fan-in——两个入口机器（d1, d2）汇入同一 Consumer（Doubler），
-    // Parallel 下经 forward 线程合并消费。
-    let spec = DeploySpec::new()
+    // A2: fan-in — two entry machines (d1, d2) merge into the same Consumer (Doubler),
+    // consumed via forward-thread merging under Parallel.
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("c", "doubler", MachinePhysicalSpec::default()))
@@ -564,8 +628,8 @@ fn runtime_fanin_merges_multi_source_parallel() {
         vals
     };
 
-    // Sequential（BFS 天然合并）与 Parallel（forward 线程合并）都汇聚为 {12, 20}
-    // （3→6→12，5→10→20：c 是 Doubler，再次 ×2）。
+    // Both Sequential (BFS merges naturally) and Parallel (forward-thread merging) converge
+    // to {12, 20} (3→6→12, 5→10→20: c is a Doubler, doubling again).
     let seq = run(RuntimeConfig::sequential());
     let par = run(RuntimeConfig::parallel(2));
     assert_eq!(seq, vec![12, 20]);
@@ -577,7 +641,7 @@ fn runtime_shutdown_cleans_up() {
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()));
 
     rt.materialize(&spec).expect("materialize");
@@ -587,10 +651,11 @@ fn runtime_shutdown_cleans_up() {
 
 #[test]
 fn runtime_parallel_nonblocking_read_policy() {
-    // B 档：ReadPolicy::NonBlocking——机器线程 try_recv + yield 轮询
-    // （不阻塞线程），断开（级联停机）时退出。功能上与 Blocking 一致。
+    // B-tier: ReadPolicy::NonBlocking — the machine thread polls with try_recv + yield (does
+    // not block the thread) and exits on disconnection (cascade shutdown). Functionally
+    // equivalent to Blocking.
     use axiom::link::ReadPolicy;
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(
@@ -617,22 +682,23 @@ fn runtime_parallel_nonblocking_read_policy() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// pipelineN 融合测试
+// pipelineN fusion tests
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn fusion_fused_chain_matches_non_fused_result() {
-    // 融合链 d1→d2→d3（全 FusedInline + Inline link）的 tick 结果
-    // 必须与非融合相同（3 → 6 → 12 → 24）。
-    // 用 register_fused 注册——materialize 会把 d1,d2,d3 融合为单个 FusedPipeline。
-    let spec = DeploySpec::new()
+    // The tick result of the fused chain d1→d2→d3 (all FusedInline + Inline links) must
+    // match the non-fused result (3 → 6 → 12 → 24).
+    // Registered via register_fused — materialize fuses d1, d2, d3 into a single
+    // FusedPipeline.
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d3", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("d1", "y"), ("d2", "x"), LinkKind::Inline))
         .with_link(LinkSpec::new(("d2", "y"), ("d3", "x"), LinkKind::Inline));
 
-    // 融合路径
+    // Fused path
     let mut rt_fused = Runtime::new(RuntimeConfig::sequential());
     rt_fused.register_fused::<Doubler>("doubler");
     rt_fused.materialize(&spec).expect("materialize fused");
@@ -640,7 +706,7 @@ fn fusion_fused_chain_matches_non_fused_result() {
         .tick(vec![("d1".to_string(), "x".to_string(), Box::new(3i32))])
         .expect("tick fused");
 
-    // 非融合路径（register 而非 register_fused）
+    // Non-fused path (register, not register_fused)
     let mut rt_plain = Runtime::new(RuntimeConfig::sequential());
     rt_plain.register::<Doubler>("doubler");
     rt_plain.materialize(&spec).expect("materialize plain");
@@ -664,8 +730,8 @@ fn fusion_fused_chain_matches_non_fused_result() {
 
 #[test]
 fn fusion_reduces_machine_count() {
-    // 融合后 topology 的机器数应减少（3 台 → 1 个 FusedPipeline）。
-    let spec = DeploySpec::new()
+    // The machine count in the fused topology should decrease (3 machines → 1 FusedPipeline).
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d3", "doubler", MachinePhysicalSpec::default()))
@@ -684,9 +750,9 @@ fn fusion_reduces_machine_count() {
 
 #[test]
 fn fusion_does_not_trigger_for_non_fused_register() {
-    // 用 register（非 register_fused）注册的机器不会被融合——
-    // is_fused_compatible() 返回 false。
-    let spec = DeploySpec::new()
+    // Machines registered via register (not register_fused) are not fused —
+    // is_fused_compatible() returns false.
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("d1", "y"), ("d2", "x"), LinkKind::Inline));
@@ -702,8 +768,9 @@ fn fusion_does_not_trigger_for_non_fused_register() {
 
 #[test]
 fn fusion_does_not_trigger_for_bounded_buf_link() {
-    // BoundedBuf link 不是融合候选——即使两端机器可融合。
-    let spec = DeploySpec::new()
+    // A BoundedBuf link is not a fusion candidate — even if both endpoint machines are
+    // fusable.
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(
@@ -725,10 +792,10 @@ fn fusion_does_not_trigger_for_bounded_buf_link() {
 
 #[test]
 fn fusion_partial_chain_only_fuses_fused_inline_segment() {
-    // 混合链：d1(FusedInline) → Inline → d2(FusedInline) → BoundedBuf → d3(FusedInline)
-    // 只有 d1→d2 被融合（Inline + 两端可融合）；d2→d3 是 BoundedBuf，不融合。
-    // 融合后：1 个 FusedPipeline(d1,d2) + 1 个 d3，1 条 BoundedBuf link。
-    let spec = DeploySpec::new()
+    // Mixed chain: d1(FusedInline) → Inline → d2(FusedInline) → BoundedBuf → d3(FusedInline)
+    // Only d1→d2 fuses (Inline + both ends fusable); d2→d3 is a BoundedBuf, not fused.
+    // After fusion: 1 FusedPipeline(d1,d2) + 1 standalone d3, 1 BoundedBuf link.
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d3", "doubler", MachinePhysicalSpec::default()))
@@ -749,7 +816,7 @@ fn fusion_partial_chain_only_fuses_fused_inline_segment() {
     let topo = rt.topology().expect("topology");
     assert_eq!(topo.machines.len(), 2, "d1+d2 fused, d3 standalone");
     assert_eq!(topo.links.len(), 1, "only BoundedBuf link remains");
-    // 结果验证：3 → 6(d1) → 12(d2) → 24(d3)
+    // Result check: 3 → 6(d1) → 12(d2) → 24(d3)
     let out = rt
         .tick(vec![("d1".to_string(), "x".to_string(), Box::new(3i32))])
         .expect("tick");
@@ -762,8 +829,9 @@ fn fusion_partial_chain_only_fuses_fused_inline_segment() {
 
 #[test]
 fn fusion_parallel_matches_sequential() {
-    // 融合链在 Parallel 模式下结果与 Sequential 一致（R001 确定性对融合仍成立）。
-    let spec = DeploySpec::new()
+    // The fused chain under Parallel produces the same result as Sequential (R001
+    // determinism still holds for fusion).
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d3", "doubler", MachinePhysicalSpec::default()))
@@ -789,9 +857,10 @@ fn fusion_parallel_matches_sequential() {
 
 #[test]
 fn fusion_fanout_not_fused() {
-    // 扇出拓扑（Tee）不满足融合条件——Tee 的 MultiOutput 不实现 FusedInline。
-    // 用 register_fused 注册 Doubler（可融合），但 Tee 用 register（不可融合）。
-    // d1(FusedInline) → Inline → tee(非 FusedInline) → 扇出不融合。
+    // The fan-out topology (Tee) does not meet the fusion conditions — Tee's MultiOutput does
+    // not implement FusedInline.
+    // Doubler is registered via register_fused (fusable), but Tee via register (not fusable).
+    // d1(FusedInline) → Inline → tee(non-FusedInline) → no fusion on fan-out.
     use axiom::builtin::Tee;
 
     struct Src;
@@ -813,7 +882,7 @@ fn fusion_fanout_not_fused() {
     }
     impl axiom::machine::FusedInline for Src {}
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("s", "src", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("t", "tee", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
@@ -824,18 +893,18 @@ fn fusion_fanout_not_fused() {
 
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register_fused::<Src>("src");
-    rt.register::<Tee<i32>>("tee"); // Tee 不实现 FusedInline
+    rt.register::<Tee<i32>>("tee"); // Tee does not implement FusedInline
     rt.register_fused::<Doubler>("doubler");
     rt.materialize(&spec).expect("materialize");
 
     let topo = rt.topology().expect("topology");
-    // tee 的扇出阻止融合——所有 4 台机器保持独立。
+    // Tee's fan-out prevents fusion — all 4 machines stay independent.
     assert_eq!(topo.machines.len(), 4, "fan-out via Tee must not fuse");
     assert_eq!(topo.links.len(), 3, "all links preserved");
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Parallel 有环拓扑测试
+// Parallel cyclic topology tests
 // ════════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -846,10 +915,12 @@ declare_ports! {
     }
 }
 
-/// 计数器机器：每次 process 递增计数，达到阈值（硬编码 10）时返回 Done。
-/// 用于有环拓扑测试——环中机器通过 Done 触发全局停机。
-/// （阈值不通过 struct 字段配置：Machine::init 仅接受 MachineContext，
-///  无注入构造参数的路径；字段会变成 dead code，故直接在 process 内联。）
+/// Counter machine: increments a count on each process and returns Done once the threshold
+/// (hardcoded 10) is reached. Used for cyclic-topology tests — machines in a cycle trigger
+/// global shutdown via Done.
+/// (The threshold is not configured via a struct field: Machine::init only accepts a
+/// MachineContext, with no path for injected constructor parameters; a field would become dead
+/// code, so it is inlined directly in process.)
 pub struct Counter;
 
 impl Machine for Counter {
@@ -878,10 +949,10 @@ impl Machine for Counter {
 
 #[test]
 fn runtime_parallel_cycle_terminates_via_done() {
-    // 有环拓扑：a → b → a（自循环反馈环）。
-    // a 和 b 互相喂值，直到 a 的计数 >= 10 返回 Done → 全局停机。
-    // 无 stop_signal 路径时此测试会挂起（死锁）。
-    let spec = DeploySpec::new()
+    // Cyclic topology: a → b → a (a self-sustaining feedback loop).
+    // a and b feed each other until a's count >= 10 returns Done → global shutdown.
+    // Without the stop_signal path this test would hang (deadlock).
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "counter", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("b", "counter", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("a", "val"), ("b", "tick"), LinkKind::Channel { capacity: 8, drop_when_full: false }))
@@ -891,28 +962,31 @@ fn runtime_parallel_cycle_terminates_via_done() {
     rt.register::<Counter>("counter");
     rt.materialize(&spec).expect("materialize");
 
-    // 注入初始值 1 → a 计数 1 → b 计数 1 → a 计数 2 → ... → 到 10 Done。
+    // Inject initial value 1 → a counts 1 → b counts 1 → a counts 2 → ... → reaches 10 Done.
     let results = rt
         .tick(vec![("a".to_string(), "tick".to_string(), Box::new(1i64))])
         .expect("tick");
 
-    // 环中机器的输出要么路由到对方（非终端），要么在 Done 时丢弃。
-    // 终端输出 = Done 前最后几个 val（无下游路由时的收集）。
-    // 由于 a 和 b 互相路由，终端输出可能为空或少量——关键是 tick 不挂起。
+    // Cycle machines' outputs are either routed to the other (non-terminal) or dropped on
+    // Done. Terminal outputs = the last few vals before Done (collected when there is no
+    // downstream route).
+    // Since a and b route to each other, terminal outputs may be empty or few — the key point
+    // is that tick does not hang.
     println!("cycle test: {} terminal outputs", results.len());
 }
 
 #[test]
 fn runtime_parallel_cycle_terminates_via_tick_limit() {
-    // 有环拓扑 + 无 Done 的机器——靠 max_ticks 终止。
-    // Doubler 永远不返回 Done，环会无限运行——max_ticks 保护。
+    // Cyclic topology + machines without Done — terminated by max_ticks.
+    // Doubler never returns Done, so the cycle would run forever — max_ticks protects it.
     //
-    // 值约束：Doubler 每跳值翻倍，i32 在 ~16 跳溢出（2^31 > i32::MAX）。
-    // max_ticks 是**每线程**计数（环中 d1/d2 各自独立），d1 与 d2 经 channel
-    // 串行交替（d1 的第 k 跳需 d2 的第 k-1 跳输出），故 max_ticks=10 时
-    // 每线程最多 10 次 inject——最大值 d2 第 10 跳输出 = 4^10 ≈ 1e6，远在
-    // i32 上界内。验证"无 Done 时 max_ticks 驱动 stop_signal 终止环"。
-    let spec = DeploySpec::new()
+    // Value constraints: Doubler doubles the value each hop, so i32 overflows at ~16 hops
+    // (2^31 > i32::MAX). max_ticks is a **per-thread** counter (d1/d2 in the cycle are
+    // independent), and d1/d2 alternate serially through channels (d1's k-th hop needs d2's
+    // (k-1)-th output), so with max_ticks=10 each thread injects at most 10 times — the max
+    // is d2's 10th-hop output = 4^10 ≈ 1e6, well within the i32 range. Verifies that "without
+    // Done, max_ticks drives stop_signal to terminate the cycle".
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("d1", "y"), ("d2", "x"), LinkKind::Channel { capacity: 4, drop_when_full: true }))
@@ -926,19 +1000,19 @@ fn runtime_parallel_cycle_terminates_via_tick_limit() {
     rt.register::<Doubler>("doubler");
     rt.materialize(&spec).expect("materialize");
 
-    // 注入 1 → d1 产出 2 → d2 产出 4 → d1 产出 8 → ... 直到 max_ticks。
-    // 关键：不挂起（max_ticks 限制触发 stop_signal）。
+    // Inject 1 → d1 yields 2 → d2 yields 4 → d1 yields 8 → ... until max_ticks.
+    // Key point: no hang (the max_ticks limit triggers stop_signal).
     let _ = rt
         .tick(vec![("d1".to_string(), "x".to_string(), Box::new(1i32))])
         .expect("tick");
-    // 如果到达这里，说明 tick 没有挂起——测试通过。
+    // Reaching here means tick did not hang — the test passes.
 }
 
 #[test]
 fn runtime_parallel_cycle_matches_sequential() {
-    // 有环拓扑在 Sequential 和 Parallel 下都应终止（Sequential 靠
-    // max_ticks，Parallel 靠 stop_signal）。验证两者都产出结果。
-    let spec = DeploySpec::new()
+    // The cyclic topology must terminate under both Sequential and Parallel (Sequential via
+    // max_ticks, Parallel via stop_signal). Verifies both produce a result.
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "counter", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("b", "counter", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("a", "val"), ("b", "tick"), LinkKind::Channel { capacity: 8, drop_when_full: false }))
@@ -952,17 +1026,17 @@ fn runtime_parallel_cycle_matches_sequential() {
             .expect("tick").len()
     };
 
-    // 两者都不挂起——关键验证。结果长度可能不同（Sequential BFS 顺序
-    // vs Parallel 线程交错），但都必须终止。
+    // Neither hangs — the key check. The result lengths may differ (Sequential BFS order vs
+    // Parallel thread interleaving), but both must terminate.
     let seq_len = run(RuntimeConfig::sequential());
     let par_len = run(RuntimeConfig::parallel(2));
-    // 都应有限（不挂起）。
+    // Both must be finite (no hang).
     assert!(seq_len < 100, "Sequential cycle must terminate");
     assert!(par_len < 100, "Parallel cycle must terminate");
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// IO 多路复用集成测试
+// IO multiplexing integration tests
 // ════════════════════════════════════════════════════════════════════════════
 
 use crate::io::{IoEvent, IoInterest, IoReactor, IoToken, ManualReactor};
@@ -976,9 +1050,9 @@ declare_ports! {
     }
 }
 
-/// IO 就绪处理机器：收到 `IoEvent` 输入后，按 readiness 产出对应的
-/// 数值标识（readable=1, writable=2, both=3）。用于验证 run_io 把
-/// reactor 就绪事件正确路由到 machine 的输入端口。
+/// IO-readiness handling machine: on receiving an `IoEvent` input, it yields a numeric tag by
+/// readiness (readable=1, writable=2, both=3). Used to verify run_io routes reactor
+/// readiness events correctly to a machine's input port.
 pub struct IoHandler;
 
 impl Machine for IoHandler {
@@ -1005,11 +1079,11 @@ impl Machine for IoHandler {
 
 #[test]
 fn io_manual_reactor_routes_event_to_machine() {
-    // ManualReactor 预注入一个 READABLE 事件 → run_io poll 得到事件 →
-    // 按 token 路由到 machine "h" 的 "ready" 端口 → process 产出 result(1)。
+    // ManualReactor pre-injects one READABLE event → run_io polls the event → routes by token
+    // to machine "h"'s "ready" port → process yields result(1).
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<IoHandler>("io_handler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("h", "io_handler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
 
@@ -1034,10 +1108,10 @@ fn io_manual_reactor_routes_event_to_machine() {
 
 #[test]
 fn io_manual_reactor_routes_multiple_events() {
-    // 两个 token 各一个事件——验证多事件路由到不同机器。
+    // One event per token — verifies multiple events route to different machines.
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<IoHandler>("io_handler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("h1", "io_handler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("h2", "io_handler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
@@ -1065,10 +1139,9 @@ fn io_manual_reactor_routes_multiple_events() {
 
 #[test]
 fn io_unregistered_token_event_is_dropped() {
-    // reactor 报告了一个未注册 token 的事件——应被静默丢弃，不注入任何 machine。
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<IoHandler>("io_handler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("h", "io_handler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
 
@@ -1076,7 +1149,7 @@ fn io_unregistered_token_event_is_dropped() {
     rt.register_io(&mut reactor, IoToken(0), "h", "ready", 0, IoInterest::READABLE)
         .expect("register");
 
-    // token 999 未注册——事件应被丢弃。
+    // token 999 is unregistered — the event should be dropped.
     reactor.push_event(IoEvent { token: IoToken(999), readiness: IoInterest::READABLE });
 
     let results = rt
@@ -1087,10 +1160,10 @@ fn io_unregistered_token_event_is_dropped() {
 
 #[test]
 fn io_deregister_removes_routing() {
-    // deregister_io 后，该 token 的事件不再被路由。
+    // After deregister_io, this token's events are no longer routed.
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<IoHandler>("io_handler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("h", "io_handler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
 
@@ -1109,11 +1182,11 @@ fn io_deregister_removes_routing() {
 
 #[test]
 fn io_run_io_merges_external_inputs() {
-    // run_io 同时注入外部 inputs + IO 事件——两者都应被处理。
+    // run_io injects external inputs + IO events together — both must be processed.
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<IoHandler>("io_handler");
     rt.register::<Doubler>("doubler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("h", "io_handler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d", "doubler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
@@ -1124,7 +1197,7 @@ fn io_run_io_merges_external_inputs() {
 
     reactor.push_event(IoEvent { token: IoToken(0), readiness: IoInterest::READABLE });
 
-    // 外部 input：doubler 收到 5 → 产出 10
+    // External input: doubler receives 5 → yields 10
     let external = vec![("d".to_string(), "x".to_string(), Box::new(5i32) as Box<dyn core::any::Any + Send>)];
     let results = rt
         .run_io(&mut reactor, external, Some(Duration::from_millis(100)))
@@ -1135,8 +1208,8 @@ fn io_run_io_merges_external_inputs() {
 #[cfg(target_os = "windows")]
 #[test]
 fn io_wsa_reactor_detects_tcp_readability() {
-    // 真实 WSA reactor：TCP listener 注册 READABLE → 客户端连接 →
-    // poll 检测到 READABLE（FD_ACCEPT）→ IoEvent 产出。
+    // Real WSA reactor: TCP listener registered READABLE → client connects → poll detects
+    // READABLE (FD_ACCEPT) → IoEvent yielded.
     use std::net::{TcpListener, TcpStream};
     use std::os::windows::io::AsRawSocket;
     use crate::io::wsa::WsaReactor;
@@ -1150,14 +1223,14 @@ fn io_wsa_reactor_detects_tcp_readability() {
     reactor.register(raw as crate::io::RawIo, IoInterest::READABLE, IoToken(42))
         .expect("register");
 
-    // 连接前 poll 应无事件（timeout=0 非阻塞）。
+    // Poll before connecting should have no events (timeout=0, non-blocking).
     let no_events = reactor.poll(Some(Duration::from_millis(0))).expect("poll empty");
     assert!(no_events.is_empty(), "no events before connection");
 
-    // 客户端连接 → listener 可 accept → READABLE 就绪。
+    // Client connects → listener can accept → READABLE ready.
     let _client = TcpStream::connect(addr).expect("connect");
 
-    // poll 等待就绪（给 OS 一点时间传播事件）。
+    // Poll waiting for readiness (give the OS a moment to propagate the event).
     let events = reactor.poll(Some(Duration::from_secs(1))).expect("poll");
     assert!(!events.is_empty(), "should detect readable after connect");
     let found = events.iter().any(|e| e.token == IoToken(42) && e.readiness.is_readable());
@@ -1167,13 +1240,13 @@ fn io_wsa_reactor_detects_tcp_readability() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 复合 Machine 测试
+// Composite Machine tests
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 构建一个 "doubler_pair" 复合定义：内部 d1 --Inline--> d2，
-/// 外部端口 "in" → d1.x，"out" → d2.y。两跳 Doubler = ×4。
+/// Build a "doubler_pair" composite definition: internally d1 --Inline--> d2,
+/// external ports "in" → d1.x and "out" → d2.y. Two hops of Doubler = ×4.
 fn doubler_pair_composite() -> CompositeSpec {
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("d1", "y"), ("d2", "x"), LinkKind::Inline));
@@ -1184,11 +1257,11 @@ fn doubler_pair_composite() -> CompositeSpec {
 
 #[test]
 fn composite_single_layer_expands_and_routes() {
-    // input_map 重定向：entry.y → comp.in 改写为 entry.y → comp.d1.x
-    // 拓扑：entry(Doubler) --Inline--> comp(DoublerPair)
-    // 展开后：entry --Inline--> comp.d1 --Inline--> comp.d2
-    // tick: 3 → 6(entry) → 12(comp.d1) → 24(comp.d2) → 终端输出 24
-    let spec = DeploySpec::new()
+    // input_map redirection: entry.y → comp.in is rewritten to entry.y → comp.d1.x
+    // Topology: entry(Doubler) --Inline--> comp(DoublerPair)
+    // After expansion: entry --Inline--> comp.d1 --Inline--> comp.d2
+    // tick: 3 → 6(entry) → 12(comp.d1) → 24(comp.d2) → terminal output 24
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("entry", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("comp", "doubler_pair", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("entry", "y"), ("comp", "in"), LinkKind::Inline));
@@ -1215,11 +1288,11 @@ fn composite_single_layer_expands_and_routes() {
 
 #[test]
 fn composite_output_redirect_to_downstream() {
-    // output_map 重定向：comp.out → sink.x 改写为 comp.d2.y → sink.x
-    // 拓扑：entry → comp → sink
-    // 展开后：entry → comp.d1 → comp.d2 → sink
+    // output_map redirection: comp.out → sink.x is rewritten to comp.d2.y → sink.x
+    // Topology: entry → comp → sink
+    // After expansion: entry → comp.d1 → comp.d2 → sink
     // tick: 3 → 6 → 12 → 24 → 48
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("entry", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("comp", "doubler_pair", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("sink", "doubler", MachinePhysicalSpec::default()))
@@ -1248,12 +1321,12 @@ fn composite_output_redirect_to_downstream() {
 
 #[test]
 fn composite_nested_recursive_expansion() {
-    // 嵌套复合：quad = pair1 --Inline--> pair2，pair 本身是复合。
-    // 展开后：quad.p1.d1 → quad.p1.d2 → quad.p2.d1 → quad.p2.d2
-    // 外部：entry → quad
-    // 完整链：entry → quad.p1.d1 → quad.p1.d2 → quad.p2.d1 → quad.p2.d2
-    // 5 个 Doubler（×2^5=×32），3 × 32 = 96
-    let quad_spec = DeploySpec::new()
+    // Nested composite: quad = pair1 --Inline--> pair2, where pair is itself a composite.
+    // After expansion: quad.p1.d1 → quad.p1.d2 → quad.p2.d1 → quad.p2.d2
+    // External: entry → quad
+    // Full chain: entry → quad.p1.d1 → quad.p1.d2 → quad.p2.d1 → quad.p2.d2
+    // 5 Doublers (×2^5=×32), 3 × 32 = 96
+    let quad_spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("p1", "doubler_pair", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("p2", "doubler_pair", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("p1", "out"), ("p2", "in"), LinkKind::Inline));
@@ -1261,7 +1334,7 @@ fn composite_nested_recursive_expansion() {
         .with_input("in", "p1", "in")
         .with_output("out", "p2", "out");
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("entry", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("quad", "doubler_quad", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("entry", "y"), ("quad", "in"), LinkKind::Inline));
@@ -1289,11 +1362,12 @@ fn composite_nested_recursive_expansion() {
 
 #[test]
 fn composite_fusion_crosses_boundary() {
-    // 跨复合边界融合：register_fused 注册 Doubler，
-    // 复合内部的 d1→d2 与外部的 entry→comp.d1 都是 Inline + FusedInline
-    // → 展开后 3 台机器融合为单个 FusedPipeline（机器数 1）。
-    // 这验证了展开发生在融合之前——复合边界对融合透明。
-    let spec = DeploySpec::new()
+    // Fusion across a composite boundary: Doubler registered via register_fused; both the
+    // internal d1→d2 and the external entry→comp.d1 are Inline + FusedInline → after
+    // expansion the 3 machines fuse into a single FusedPipeline (machine count 1).
+    // This verifies expansion happens before fusion — composite boundaries are transparent
+    // to fusion.
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("entry", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("comp", "doubler_pair", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("entry", "y"), ("comp", "in"), LinkKind::Inline));
@@ -1318,12 +1392,13 @@ fn composite_fusion_crosses_boundary() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// IO 边界与错误路径测试
+// IO boundary and error-path tests
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn io_empty_poll_returns_empty() {
-    // ManualReactor 无预置事件时 poll 返回空 Vec——验证空 reactor 行为。
+    // ManualReactor with no preloaded events returns an empty Vec from poll — verifies
+    // empty-reactor behavior.
     let mut reactor = ManualReactor::new();
     let events = reactor.poll(Some(Duration::from_millis(100))).expect("poll");
     assert!(events.is_empty(), "no pending events → empty poll");
@@ -1331,13 +1406,13 @@ fn io_empty_poll_returns_empty() {
 
 #[test]
 fn io_reregister_updates_routing() {
-    // register token0→(h1, ready) 后 reregister token0→(h2, ready)，
-    // push token0 事件 → run_io 路由到 h2（io_routing 已覆盖）。
-    // h1 与 h2 都产出 result(1)，但 reregister 保证仅一台机器收到事件
-    // （结果数 = 1，而非 0 或 2）。
+    // After register token0→(h1, ready), reregister token0→(h2, ready); push a token0 event
+    // → run_io routes to h2 (io_routing has been overwritten).
+    // Both h1 and h2 would yield result(1), but reregister guarantees only one machine
+    // receives the event (result count = 1, not 0 or 2).
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<IoHandler>("io_handler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("h1", "io_handler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("h2", "io_handler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
@@ -1365,11 +1440,11 @@ fn io_reregister_updates_routing() {
 
 #[test]
 fn io_deregister_then_event_ignored() {
-    // register token0→h1 + token1→h2，deregister token0，
-    // push 两个 token 的事件 → 仅 h2 响应（token0 事件被丢弃）。
+    // register token0→h1 + token1→h2, deregister token0, push events for both tokens →
+    // only h2 responds (the token0 event is dropped).
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<IoHandler>("io_handler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("h1", "io_handler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("h2", "io_handler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
@@ -1392,10 +1467,11 @@ fn io_deregister_then_event_ignored() {
 
 #[test]
 fn io_multiple_events_same_token() {
-    // 同一 token push 3 个事件 → run_io 产生 3 次注入到同一机器 → 3 个输出。
+    // Push 3 events with the same token → run_io injects 3 times into the same machine → 3
+    // outputs.
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<IoHandler>("io_handler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("h", "io_handler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
 
@@ -1424,11 +1500,10 @@ fn io_multiple_events_same_token() {
 
 #[test]
 fn io_read_write_interest_both() {
-    // push 一个 READ_WRITE 事件 → IoHandler 产出 result(3)
-    // （readable +1 + writable +2）。
+    // Push one READ_WRITE event → IoHandler yields result(3) (readable +1 + writable +2).
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<IoHandler>("io_handler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("h", "io_handler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
 
@@ -1453,11 +1528,11 @@ fn io_read_write_interest_both() {
 
 #[test]
 fn io_run_io_timeout_returns_partial() {
-    // ManualReactor 有 1 个 pending 事件，run_io with timeout=0ms
-    // 仍返回该事件——ManualReactor 不真睡，timeout=0 不跳过已就绪事件。
+    // ManualReactor has 1 pending event; run_io with timeout=0ms still returns it —
+    // ManualReactor does not actually sleep, so timeout=0 does not skip already-ready events.
     let mut rt = Runtime::new(RuntimeConfig::sequential());
     rt.register::<IoHandler>("io_handler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("h", "io_handler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
 
@@ -1474,21 +1549,22 @@ fn io_run_io_timeout_returns_partial() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 复合 Machine 错误路径测试
+// Composite Machine error-path tests
 // ════════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn composite_too_deep_reports_error() {
-    // 自引用复合：composite "loop" 的子拓扑包含一个 "loop" 类型机器实例。
-    // expand_composites 循环 64 次仍 found_composite=true → CompositeTooDeep。
-    let loop_spec = DeploySpec::new()
+    // Self-referencing composite: the "loop" composite's sub-topology contains a machine
+    // instance of type "loop". expand_composites still finds a composite after 64 iterations
+    // → CompositeTooDeep.
+    let loop_spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("inner", "loop", MachinePhysicalSpec::default()));
     let loop_comp = CompositeSpec::new(loop_spec);
 
     let mut rt = Runtime::default();
     rt.register_composite("loop", loop_comp);
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("top", "loop", MachinePhysicalSpec::default()));
 
     let err = rt.materialize(&spec).unwrap_err();
@@ -1500,13 +1576,13 @@ fn composite_too_deep_reports_error() {
 
 #[test]
 fn composite_unknown_type_fails_at_build() {
-    // 未注册的复合类型 "unknown_comp" 不被 expand_composites 展开
-    // （composites map 里没有），machine_type 保持 "unknown_comp"，
-    // build 阶段 registry.build 找不到 → InitFailed。
+    // The unregistered composite type "unknown_comp" is not expanded by expand_composites
+    // (it is not in the composites map); machine_type stays "unknown_comp", and at build time
+    // registry.build cannot find it → InitFailed.
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("c", "unknown_comp", MachinePhysicalSpec::default()));
 
     let err = rt.materialize(&spec).unwrap_err();
@@ -1518,20 +1594,20 @@ fn composite_unknown_type_fails_at_build() {
 
 #[test]
 fn composite_internal_dangling_port() {
-    // 复合内 input_map 指向不存在的子机器 "nonexistent"——展开后
-    // 外部链接的 into 端变成 "comp.nonexistent.x"，但 machines 里
-    // 没有 "comp.nonexistent" → validate_endpoint 报 DanglingRef。
+    // The composite's input_map points at a nonexistent sub-machine "nonexistent" — after
+    // expansion the external link's into end becomes "comp.nonexistent.x", but machines has
+    // no "comp.nonexistent" → validate_endpoint reports DanglingRef.
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
 
-    let bad_spec = DeploySpec::new()
+    let bad_spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()));
     let bad_comp = CompositeSpec::new(bad_spec)
         .with_input("in", "nonexistent", "x")
         .with_output("out", "d1", "y");
     rt.register_composite("bad_pair", bad_comp);
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("entry", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("comp", "bad_pair", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("entry", "y"), ("comp", "in"), LinkKind::Inline));
@@ -1546,14 +1622,14 @@ fn composite_internal_dangling_port() {
 
 #[test]
 fn composite_external_link_to_undefined_port() {
-    // 外部链接指向复合的未定义端口 "undefined_port"（不在 input_map 中），
-    // 展开后端口名保持原样、机器名 "comp" 不再存在（已展开为 comp.d1/d2）
-    // → validate_endpoint 报 DanglingRef。
+    // The external link points at the composite's undefined port "undefined_port" (not in
+    // input_map); after expansion the port name stays unchanged and the machine name "comp"
+    // no longer exists (expanded into comp.d1/d2) → validate_endpoint reports DanglingRef.
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
     rt.register_composite("doubler_pair", doubler_pair_composite());
 
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("entry", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("comp", "doubler_pair", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("entry", "y"), ("comp", "undefined_port"), LinkKind::Inline));
@@ -1567,14 +1643,14 @@ fn composite_external_link_to_undefined_port() {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 跨平台 IO reactor 真实 socket 测试（cfg gate，仅 Linux/macOS 编译）
+// Cross-platform IO reactor real-socket tests (cfg-gated; compiled on Linux/macOS only)
 // ════════════════════════════════════════════════════════════════════════════
 
 #[cfg(target_os = "linux")]
 #[test]
 fn io_epoll_reactor_detects_tcp_readability() {
-    // Linux epoll 真实 TCP listener：注册 READABLE → 客户端连接 →
-    // poll 检测到 READABLE（EPOLLIN）→ IoEvent 产出。
+    // Real Linux epoll TCP listener: registered READABLE → client connects → poll detects
+    // READABLE (EPOLLIN) → IoEvent yielded.
     use std::net::{TcpListener, TcpStream};
     use std::os::unix::io::AsRawFd;
     use crate::io::epoll::EpollReactor;
@@ -1588,11 +1664,11 @@ fn io_epoll_reactor_detects_tcp_readability() {
     reactor.register(raw as crate::io::RawIo, IoInterest::READABLE, IoToken(42))
         .expect("register");
 
-    // 连接前 poll 应无事件（timeout=0 非阻塞）。
+    // Poll before connecting should have no events (timeout=0, non-blocking).
     let no_events = reactor.poll(Some(Duration::from_millis(0))).expect("poll empty");
     assert!(no_events.is_empty(), "no events before connection");
 
-    // 客户端连接 → listener 可 accept → READABLE 就绪。
+    // Client connects → listener can accept → READABLE ready.
     let _client = TcpStream::connect(addr).expect("connect");
 
     let events = reactor.poll(Some(Duration::from_secs(1))).expect("poll");
@@ -1606,8 +1682,8 @@ fn io_epoll_reactor_detects_tcp_readability() {
 #[cfg(target_os = "linux")]
 #[test]
 fn io_epoll_reactor_writable() {
-    // Linux epoll TCP stream 可写测试：connect 后 stream 立即可写
-    // （发送缓冲区空闲）→ poll 立即返回 WRITABLE（EPOLLOUT）。
+    // Linux epoll TCP stream writability test: right after connect the stream is immediately
+    // writable (send buffer free) → poll immediately returns WRITABLE (EPOLLOUT).
     use std::net::{TcpListener, TcpStream};
     use std::os::unix::io::AsRawFd;
     use crate::io::epoll::EpollReactor;
@@ -1634,8 +1710,8 @@ fn io_epoll_reactor_writable() {
 #[cfg(target_os = "macos")]
 #[test]
 fn io_kqueue_reactor_detects_tcp_readability() {
-    // macOS kqueue 真实 TCP listener：注册 READABLE → 客户端连接 →
-    // poll 检测到 READABLE（EVFILT_READ）→ IoEvent 产出。
+    // Real macOS kqueue TCP listener: registered READABLE → client connects → poll detects
+    // READABLE (EVFILT_READ) → IoEvent yielded.
     use std::net::{TcpListener, TcpStream};
     use std::os::unix::io::AsRawFd;
     use crate::io::kqueue::KqueueReactor;
@@ -1649,11 +1725,11 @@ fn io_kqueue_reactor_detects_tcp_readability() {
     reactor.register(raw as crate::io::RawIo, IoInterest::READABLE, IoToken(42))
         .expect("register");
 
-    // 连接前 poll 应无事件（timeout=0 非阻塞）。
+    // Poll before connecting should have no events (timeout=0, non-blocking).
     let no_events = reactor.poll(Some(Duration::from_millis(0))).expect("poll empty");
     assert!(no_events.is_empty(), "no events before connection");
 
-    // 客户端连接 → listener 可 accept → READABLE 就绪。
+    // Client connects → listener can accept → READABLE ready.
     let _client = TcpStream::connect(addr).expect("connect");
 
     let events = reactor.poll(Some(Duration::from_secs(1))).expect("poll");
@@ -1667,8 +1743,8 @@ fn io_kqueue_reactor_detects_tcp_readability() {
 #[cfg(target_os = "macos")]
 #[test]
 fn io_kqueue_reactor_writable() {
-    // macOS kqueue TCP stream 可写测试：connect 后 stream 立即可写
-    // → poll 立即返回 WRITABLE（EVFILT_WRITE）。
+    // macOS kqueue TCP stream writability test: right after connect the stream is
+    // immediately writable → poll immediately returns WRITABLE (EVFILT_WRITE).
     use std::net::{TcpListener, TcpStream};
     use std::os::unix::io::AsRawFd;
     use crate::io::kqueue::KqueueReactor;
@@ -1693,15 +1769,16 @@ fn io_kqueue_reactor_writable() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// CasFreeRing 载体端到端（SPSC 无锁环）
+// CasFreeRing carrier end-to-end (SPSC lock-free ring)
 // ════════════════════════════════════════════════════════════════════════
 
 #[test]
 fn runtime_casfree_ring_parallel_preserves_semantics() {
-    // d1 → d2 用 CasFreeRing（真无锁 SPSC 环）；Parallel 下消息经环传输。
-    // 语义必须与 Inline/Channel 等价：每输入恰好一次、按序。
+    // d1 → d2 uses CasFreeRing (a truly lock-free SPSC ring); under Parallel messages travel
+    // through the ring. Semantics must be equivalent to Inline/Channel: exactly once per
+    // input, in order.
     use axiom::link::{LinkKind, LinkSpec};
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(
@@ -1725,7 +1802,7 @@ fn runtime_casfree_ring_parallel_preserves_semantics() {
             )
         }).collect();
     let results = rt.tick(inputs).expect("tick");
-    // d2 输出 = 4,8,...,40（d1 翻倍再 d2 翻倍）。
+    // d2 outputs = 4,8,...,40 (doubled by d1, then doubled again by d2).
     let mut outs: Vec<i32> = Vec::new();
     for r in results {
         if let ProcessResult::Yield { value, .. } = r {
@@ -1741,9 +1818,9 @@ fn runtime_casfree_ring_parallel_preserves_semantics() {
 
 #[test]
 fn runtime_casfree_ring_sequential_same_as_channel() {
-    // Sequential 下单线程：CasFreeRing 语义与 Channel（Blocking）一致。
+    // Under Sequential (single-threaded): CasFreeRing semantics match Channel (Blocking).
     use axiom::link::{LinkKind, LinkSpec};
-    let ring_spec = DeploySpec::new()
+    let ring_spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(
@@ -1758,7 +1835,7 @@ fn runtime_casfree_ring_sequential_same_as_channel() {
     rt_ring.register::<Doubler>("doubler");
     rt_ring.materialize(&ring_spec).expect("materialize");
 
-    let ch_spec = DeploySpec::new()
+    let ch_spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(
@@ -1793,15 +1870,15 @@ fn runtime_casfree_ring_sequential_same_as_channel() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 事件溯源回放器（D1）——确定性回放 + 时间旅行
+// Event-sourced replayer — deterministic replay + time travel
 // ════════════════════════════════════════════════════════════════════════
 
 use crate::replay::{ReplayJournal, Replayer};
 
-/// 构建一个 Doubler 链 runtime（d1 → d2，Inline 链接）。
+/// Build a Doubler-chain runtime (d1 → d2, Inline link).
 fn doubler_chain_runtime() -> Runtime {
     use axiom::link::{LinkKind, LinkSpec};
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("d1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("d2", "doubler", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("d1", "y"), ("d2", "x"), LinkKind::Inline));
@@ -1811,7 +1888,7 @@ fn doubler_chain_runtime() -> Runtime {
     rt
 }
 
-/// 执行 n 批输入（录 journal + 收集每批输出）。
+/// Run n batches of inputs (recording the journal + collecting each batch's outputs).
 fn run_with_journal(
     build: impl Fn() -> Runtime,
     n: usize,
@@ -1836,7 +1913,8 @@ fn run_with_journal(
 
 #[test]
 fn runtime_replay_forward_matches_original() {
-    // 执行 10 批 → 录 journal → 重放到第 10 批 → 输出逐批与原始一致。
+    // Run 10 batches → record the journal → replay to batch 10 → outputs match the original
+    // batch by batch.
     let (original, journal) = run_with_journal(doubler_chain_runtime, 10);
     let replayer = Replayer::new(&journal);
     let (_, replayed) = replayer
@@ -1850,7 +1928,7 @@ fn runtime_replay_forward_matches_original() {
             "第 {i} 批输出数应一致"
         );
     }
-    // 逐批逐值（Doubler 链：i → 4i）。
+    // Value-by-value per batch (Doubler chain: i → 4i).
     let last_replayed = &replayed[9];
     let mut vals: Vec<i32> = Vec::new();
     for r in last_replayed {
@@ -1865,14 +1943,15 @@ fn runtime_replay_forward_matches_original() {
 
 #[test]
 fn runtime_replay_timetravel_state_continuation() {
-    // 时间旅行：重放到第 3 批 → 继续注入 4..10 → 终态与原始一致。
+    // Time travel: replay to batch 3 → continue injecting 4..10 → the final state matches
+    // the original.
     let (original, journal) = run_with_journal(doubler_chain_runtime, 10);
     let replayer = Replayer::new(&journal);
 
-    // 1. 跳到时点 3（重放前 3 批）。
+    // 1. Jump to time point 3 (replaying the first 3 batches).
     let (mut rt3, _) = replayer.forward_to(3, doubler_chain_runtime).expect("replay to 3");
 
-    // 2. 继续注入第 4..10 批（与原始相同的输入）。
+    // 2. Continue injecting batches 4..10 (the same inputs as the original).
     let mut continuation = Vec::new();
     for i in 3..10 {
         let out = rt3
@@ -1885,7 +1964,8 @@ fn runtime_replay_timetravel_state_continuation() {
         continuation.push(out);
     }
 
-    // 3. 终态一致性：续接输出 == 原始 3..10 批输出（值相等）。
+    // 3. Final-state consistency: continuation outputs == original batches 3..10 (equal
+    //    values).
     for (i, (a, b)) in continuation.iter().zip(original.iter().skip(3)).enumerate() {
         let va: Vec<i32> = a.iter().filter_map(|r| {
             if let ProcessResult::Yield { value, .. } = r {
@@ -1903,16 +1983,18 @@ fn runtime_replay_timetravel_state_continuation() {
 
 #[test]
 fn runtime_replay_verify_api() {
-    // verify：结构级快查（type_id + 端口 + 变体 + 数量）。精确值验证见
-    // runtime_replay_timetravel_state_continuation（downcast 值比较）。
+    // verify: a structural-level quick check (type_id + port + variant + count). Exact-value
+    // verification is in runtime_replay_timetravel_state_continuation (downcast value
+    // comparison).
     let (original, journal) = run_with_journal(doubler_chain_runtime, 5);
     let replayer = Replayer::new(&journal);
     let mismatch = replayer.verify(5, doubler_chain_runtime, original.iter());
     assert_eq!(mismatch, None, "未篡改 journal 应完全一致");
 
-    // 结构篡改：第 2 批注入错误类型（String 而非 i32）→ from_port_name
-    // downcast 失败 → 该批输出为 Idle（runtime 既定语义）→ 与原始的
-    // Yield 结构不同（discriminant）→ verify 捕获 Some(1)。
+    // Structural tampering: batch 2 injects a wrong type (String instead of i32) →
+    // from_port_name downcast fails → that batch's output is Idle (the runtime's defined
+    // semantics) → its structure (discriminant) differs from the original Yield → verify
+    // catches Some(1).
     let mut tampered = ReplayJournal::new();
     for i in 0..5 {
         tampered.end_batch();
@@ -1933,20 +2015,21 @@ fn runtime_replay_verify_api() {
 
 #[test]
 fn runtime_snapshot_replay_deterministic() {
-    // keyless 组装快照（M3）：蓝图（doubler_chain_runtime）+ 输入序列 →
-    // 录制 → 重放两次 → 断言确定性。这是"组装后行为"的 keyless 回归
-    // 门禁——无外部依赖，纯重放，固定蓝图 + 固定输入 ⇒ 固定输出。
+    // Keyless assembled-snapshot test: blueprint (doubler_chain_runtime) + input sequence →
+    // record → replay twice → assert determinism. This is the keyless regression gate for
+    // "assembled behavior" — no external dependencies, pure replay; fixed blueprint + fixed
+    // inputs ⇒ fixed outputs.
     let (original, journal) = run_with_journal(doubler_chain_runtime, 8);
 
-    // 第一次重放（完整 8 批）。
+    // First replay (all 8 batches).
     let replayer1 = Replayer::new(&journal);
     let (_, replay1) = replayer1.forward_to(8, doubler_chain_runtime).expect("replay1");
 
-    // 第二次重放（同 journal）——确定性：两次重放逐批一致。
+    // Second replay (same journal) — determinism: the two replays match batch by batch.
     let replayer2 = Replayer::new(&journal);
     let (_, replay2) = replayer2.forward_to(8, doubler_chain_runtime).expect("replay2");
 
-    // 辅助：提取 i32 Yield 值序列。
+    // Helper: extract the i32 Yield value sequence.
     let values = |batch: &[ProcessResult]| -> Vec<i32> {
         batch.iter()
             .filter_map(|r| {
@@ -1959,12 +2042,13 @@ fn runtime_snapshot_replay_deterministic() {
             .collect()
     };
 
-    // 1. 两次重放互相一致（确定性）。
+    // 1. The two replays match each other (determinism).
     for (i, (a, b)) in replay1.iter().zip(replay2.iter()).enumerate() {
         assert_eq!(values(a), values(b), "重放确定性：第 {} 批两次重放应一致", i + 1);
     }
 
-    // 2. 重放 = 原始执行（组装快照：蓝图 + 输入 ⇒ 固定输出）。
+    // 2. Replay == original execution (assembled snapshot: blueprint + inputs ⇒ fixed
+    //    outputs).
     for (i, (a, b)) in replay1.iter().zip(original.iter()).enumerate() {
         assert_eq!(values(a), values(b), "组装快照：第 {} 批重放 == 原始", i + 1);
     }
@@ -1974,7 +2058,8 @@ fn runtime_snapshot_replay_deterministic() {
 
 #[test]
 fn fairness_prevents_machine_starvation() {
-    // H2：每机器每轮配额——flood 机器 defer 到下一轮，其他机器不饿死。
+    // H2: per-machine per-round quota — the flooding machine is deferred to the next round;
+    // other machines are not starved.
     let cfg = RuntimeConfig {
         mode: ExecMode::Sequential,
         max_ticks: Some(10_000),
@@ -1982,12 +2067,12 @@ fn fairness_prevents_machine_starvation() {
     };
     let mut rt = Runtime::new(cfg);
     rt.register::<Doubler>("doubler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("m1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("m2", "doubler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
 
-    // flood：m1 100 条；标记：m2 1 条（999）。
+    // flood: m1 gets 100 messages; marker: m2 gets 1 (999).
     let mut inputs: Vec<(String, String, Box<dyn core::any::Any + Send>)> = (0..100)
         .map(|i| ("m1".to_string(), "x".to_string(), Box::new(i as i32) as Box<dyn core::any::Any + Send>))
         .collect();
@@ -2000,13 +2085,15 @@ fn fairness_prevents_machine_starvation() {
     }).collect();
 
     assert_eq!(values.len(), 101);
-    // 配额 1：m1 处理 1 条达配额 → m2 优先（第 2 个）——flood 不饿死 m2。
+    // Quota 1: m1 hits its quota after 1 message → m2 is prioritized (2nd) — the flood does
+    // not starve m2.
     assert_eq!(values[1], 1998, "m2 must be processed in round 2, not starved by m1 flood");
 }
 
 #[test]
 fn fairness_quota_zero_keeps_fifo() {
-    // 配额 0 = 无限制（FIFO 保持现状）：m2 的标记最后处理（被 flood 排队）。
+    // Quota 0 = unlimited (FIFO preserved): m2's marker is processed last (queued behind the
+    // flood).
     let cfg = RuntimeConfig {
         mode: ExecMode::Sequential,
         max_ticks: Some(10_000),
@@ -2014,7 +2101,7 @@ fn fairness_quota_zero_keeps_fifo() {
     };
     let mut rt = Runtime::new(cfg);
     rt.register::<Doubler>("doubler");
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("m1", "doubler", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("m2", "doubler", MachinePhysicalSpec::default()));
     rt.materialize(&spec).expect("materialize");
@@ -2031,6 +2118,6 @@ fn fairness_quota_zero_keeps_fifo() {
     }).collect();
 
     assert_eq!(values.len(), 101);
-    // 无配额：FIFO——m1 flood 先处理，m2 的标记最后（第 101 个）。
+    // No quota: FIFO — m1's flood is processed first, m2's marker last (the 101st).
     assert_eq!(values[100], 1998, "without quota, FIFO order: m2 processed last");
 }

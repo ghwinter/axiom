@@ -1,35 +1,44 @@
-//! runtime 物化或驱动过程中的错误类型。
+//! Error types for runtime materialization or driving.
 
-/// runtime 物化或驱动过程中的错误。
+/// An error occurring during runtime materialization or driving.
 #[derive(Debug)]
 pub enum RuntimeError {
-    /// `MachineInstance::name` 包含非 `'static` 数据（owned String），
-    /// 而 `MachineContext::new` 要求 `&'static str`。
+    /// `MachineInstance::name` holds non-`'static` data (an owned String),
+    /// while `MachineContext::new` requires `&'static str`.
     NonStaticName { instance: String },
 
-    /// 指定的 link kind 在当前 runtime 实现中不支持。
+    /// The given link kind is not supported by the current runtime implementation.
     UnsupportedLinkKind { kind: String, hint: String },
 
-    /// 拓扑中引用了不存在的 machine 或 port。
+    /// The topology references a machine or port that does not exist.
     DanglingRef { machine: String, port: String },
 
-    /// 拓扑在 Parallel 模式下无法物化（如 Source 类无输入端口机器）。
+    /// The topology cannot be materialized in Parallel mode (e.g. Source-like machines with no input ports).
     UnsupportedTopology { machine: String, reason: String },
 
-    /// Machine init 失败。
+    /// Machine init failed.
     InitFailed { machine: String, error: axiom::machine::InitError },
 
-    /// 驱动循环达到 max_ticks 仍未完成。
+    /// The driver loop reached max_ticks without completing.
     TickLimitExceeded { ticks: u64 },
 
-    /// cleanup 失败。
+    /// cleanup failed.
     CleanupFailed { machine: String },
 
-    /// IO 多路复用操作失败（reactor register / poll 错误）。
+    /// An IO multiplexing operation failed (reactor register / poll error).
     IoFailed { error: crate::io::IoError },
 
-    /// 复合 Machine 嵌套深度超过上限（可能为复合自引用导致无限展开）。
+    /// The composite machine nesting depth exceeded the limit (possibly an unbounded expansion caused by a composite self-reference).
     CompositeTooDeep { depth: usize, hint: String },
+
+    /// The deployment declares Moore semantics (`MachineInstance::is_moore`) that
+    /// do not match the machine type's actual implementation: `is_moore: true` is
+    /// declared, but that `machine_type` was not registered via `register_moore`
+    /// (a type-level `M: Moore` guarantee). A declaration inconsistent with the
+    /// implementation would mislead `validate_deep`'s cycle-safety analysis
+    /// (mistakenly assuming feedback cycles can be broken) — rejected at deploy
+    /// time.
+    MooreMismatch { machine: String, machine_type: String },
 }
 
 impl core::fmt::Display for RuntimeError {
@@ -59,6 +68,11 @@ impl core::fmt::Display for RuntimeError {
             Self::IoFailed { error } => write!(f, "io reactor error: {error}"),
             Self::CompositeTooDeep { depth, hint } => write!(
                 f, "composite expansion exceeded depth {depth}: {hint}"
+            ),
+            Self::MooreMismatch { machine, machine_type } => write!(
+                f,
+                "machine `{machine}` declares Moore semantics but type `{machine_type}` is not registered as Moore \
+                 (register the type with `register_moore` to make the declaration contract-valid)"
             ),
         }
     }
