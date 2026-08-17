@@ -1,6 +1,8 @@
+/// **Maturity: stable** (the stable core, main subject of the current refactor).
+///
 /// Link kinds — the physical connection strategy between two ports.
 ///
-/// The `LinkKind` is chosen by the **deployer** in the `DeploySpec`, not by the
+/// The `LinkKind` is chosen by the **deployer** in the `DynamicTopology`, not by the
 /// machine author. The same two machines can be connected with different link
 /// kinds in different deployments (e.g., `Inline` for backtest, `BoundedBuf`
 /// for production).
@@ -108,8 +110,23 @@ pub enum LinkKind {
         storage: MemoryRegion,
     },
 
-    /// Shared state guarded by a read-write lock.
+    /// SharedState guarded by a read-write lock.
     SharedState,
+}
+
+impl LinkKind {
+    /// Stable diagnostic name of this carrier (used in validation errors,
+    /// lint, and reports).
+    pub fn name(&self) -> &'static str {
+        match self {
+            LinkKind::Inline => "Inline",
+            LinkKind::BoundedBuf { .. } => "BoundedBuf",
+            LinkKind::Channel { .. } => "Channel",
+            LinkKind::Latest { .. } => "Latest",
+            LinkKind::CasFreeRing { .. } => "CasFreeRing",
+            LinkKind::SharedState => "SharedState",
+        }
+    }
 }
 
 // ── Write/Read policies (for BoundedBuf) ──────────────────────────────────────
@@ -156,7 +173,7 @@ pub enum MemoryRegion {
 /// The endpoint names use [`Cow<'static, str>`] so a `LinkSpec` can be built
 /// either from compile-time `&'static str` literals (zero allocation, common in
 /// code-defined topologies) or from owned [`String`]s read out of a
-/// declarative config file (TOML/JSON). This is what makes `DeploySpec`
+/// declarative config file (TOML/JSON). This is what makes `DynamicTopology`
 /// round-trip serializable under the `serialize` feature.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]

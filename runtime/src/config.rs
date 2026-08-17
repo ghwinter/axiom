@@ -1,10 +1,10 @@
-//! runtime 配置——执行模式与物理参数集中于此。
+//! Runtime configuration — execution mode and physical parameters centralized here.
 
-/// runtime 的执行模式——单线程与多线程不是两个类型，而是配置参数。
+/// The runtime's execution mode — single-threaded vs multi-threaded is a configuration parameter, not two separate types.
 ///
-/// - `Inline`：调用方线程直接执行，零线程开销
-/// - `Sequential`：单线程顺序循环
-/// - `Parallel(n)`：N 个 worker 线程并行调度
+/// - `Inline`: executed directly on the caller's thread, zero threading overhead
+/// - `Sequential`: single-threaded sequential loop
+/// - `Parallel(n)`: scheduled in parallel across N worker threads
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecMode {
     Inline,
@@ -18,20 +18,23 @@ impl Default for ExecMode {
     }
 }
 
-/// runtime 配置——所有物理执行参数集中在此。
+/// Runtime configuration — all physical execution parameters centralized here.
 #[derive(Debug, Clone)]
 pub struct RuntimeConfig {
-    /// 执行模式（线程数策略）。
+    /// Execution mode (threading strategy).
     pub mode: ExecMode,
-    /// 驱动循环每 tick 的最大 process 次数（防止无限循环）。
-    /// `None` = 无限制。
+    /// Maximum number of process calls per tick in the driver loop (prevents
+    /// infinite loops). `None` = unlimited.
     pub max_ticks: Option<u64>,
-    /// 公平性配额：每台机器每**轮**（round）最多处理的输入条数。
+    /// Fairness quota: the maximum number of inputs each machine may process per
+    /// **round**.
     ///
-    /// `None` = 无限制（FIFO 逐级传播，默认）。
-    /// `Some(n)` = 任一机器达配额后其后续消息 defer 到下一轮（其他机器
-    /// 优先）——防止单个 flood 源饿死其他源（H2：tick 公平性，源自
-    /// 信箱轮询的公平性上限模式）。`0` = 非法（等价 None）。
+    /// `None` = unlimited (FIFO propagation level by level, the default).
+    /// `Some(n)` = once a machine reaches the quota, its remaining messages are
+    /// deferred to the next round (other machines take priority) — prevents a
+    /// single flooding source from starving others (tick fairness, derived
+    /// from the fairness cap mode of mailbox polling). `0` = invalid
+    /// (equivalent to `None`).
     pub max_messages_per_machine: Option<u64>,
 }
 

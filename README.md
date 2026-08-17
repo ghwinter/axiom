@@ -1,14 +1,12 @@
 # axiom
 
-English | [中文](README.zh.md)
-
 **Func + Machine: typed ports, explicit topology, deploy-time physics.**
 
 Zero-dependency computation primitives for observable, controllable systems.
 
 `Func` (stack, stateless) and `Machine` (heap, stateful) — with typed ports, explicit link
 topology, deployment specs, resource classification, and an algebraic foundation.
-A companion `axiom-runtime` turns a `DeploySpec` blueprint into a running system
+A companion `axiom-runtime` turns a `DynamicTopology` blueprint into a running system
 (single/multi-threaded, fusion, IO multiplexing).
 
 ## What it is
@@ -19,7 +17,7 @@ use axiom::func::Func;
 use axiom::machine::{CleanupError, InitError, Machine, SingleOutput};
 use axiom::port::{ConfigSchema, MachineContext};
 use axiom::resource::MachinePhysicalSpec;
-use axiom::deploy::{DeploySpec, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance};
 
 // ── Pure function: stack, stateless, parallel-safe ──
 struct Scale;
@@ -70,8 +68,8 @@ impl Machine for Accumulator {
     }
 }
 
-// ── Declare topology (DeploySpec) ──
-let spec = DeploySpec::new()
+// ── Declare topology (DynamicTopology) ──
+let spec = DynamicTopology::new()
     .with_machine(MachineInstance::new("acc", "accumulator", MachinePhysicalSpec::default()));
 
 // ── Hand to a runtime: axiom-runtime materializes the blueprint ──
@@ -100,21 +98,22 @@ The two layers are disjoint. When we say "module $M$ sends data to module $N$", 
 
 ### Two execution paths
 
-> **Model-first: `DeploySpec` is an arbitrary graph; `static_path` is a fixed-shape optimization subset.**
-> axiom's default model is an **arbitrary directed graph** (multi-in/out, fan-in,
-> fan-out, cycles, composite nesting) — declared via `DeploySpec`, validated by
-> `validate_deep`, executed by a runtime. `static_path` is a **performance
-> optimization subset**: it covers only topologies whose shape is known at
-> compile time (linear/fan), because it dissolves overhead via type expansion
-> (monomorphization) — arbitrary graphs (especially cycles) cannot be
-> monomorphized and must take the dynamic path. Linearity is not axiom's
-> scenario assumption; it is the inherent boundary of the "type expansion"
-> optimization.
+> **Static-first: the default is a static topology; the dynamic path is the structural-dynamism adapter.**
+> axiom's default model is a **static topology** — a `DynamicTopology` declared
+> once, validated by `validate_deep`, and executed by the runtime or fused into
+> `static_path`. `static_path` is the **principal execution layer for
+> structure-fixed systems**: it covers topologies whose shape is known at
+> compile time (linear / fan / diamond / composite hierarchies), dissolving
+> overhead via type expansion (monomorphization). Topologies *sourced from
+> runtime data* (config/plugin assembly, dynamic links, cycles' time drive)
+> cannot be monomorphized and take the dynamic path. The static/dynamic split
+> is a **structural criterion, not a behavioral one** (see
+> `docs/structural-model.md`).
 
 | Path | Topology shape | Topology known at | Per-message cost | Zero-cost? | Role |
 |------|---------------|-------------------|------------------|------------|------|
 | **static_path** (main model) | structure-fixed systems: series-parallel + composite hierarchies (chains, fans, diamonds, nested subsystems) | compile time | **zero** (0 allocs/msg) | yes | primary execution: any structure-fixed system, regardless of behavioral complexity (see `docs/structural-model.md` §2–4) |
-| **DeploySpec + Runtime** (structure-dynamic adapter) | topology sourced from runtime data (config/plugin assembly, dynamic links, cycles' time drive) | runtime | fused: 1 alloc/msg (typed-slot reuse); plain: per-hop alloc + vtable | no (dynamic tax: dispatch + type-erasure) | structural-dynamic systems: topology not known until runtime |
+| **DynamicTopology + Runtime** (structure-dynamic adapter) | topology sourced from runtime data (config/plugin assembly, dynamic links, cycles' time drive) | runtime | fused: 1 alloc/msg (typed-slot reuse); plain: per-hop alloc + vtable | no (dynamic tax: dispatch + type-erasure) | structural-dynamic systems: topology not known until runtime |
 
 The static path monomorphizes over concrete machine types and inlines
 `StraightLink::convert` / `StraightSplit::split` / `StraightMerge::merge` — in
@@ -128,8 +127,7 @@ dynamic path must type-erase via `Box<dyn Any>` because topology
 is not known until runtime; this "dynamic tax" is the dispatch + type-erasure
 cost of the dynamic path — measured 1.0 allocs/msg for fused chains (typed-slot
 reuse, `runtime/src/typed_slot.rs`) vs 0.000 for the static path (see
-`docs/foundations.md` §15.3 for the 2026-08 revision and the falsified
-"~5× / 1 alloc per message" claim). **The static/dynamic split is a structural
+`docs/foundations.md` §15.3). **The static/dynamic split is a structural
 criterion, not a behavioral one** (see `docs/structural-model.md`): axiom's
 domain is the structure layer (module set + links); behavioral complexity
 (what happens inside a `process`) is a black box and never requires the
@@ -138,12 +136,12 @@ plus composite hierarchies — regardless of how complex the behavior is;
 the dynamic path serves only topologies *sourced from runtime data*.
 
 > **Scope note (anti-narrowing rule).** The static execution path
-> (`axiom_runtime::static_path`) supports linear pipelines (`pipeline2`/`pipeline3`,
-> `pipeline_chain`), fan-out (`fanout2` via `Split`), fan-in (`fanin2` via `Merge`),
-> and diamonds (`diamond` / `Diamond`, whose arms and downstream may be arbitrary
-> chains). It is acyclic (synchronous batch model). The **combinators** (`Chain`/
-> `Diamond`/`feedback`) execute on bare payloads via `StraightMachine` — no port
-> enum tags, no runtime validation of data origin/destination (P0): origin/destination
+> (`axiom_runtime::static_path`) is entered exclusively through the combinators —
+> `pipeline_chain` (arbitrary-depth linear chain), `diamond` (split–merge with
+> arbitrary chain arms and downstream), and `feedback` (single-machine feedback
+> loop). It is acyclic except for the explicit `feedback` loop (synchronous batch
+> model). The combinators execute on bare payloads via `StraightMachine` — no port
+> enum tags, no runtime validation of data origin/destination: origin/destination
 > is fixed by the type system at compile time, so a routing mistake is a business-logic
 > error, not a per-message performance tax. `Chain` (serial) and `Diamond`
 > (split-merge) form a recursive algebra that generates exactly the **series-parallel
@@ -188,6 +186,11 @@ react on their source — which is what makes a slow observation module safe to 
 on its own thread with a `Dropping` carrier without stalling the main path
 (empirically validated, see Showcase below).
 
+The flow kind is a semantic annotation, not a physical property: the physical
+layer moves all flows identically. The annotation implies a carrier-selection
+preference (`Observe` → non-blocking, `Control` → droppable), enforced by the
+`(FlowKind, LinkKind)` compatibility matrix in `validate_deep`.
+
 ## Built-in modules
 
 `Identity<I>`, `Sink<I>`, `Source<O>`, `Tee<I>`, `Latch<T>`, `Collector<I>`, `EntityRoot`, `FuncMachine`
@@ -200,18 +203,18 @@ on its own thread with a `Dropping` carrier without stalling the main path
 | **Streaming** | `axiom::stream` | `StreamingMachine`: pull-model iterator output (first `next()` resets cursor) |
 | **Borrowed Input** | `axiom::func` | `FuncRef::call_ref`: zero-copy input (no per-call allocation) |
 | **Static Execution** | `axiom::static_exec` | `Chain`/`Diamond` combinators + `StraightMachine` bare-payload pass-through (FusedInline-gated) |
-| **Dynamic Topology** | `axiom::topology` | Optional runtime mutation of the *instance* graph (elastic scaling, hot-swap, session subgraphs) |
+| **Topology Mutation** | `axiom::topology::TopologyMutation` | Optional runtime mutation of the *instance* graph (elastic scaling, hot-swap, session subgraphs) |
 | **Hybrid Systems** | `axiom::hybrid` | Continuous dynamics via `HybridMachine` (`flow`/`guard`/`reset`) with `TimeTick` integration |
 | **Lifecycle Typestate** | `axiom::machine` | Compile-time enforcement of `Init → Running → Stopping → Stopped` via `MachineHandle<M, S>` |
 | **Composite Machines** | `axiom::composite` | `CompositeSpec` + `expand_composites`: subsystem nesting (recursive, depth-limited) |
-| **AI Blueprint** | `axiom::blueprint` *(serialize)* | JSON Schema export of `DeploySpec` + strict reverse parser: an AI writes JSON, gets structured errors, iterates |
+| **AI Blueprint** | `axiom::blueprint` *(serialize)* | JSON Schema export of `DynamicTopology` + strict reverse parser: an AI writes JSON, gets structured errors, iterates |
 | **Structured Validation** | `axiom::deploy` | `validate_report`: collects **all** violations as `RuleViolation {rule_id, path, expected, actual}` (not fail-fast) |
 | **Architecture Lint** | `axiom::lint` | Anti-narrowing axioms as executable rules: `no-observation`, `default-physical`, `uniform-link-kind`, … |
 | **Runtime Contract** | `axiom::runtime_contract` | `RuntimeContract` trait + `Guarantees` (link carriers / exec modes / memory order / IO / delay) — audit a blueprint against an adapter's physical capabilities |
 
 ### Static-first worldview
 
-axiom's default is a **static topology**: the `DeploySpec` is declared once,
+axiom's default is a **static topology**: the `DynamicTopology` is declared once,
 validated once (`validate_deep`), and never changes while the system runs.
 Static topologies are zero-cost (the monomorphized `static_path` functions) and
 fully analyzable before deployment (feedback loops, SPOF, degree constraints,
@@ -225,12 +228,12 @@ rationale and the three legitimate dynamic-topology use cases.
 
 ## axiom-runtime
 
-`Runtime` executes a `DeploySpec` with explicit physics:
+`Runtime` executes a `DynamicTopology` with explicit physics:
 
 - **Execution modes**: `Inline` / `Sequential` (BFS direct delivery) / `Parallel(n)` (thread-per-machine, channel carriers)
 - **Carrier matrix**: `Blocking` (backpressure) / `Dropping` (drop new) / `Overwriting` (ring) / `Latest`-`SharedState` (single slot) — the *physical realization* of a `LinkKind`
 - **Lifecycle**: `Done` is a stop signal — propagates downstream (cascade shutdown), backlog dropped; parallel threads exit
-- **Fusion**: pipelineN fusion over `FusedInline` chains (allocations per hop reduced)
+- **Fusion**: chain fusion over `FusedInline` links (allocations per hop reduced)
 - **Parallel cycles**: Kahn cycle detection + `stop_signal` termination
 - **IO multiplexing**: `IoReactor` trait — epoll / kqueue / WSAEventSelect backends + `ManualReactor`, `default_reactor()`
 - **Observation/debugging**: `Observe`-flow monitor (independent thread, `Dropping` carrier) + `Control`-flow reverse injection
@@ -276,8 +279,8 @@ dictate physics, the carrier choice does".
 
 ## Tests
 
-- `axiom` core: **314 tests** (209 src unit + 105 integration, incl. source audit) + 21 doctests — all green
-- `axiom-runtime`: **85 tests** — all green
+- `axiom` core: **358 tests** (238 src unit + 120 integration, incl. source audit) + 19 doctests — all green
+- `axiom-runtime`: **84 tests** — all green
 - Verification philosophy: evidence corpus `evidence/` (E-contracts + R-benchmarks, local-only, not in git)
 
 ## Further reading
@@ -291,7 +294,9 @@ dictate physics, the carrier choice does".
 | [`docs/adapters.md`](docs/adapters.md) | Adapter ecosystem rules & runtime-contract certification — Guarantees audit, release tiers |
 | [`docs/architecture.md`](docs/architecture.md) | Architecture details — ports, links, deployment, runtime comparison |
 | [`docs/structural-model.md`](docs/structural-model.md) | Formal structural model — system as typed graph, structure vs behavior layer, static/dynamic criterion (set/graph/category theory) |
-| [`docs/architecture_diagrams.md`](docs/architecture_diagrams.md) | Diagrams — system layers, link strategies, deployment, roadmap |
+| [`docs/architecture_diagrams.md`](docs/architecture_diagrams.md) | Diagrams — system layers, link strategies, deployment, analysis |
+| [`docs/migration-0.2.md`](docs/migration-0.2.md) | Migration guide — 0.1.x → 0.2.0 breaking changes and replacements |
+| [`CHANGELOG.md`](CHANGELOG.md) | Release notes — 0.2.0 breaking refactor, bench regression results |
 
 ## Why "axiom"
 

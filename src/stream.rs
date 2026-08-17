@@ -1,3 +1,5 @@
+//! **Maturity: experimental** (an extension; advanced as part of the core, not dropped).
+//!
 //! Streaming contract — pull-model output for `Machine`s (A3).
 //!
 //! `Machine::process` is **push-shaped**: one input in, a fixed batch of
@@ -31,7 +33,7 @@
 //!
 //! # Why this exists now
 //!
-//! This contract is a **runtime prerequisite**: the `DeploySpec` → runtime
+//! This contract is a **runtime prerequisite**: the `DynamicTopology` → runtime
 //! materialisation and the fused-pipeline consumer both need to know whether
 //! a machine is push-only or can be drained lazily. Defining the signature
 //! here — before any runtime adapter is built — prevents adapters from

@@ -1,6 +1,6 @@
-# axiom 架构参考
+# axiom Architecture Reference
 
-> 本文档描述了 axiom 的架构组件。如果你在找快速入门，回到 README。
+> This document describes the architectural components of axiom. For a quick start, see the README.
 
 ---
 
@@ -13,7 +13,7 @@
 
 `Func(I) -> O` — a pure function. Stack frame, instant, unobservable. The same input always produces the same output. Used for parsing, serialization, mathematical transforms.
 
-`Machine(S, I, O, δ)` — a state machine with typed port interface. The Machine trait now reflects the mathematical interface-set model:
+`Machine(S, I, O, δ)` — a state machine with typed port interface. The `Machine` trait reflects the mathematical interface-set model:
 
 ```rust
 pub trait Machine: Send + Sync + 'static {
@@ -29,7 +29,7 @@ pub trait Machine: Send + Sync + 'static {
 }
 ```
 
-The IO-Object is exactly `(S, I, O, δ)` — no more, no less. Observe and Control are port annotations (`FlowKind`), not type parameters. The `type Input`/`type Output` are now **interface sets** (port enums), closing the gap between type-space and value-space port declarations.
+The IO-Object is exactly `(S, I, O, δ)` — no more, no less. Observe and Control are port annotations (`FlowKind`), not type parameters. The `type Input`/`type Output` associated types are **interface sets** (port enums), closing the gap between type-space and value-space port declarations.
 
 ---
 
@@ -151,14 +151,14 @@ A `LinkSpec` describes a physical connection between two ports. The `LinkKind` d
 
 ## Deployment
 
-A `DeploySpec` is a pure data structure: it describes what Machines exist, how they connect, and with what physical resources. It does not execute anything. A runtime adapter interprets the spec.
+A `DynamicTopology` is a pure data structure: it describes what Machines exist, how they connect, and with what physical resources. It does not execute anything. A runtime adapter interprets the spec.
 
 The same Machine type can be deployed differently:
 - **Backtest**: `CpuBound`, deterministic, `Inline` links, zero allocation
 - **Production**: `Async` or `ThreadPool`, nondeterministic, `BoundedBuf` links, backpressure
 - **Embedded**: `CpuBound`, static allocation, `CasFreeRing` links, no heap
 
-The Machine implementation does not change. Only the DeploySpec changes.
+The Machine implementation does not change. Only the DynamicTopology changes.
 
 ---
 
@@ -167,10 +167,10 @@ The Machine implementation does not change. Only the DeploySpec changes.
 `Machine::process()` is synchronous by design:
 
 ```
-Tokio:      tokio::task::spawn_blocking(|| machine.process(state, ctx, input))
-Rayon:      rayon::scope(|s| s.spawn(|_| machine.process(state, ctx, input)))
-Dedicated:  loop { machine.process(state, ctx, input) }
-Inline:     machine.process(state, ctx, input) — zero runtime overhead
+Async pool:  spawn_blocking(|| machine.process(state, ctx, input))
+Worker pool: scope(|s| s.spawn(|_| machine.process(state, ctx, input)))
+Dedicated:   loop { machine.process(state, ctx, input) }
+Inline:      machine.process(state, ctx, input) — zero runtime overhead
 ```
 
 The same `Machine` implementation, zero modifications.
@@ -178,24 +178,24 @@ The same `Machine` implementation, zero modifications.
 | Runtime | Good at | Not good at | axiom deployment hint |
 |---------|---------|-------------|----------------------|
 | **None (inline)** | CPU-bound loops, zero overhead | IO, networking, concurrency | `Inline` links |
-| **Tokio** | Async IO, networking, HTTP, WS | CPU-bound work on async workers | `Async` for IO, `CpuBound` for compute |
-| **Rayon** | Data parallelism, batch processing | Async IO, low-latency interactive | `CpuBoundN(n)` over instances |
-| **Embassy** | no_std embedded | Heap-heavy workloads | `Async` with no_std |
-| **Dedicated thread** | Hard real-time, CPU affinity | Complex IO multiplexing | `CpuBound` + core_affinity |
+| **Async IO runtime** | Async IO, networking, HTTP, WS | CPU-bound work on async workers | `Async` for IO, `CpuBound` for compute |
+| **Worker pool** | Data parallelism, batch processing | Async IO, low-latency interactive | `CpuBoundN(n)` over instances |
+| **Embedded async runtime** | no_std embedded | Heap-heavy workloads | `Async` with no_std |
+| **Dedicated thread** | Hard real-time, CPU affinity | Complex IO multiplexing | `CpuBound` + core affinity |
 
 ### axiom-runtime: the bundled reference runtime
 
 `axiom-runtime` (in the `runtime/` subdirectory) is the reference implementation
 bundled with this repo. Unlike the hypothetical external adapters above, it is
-a concrete `Runtime` that materializes a `DeploySpec` and drives `tick()`:
+a concrete `Runtime` that materializes a `DynamicTopology` and drives `tick()`:
 
 ```rust
 use axiom_runtime::{Runtime, RuntimeConfig};
 
 let mut rt = Runtime::new(RuntimeConfig::sequential());
 rt.register::<MyMachine>("my_machine");
-rt.materialize(&deploy_spec)?;          // 物化拓扑
-let outputs = rt.tick(inputs)?;         // 驱动一轮
+rt.materialize(&spec)?;                 // materialize the topology
+let outputs = rt.tick(inputs)?;         // drive one tick
 ```
 
 **Execution modes** (selected via `RuntimeConfig::mode`, no code changes):
@@ -206,7 +206,7 @@ let outputs = rt.tick(inputs)?;         // 驱动一轮
 | `Sequential` | Single-thread BFS, direct move delivery | Deterministic, testable |
 | `Parallel(n)` | One OS thread per machine + channel carriers | Multi-core, backpressure |
 
-**Internal subsystem contracts (2026-08).** `axiom-runtime` is itself a parent
+**Internal subsystem contracts.** `axiom-runtime` is itself a parent
 system whose subsystems are **necessary-but-replaceable** modules — structural
 consistency applied to the runtime itself (each subsystem has an explicit
 interface contract, mirroring the machine/link model of the user space):
@@ -214,40 +214,45 @@ interface contract, mirroring the machine/link model of the user space):
 | Subsystem | Contract | Replaceable strategies |
 |-----------|----------|------------------------|
 | **Scheduler** (drives `tick`) | `scheduler::Scheduler` — `tick(&self, rt, inputs)`, selected at construction by `RuntimeConfig::mode`, held as `Box<dyn Scheduler>` | `SequentialScheduler` (BFS + fairness quota), `ParallelScheduler` (thread-per-machine); custom schedulers implement the trait |
-| **Carrier factory** | `carrier::channel_for` — `LinkKind → carrier` (channel / sync / slot / overwrite) | per-kind physicalization; `CasFreeRing` is a future increment |
-| **Lifecycle** | `materialize`/`shutdown` + `MachineHandle` init/cleanup | runtime-managed; restart/supervision is a future increment |
+| **Carrier factory** | `carrier::channel_for` — `LinkKind → carrier` | per-kind physicalization of all six kinds (channel / sync / slot / overwrite / lock-free ring; `Inline` migrates to an unbounded channel across threads) |
+| **Lifecycle** | `materialize`/`shutdown` + `MachineHandle` init/cleanup | runtime-managed; restart/supervision is outside the bundled lifecycle |
 | **IO reactor** | `io::IoReactor` trait | platform backends (epoll / kqueue / WSAEventSelect) |
 | **Replay** | `replay::` module | snapshot/replay of machine states |
 
-The **Scheduler** contract is the first internal subsystem formalized (2026-08):
+The **Scheduler** contract is the first internal subsystem formalized:
 `SequentialScheduler`/`ParallelScheduler` implement `scheduler::Scheduler`, and
 `Runtime::tick` delegates through it. This mirrors the external
-`RuntimeContract` (`docs/adapters.md`): the runtime as a whole is replaceable
+`RuntimeContract` ([adapters.md](adapters.md)): the runtime as a whole is replaceable
 per contract; its internal subsystems are replaceable per their own contracts.
 
 **Capabilities:**
 
 | Capability | What it does |
 |------------|--------------|
-| **pipelineN fusion** | `materialize` auto-detects adjacent `FusedInline` + `Inline` chains and replaces them with a single `FusedPipeline`, eliminating per-hop routing lookups (−2 alloc/hop, R003) |
+| **Fused pipeline** | `materialize` auto-detects adjacent `FusedInline` + `Inline` chains and replaces them with a single `FusedPipeline`, eliminating per-hop routing lookups (−2 alloc/hop) |
 | **Parallel cyclic topology** | Kahn's algorithm detects cycles; cyclic topologies use a global `stop_signal` + per-thread tick counters instead of channel-disconnect cascade (avoids deadlock) |
 | **IO multiplexing** | `IoReactor` trait with platform backends (epoll/kqueue/WSAEventSelect); `register_io` + `run_io` merge reactor readiness events with external inputs |
 | **Composite Machine** | `register_composite` encapsulates a sub-topology + port map as one `machine_type`; `materialize` recursively expands (namespaced sub-machines + redirected links) before fusion — `FusedPipeline` can fuse across former composite boundaries |
 | **B-tier carriers** | `Overwriting` bounded cover, `Latest`/`SharedState` single-slot, `ReadPolicy::NonBlocking` polling |
 | **Shutdown cascade** | `Done` = stop signal: machine stops, backlog dropped, cascades to downstream whose all in-edge sources have stopped |
-| **Observation/debugging** | `Observe`-flow monitor (independent thread, `Dropping` carrier — observation never stalls the main path) + `Control`-flow reverse injection (e.g. `DEBUG FLUSH/SET/INFO`); see `docs/philosophy.md` §"Observation and debugging are first-class modules" |
+| **Observation/debugging** | `Observe`-flow monitor (independent thread, `Dropping` carrier — observation never stalls the main path) + `Control`-flow reverse injection (e.g. `DEBUG FLUSH/SET/INFO`); see [philosophy.md](philosophy.md), section "Observation and debugging are first-class modules" |
 | **Streaming pull model** | `StreamingMachine::process_stream` — lazy iterator output for pull-driven data flow |
-| **Zero-copy input** | `FuncRef::call_ref(&Input)` — borrowed input, no per-call allocation (E132) |
+| **Zero-copy input** | `FuncRef::call_ref(&Input)` — borrowed input, no per-call allocation |
 
-**Not covered** (future increments): `CasFreeRing` lock-free carriers, compile-time generic `pipelineN` (eliminating `Box<dyn Any>`), Windows IOCP completion model.
+**Scope boundaries**: arbitrary compile-time generic DAGs beyond the
+`Chain`/`Diamond` series-parallel algebra (the dynamic path still type-erases
+via `Box<dyn Any>`), and the Windows IOCP completion model (the bundled
+WSAEventSelect readiness model supports ≤64 sources).
 
 ### The &mut State constraint
 
-A single Machine cannot process multiple inputs in parallel — `process()` takes `&mut State`. Parallelism happens at the instance level:
+A single Machine cannot process multiple inputs in parallel — `process()` takes
+`&mut State`. Parallelism happens at the instance level: multiple independent
+instances run on separate worker threads, each owning its own state.
 
 ```rust
-// Multiple machine instances, each on its own thread
-let results: Vec<_> = configs.par_iter()
+// Multiple machine instances, each on its own worker thread
+let results: Vec<_> = configs.into_iter()
     .map(|cfg| {
         let mut m = MyMachine::init(&ctx).unwrap();
         for input in &inputs { m.process(&mut m, &ctx, input); }
@@ -261,72 +266,78 @@ let results: Vec<_> = configs.par_iter()
 ### Static execution path (general, zero-cost)
 
 > **Positioning.** `axiom_runtime::static_path` provides the **general static
-> execution path**: `pipeline2`/`pipeline3` (linear chains), `fanout2`
-> (fan-out via `Split`), and `fanin2` (fan-in via `Merge`). All functions are
-> fully monomorphized — no `Box<dyn Any>`, no trait dispatch, no heap
-> allocation per message. The topology is encoded in type parameters and the
-> compiler fuses stages into a single loop. This closes the anti-narrowing gap
-> at the execution layer: the static path is no longer limited to linear chains
-> (see `docs/philosophy.md` §"The structural scope constraint").
+> execution path**: the combinators `pipeline_chain` (arbitrary-depth linear
+> chain over `Chain`), `diamond` (fork-join over `Diamond`), and `feedback`
+> (single-machine feedback loop). The topology is encoded in type parameters
+> and the compiler fuses stages into a single loop — fully monomorphized, no
+> `Box<dyn Any>`, no trait dispatch, no heap allocation per message. This
+> closes the anti-narrowing gap at the execution layer: the static path is no
+> longer limited to linear chains (see [philosophy.md](philosophy.md), section "The
+structural scope constraint").
 >
-> **Structural positioning (2026-08).** Static is the **main execution layer**
-> for *structure-fixed* systems: topology encoded as types, behavioral
-> complexity (what happens inside `process`) is a black box and never
-> requires the dynamic path. Static covers series-parallel graphs **plus
-> composite hierarchies** (any subgraph encapsulated as one node, recursively
-> — top level a series-parallel tree). The dynamic path serves only
-> topologies *sourced from runtime data* (config/plugin assembly, dynamic
-> links, cycles' time drive). Formal definitions: `docs/structural-model.md`
-> §2–4.
+> **Structural positioning.** Static is the **main execution layer** for
+> *structure-fixed* systems: topology encoded as types, behavioral complexity
+> (what happens inside `process`) is a black box and never requires the dynamic
+> path. `Chain` and `Diamond` form a recursive algebra that generates exactly
+> the **series-parallel DAGs** — pipelines, map-reduce, diamond networks,
+> multi-level split-merge trees — **plus composite hierarchies** (any subgraph
+> encapsulated as one node, recursively; top level a series-parallel tree).
+> The dynamic path serves only topologies *sourced from runtime data*
+> (config/plugin assembly, dynamic links, cycles' time drive). Formal
+> definitions are given in [structural-model.md](structural-model.md).
 
-The static path lives in `axiom-runtime::static_path` and builds on the type
-contracts in `axiom::static_exec` (`Link`, `Split`, `Merge`). It uses a
-**synchronous batch topological-order** model: inputs are processed machine by
-machine in topology order, outputs collected into `Vec`s, and `Split`/`Merge`
-handle fan-out/fan-in at the type level.
+The static path lives in `axiom-runtime::static_path` and builds on the
+`Straight` contract in `axiom::static_exec` (`StraightMachine`,
+`StraightLink`, `StraightSplit`, `StraightMerge`). It uses a **synchronous
+batch topological-order** model: inputs are processed machine by machine in
+topology order, outputs collected into `Vec`s, and fork/join are handled by
+the `StraightSplit`/`StraightMerge` contracts at the type level.
 
 ```rust
-use axiom_runtime::static_path::{pipeline2, fanout2, fanin2};
-use axiom::static_exec::{CloneSplit, Link, Merge};
+use axiom_runtime::static_path::{pipeline_chain, diamond, feedback};
+use axiom::static_exec::{Chain, Diamond, StraightClone, StraightId};
 
-// Linear: A → B (Link converts A::Output → Option<B::Input>)
-let outputs = pipeline2::<Doubler, Adder, DoublerToAdder>(inputs)?;
+// Linear: Doubler → Adder → Tripler (Chain nests to arbitrary depth)
+type Chain3 = Chain<Doubler, Chain<Adder, Tripler, StraightId>, StraightId>;
+let outputs = pipeline_chain::<Chain3>(inputs)?;
 
-// Fan-out: A → (B, C) (Split clones A::Output to both downstreams)
-let (b_out, c_out) = fanout2::<Doubler, Adder, Tripler, CloneSplit, _, _>(inputs)?;
+// Diamond: Doubler → StraightClone → (Adder, Tripler) → Sum → Adder
+type Shape = Diamond<Doubler, Adder, Tripler, Adder, StraightClone, StraightId, StraightId, Sum>;
+let outputs = diamond::<Doubler, Adder, Tripler, Adder, StraightClone, StraightId, StraightId, Sum>(inputs)?;
 
-// Fan-in: (A, B) → C (Merge combines A::Output + B::Output → C::Input)
-let outputs = fanin2::<Doubler, Tripler, Adder, SumMerge>(inputs_a, inputs_b)?;
+// Feedback: A's output is fed back into A's input with a one-tick delay
+let outputs = feedback::<Doubler, Sum>(inputs, 0)?;
 ```
 
 **0-cost contract:**
 
-- With `#[inline]` on `Machine::process` implementations and `--release`, the compiler fuses all stages into one loop, inlining across stage boundaries.
-- Allocations: 1 per stage output `Vec` (the batch model collects outputs; no per-message allocation).
+- With `#[inline]` on `process_straight` implementations and `--release`, the compiler fuses all stages into one loop, inlining across stage boundaries.
+- Allocations: one `Vec` per stage output (the batch model collects outputs; no per-message allocation).
 - The "data flow" metaphor dissolves into pure computation — no runtime `Port` or `Link` objects, no trait dispatch, no function-call barriers.
 
 **API:**
 
 | Function | Topology | Input | Output | Use case |
 |----------|----------|-------|--------|----------|
-| `pipeline2<A, B, L>` | A → B | `impl IntoIterator<Item=A::Input>` | `Vec<B::Output>` | 2-stage linear |
-| `pipeline3<A, B, C, L1, L2>` | A → B → C | `impl IntoIterator<Item=A::Input>` | `Vec<C::Output>` | 3-stage linear |
-| `fanout2<A, B, C, S, LB, LC>` | A → (B, C) | `impl IntoIterator<Item=A::Input>` | `(Vec<B::Output>, Vec<C::Output>)` | 2-way fan-out |
-| `fanin2<A, B, C, M>` | (A, B) → C | two iterators | `Vec<C::Output>` | 2-way fan-in |
+| `pipeline_chain<C: StaticChain>` | arbitrary-depth `Chain` | `Vec<C::In>` | `Vec<C::Out>` | linear pipelines |
+| `diamond<A, Left, Right, Down, S, LB, LC, M>` | A → split → (Left, Right) → merge → Down | `Vec<A::StraightIn>` | `Vec<Down::Out>` | fan-out / fan-in |
+| `feedback<A, M>` | single-machine feedback loop | `Vec<A::StraightIn>` + `initial` | `Vec<A::StraightOut>` | deterministic cycles |
 
 **Type contracts** (in `axiom::static_exec`):
 
-- `Link<Src, Dst>`: converts `Src::Output → Option<Dst::Input>` (stage connector).
-- `Split<T>`: splits one output into `(Left, Right)` for fan-out. `CloneSplit` provides Tee semantics.
-- `Merge<A, B>`: combines two upstream outputs into one downstream input.
+- `StraightMachine`: single-port machine passing raw payloads — `process_straight(state, input) -> output`, no port enum, no label check.
+- `StraightLink<S, D>`: converts `S::StraightOut` → `D::StraightIn` (stage connector); `StraightId` applies when `Out: Into<In>`.
+- `StraightSplit<T>`: splits one payload into `(Left, Right)` for fan-out. `StraightClone` provides Tee semantics.
+- `StraightMerge<A, B>`: combines two upstream payloads into one downstream payload.
+- `Chain<Head, Tail, L>` / `Diamond<A, Left, Right, Down, S, LB, LC, M>`: recursive combinators encoding arbitrary series-parallel topologies; `Composite<Inner>` wraps a sub-topology as a single node.
 
 **Limitations:**
 
-- All stages must be `FusedInline` (i.e., `SingleOutput` or `TupleOutput` — no `YieldMulti`). This is a compile-time guarantee, not a runtime check.
+- All stages must implement `StraightMachine` (single-input, single-output, raw payload). Multi-output machines (`YieldMulti`, runtime-determined output counts) are rejected at the type level — the static path expresses compile-time-known topologies only. This is a compile-time guarantee, not a runtime check.
 - All stages must be known at compile time (static topology).
-- Acyclic only — the synchronous batch model cannot express cycles. Use the dynamic path (`Runtime`) for cyclic topologies.
-- Series-parallel DAGs are first-class via `Chain` (serial) + `Diamond` (split-merge) recursion, whose arms and downstream may be arbitrary chains. Truly arbitrary DAGs (non-series-parallel cross edges) are outside this algebra — stable Rust cannot express an arbitrary edge table with type-safe ports — and take the dynamic path.
-- `Machine::process` implementations **must** be marked `#[inline]` for cross-crate inlining; without it, the compiler cannot fuse the stages.
+- Acyclic except the explicit `feedback` loop — the synchronous batch model cannot express time-driven cycles. Use the dynamic path (`Runtime`) for those.
+- Truly arbitrary DAGs (non-series-parallel cross edges) are outside the combinator algebra — stable Rust cannot express an arbitrary edge table with type-safe ports — and take the dynamic path.
+- `process_straight` implementations **must** be marked `#[inline]` for cross-crate inlining; without it, the compiler cannot fuse the stages.
 
 ---
 
@@ -335,7 +346,7 @@ let outputs = fanin2::<Doubler, Tripler, Adder, SumMerge>(inputs_a, inputs_b)?;
 Hard real-time is a deployment question, not a runtime question:
 
 1. Deploy as `CpuBound` on a dedicated OS thread
-2. Pin to a specific core via `core_affinity`
+2. Pin to a specific core via core affinity
 3. Pre-allocate all working memory in `init()`
 4. Use `CasFreeRing` links (lock-free)
 
@@ -408,9 +419,9 @@ The context provided to every Machine lifecycle method:
 | Initial value (set) | `set_initial_value::<T>(value)` | Called by deployer before spawn |
 
 > **Observation short-circuit is a runtime duty.** Connection existence is decided by the
-deployment topology (`DeploySpec`/`materialize`), not queried by machines — `MachineContext`
+deployment topology (`DynamicTopology`/`materialize`), not queried by machines — `MachineContext`
 does not expose `observe_is_connected()` / `output_is_connected()` (removed; see
-`docs/foundations.md` §7.5.1).
+[foundations.md](foundations.md)).
 
 > **Time precision:** `MachineContext` uses nanosecond precision exclusively via
 > `TimeTick` and `time_ns()`. There is no millisecond fallback — all time
@@ -509,7 +520,7 @@ use axiom::builtin::Identity;
 
 ## Graph-theoretic topology analysis
 
-A deployment topology `DeploySpec` is a **labeled directed multigraph**. Graph theory provides the vocabulary and algorithms to analyze it statically — before any runtime runs.
+A deployment topology `DynamicTopology` is a **labeled directed multigraph**. Graph theory provides the vocabulary and algorithms to analyze it statically — before any runtime runs.
 
 ### 1. The deployment graph model
 
@@ -522,10 +533,10 @@ where:
 
 | Symbol | Code | Meaning |
 |--------|------|---------|
-| $V$ | `DeploySpec::machines` $\cup$ `DeploySpec::funcs` | Vertices: computation units |
-| $E$ | `DeploySpec::links` | Directed edges: connections |
+| $V$ | `DynamicTopology::machines` $\cup$ `DynamicTopology::funcs` | Vertices: computation units |
+| $E$ | `DynamicTopology::links` | Directed edges: connections |
 | $\ell: E \to \text{LinkKind}$ | `LinkSpec::kind` | Edge label: physical strategy |
-| $\text{in}_M$ | `Machin::port_schema().inputs()` | Incoming edges to $M$ |
+| $\text{in}_M$ | `Machine::port_schema().inputs()` | Incoming edges to $M$ |
 | $\text{out}_M$ | `Machine::port_schema().outputs()` | Outgoing edges from $M$ |
 
 Each edge $e \in E$ carries metadata beyond the label:
@@ -572,7 +583,7 @@ The following graph algorithms can be run on $\Sigma$ before deployment:
 #### 3a. Topological sort (Inline-DAG)
 
 ```rust
-fn inline_topological_order(spec: &DeploySpec) -> Result<Vec<Vertex>, CycleError> {
+fn inline_topological_order(spec: &DynamicTopology) -> Result<Vec<Vertex>, CycleError> {
     // Build subgraph of Inline edges only.
     // Run Kahn's algorithm or DFS-based topological sort.
     // If a cycle is detected, return the cycle vertices for error reporting.
@@ -581,12 +592,15 @@ fn inline_topological_order(spec: &DeploySpec) -> Result<Vec<Vertex>, CycleError
 
 **Purpose:** Determine execution order for machines connected via Inline links on the same thread.
 
-**Implementation status:** Implemented — `analysis::inline_cycle()` (Kahn's algorithm) returns the offending cycle, enforced as a hard error in `DeploySpec::validate_deep()`. `analysis::inline_topological_order()` exposes the order directly. Verified by E121.
+**Implementation.** The algorithm is provided by the `analysis` module:
+`analysis::inline_cycle()` (Kahn's algorithm) returns the offending cycle,
+enforced as a hard error in `DynamicTopology::validate_deep()`;
+`analysis::inline_topological_order()` exposes the order directly.
 
 #### 3b. Strongly connected components
 
 ```rust
-fn feedback_loops(spec: &DeploySpec) -> Vec<Vec<Vertex>> {
+fn feedback_loops(spec: &DynamicTopology) -> Vec<Vec<Vertex>> {
     // Run Kosaraju or Tarjan on the full graph.
     // Return all SCCs with size > 1 — these are feedback loops.
     // For each SCC, verify that no edge within it is Inline.
@@ -597,16 +611,18 @@ fn feedback_loops(spec: &DeploySpec) -> Vec<Vec<Vertex>> {
 
 **Engineering rule:** A cycle of Mealy machines connected by BoundedBuf edges is a legal feedback loop (state update lags by one tick). A cycle of Inline edges is illegal.
 
-**Implementation status:** Implemented — `analysis::feedback_loops()` (Tarjan's SCC, single-pass iterative). Returns all SCCs of size > 1 as advisory `FeedbackLoop` entries via `DeploySpec::analyze()`. Verified by E122.
+**Implementation.** Provided by `analysis::feedback_loops()` (Tarjan's SCC,
+single-pass iterative). It returns all SCCs of size > 1 as advisory
+`FeedbackLoop` entries via `DynamicTopology::analyze()`.
 
 #### 3c. Reachability
 
 ```rust
-fn reachable_from(spec: &DeploySpec, source: &str) -> HashSet<&str> {
+fn reachable_from(spec: &DynamicTopology, source: &str) -> HashSet<&str> {
     // BFS/DFS from source along outgoing edges.
 }
 
-fn can_reach(spec: &DeploySpec, source: &str, target: &str) -> bool {
+fn can_reach(spec: &DynamicTopology, source: &str, target: &str) -> bool {
     // BFS/DFS from source, stop when target found.
 }
 ```
@@ -616,12 +632,16 @@ fn can_reach(spec: &DeploySpec, source: &str, target: &str) -> bool {
 - **Control reachability**: A controller machine's control outputs reach all intended target machines.
 - **Orphan detection**: Vertices with no inbound edges (except Source) or no outbound edges (except Sink) — may indicate configuration errors.
 
-**Implementation status:** Implemented — `analysis::reachable_from()` / `analysis::can_reach()` (BFS), `analysis::observe_completeness()` (port-level BFS with link edges + internal edges, distinguishing multiple observe ports per machine), and `analysis::orphans()`. Observe completeness is verified by E124.
+**Implementation.** Provided by the `analysis` module:
+`analysis::reachable_from()` / `analysis::can_reach()` (BFS),
+`analysis::observe_completeness()` (port-level BFS with link edges + internal
+edges, distinguishing multiple observe ports per machine), and
+`analysis::orphans()`.
 
 #### 3d. Dominator analysis
 
 ```rust
-fn single_point_of_failure(spec: &DeploySpec) -> Vec<Vertex> {
+fn single_point_of_failure(spec: &DynamicTopology) -> Vec<Vertex> {
     // Compute dominators from root(s).
     // Any vertex that dominates all paths to a critical region is a SPOF.
 }
@@ -629,7 +649,10 @@ fn single_point_of_failure(spec: &DeploySpec) -> Vec<Vertex> {
 
 **Purpose:** Identify vertices whose failure disconnects the graph. A controller that all data flows through is a single point of failure — its redundancy should be considered at the deployment level.
 
-**Implementation status:** Implemented — `analysis::single_points_of_failure()` (Cooper-Harvey-Kennedy iterative dominator analysis from all source vertices, post-processed to exclude sources themselves). Returns advisory SPOF entries via `DeploySpec::analyze()`. Verified by E123.
+**Implementation.** Provided by `analysis::single_points_of_failure()`
+(Cooper-Harvey-Kennedy iterative dominator analysis from all source vertices,
+post-processed to exclude sources themselves). It returns advisory SPOF
+entries via `DynamicTopology::analyze()`.
 
 ### 4. Feedback topology and algebraic loops
 
@@ -647,7 +670,7 @@ In a cycle $C$, if every Machine on $C$ is Moore-type ($\lambda: S \to O$, no di
 
 *Practical consequence.* Moore-type machines are feedback-safe. Mealy-type machines in Inline cycles cause algebraic loops.
 
-**Engineering rule.** If you detect a cycle in `DeploySpec::validate()`:
+**Engineering rule.** If you detect a cycle in `DynamicTopology::validate()`:
 1. If every edge is Inline → **reject** (algebraic loop / deadlock)
 2. If at least one edge is BoundedBuf or Channel → **warn** but accept (sequential feedback — check Moore property)
 3. If all machines on the cycle are Moore-type → accept silently
@@ -733,14 +756,14 @@ A vertex $v \in V$ is a **single point of failure** for reachability $R \subsete
 | Invariant | Algorithm | Enforced at | Current status |
 |-----------|-----------|-------------|----------------|
 | Type compatibility | TypeId + FlowKind match | `LinkCompat::check()` | Implemented |
-| Inline acyclicity | Kahn's topological sort | `DeploySpec::validate_deep()` ← `analysis::inline_cycle()` | Implemented (E121) |
-| Feedback loop detection | SCC (Tarjan) | Advisory — `analysis::feedback_loops()` via `DeploySpec::analyze()` | Implemented (E122) |
-| SPOF detection | Cooper-Harvey-Kennedy dominators | Advisory — `analysis::single_points_of_failure()` via `DeploySpec::analyze()` | Implemented (E123) |
-| Observability completeness | Port-level BFS | Advisory — `analysis::observe_completeness()` via `DeploySpec::analyze()` | Implemented (E124) |
-| Edge degree constraints | Per-port counter | `DeploySpec::validate_deep()` ← `analysis::degree_violations()` | Implemented (E120) |
+| Inline acyclicity | Kahn's topological sort | `DynamicTopology::validate_deep()` ← `analysis::inline_cycle()` | Implemented |
+| Feedback loop detection | SCC (Tarjan) | Advisory — `analysis::feedback_loops()` via `DynamicTopology::analyze()` | Implemented |
+| SPOF detection | Cooper-Harvey-Kennedy dominators | Advisory — `analysis::single_points_of_failure()` via `DynamicTopology::analyze()` | Implemented |
+| Observability completeness | Port-level BFS | Advisory — `analysis::observe_completeness()` via `DynamicTopology::analyze()` | Implemented |
+| Edge degree constraints | Per-port counter | `DynamicTopology::validate_deep()` ← `analysis::degree_violations()` | Implemented |
 | Schema version drift | Version diff check | `LinkCompat::check()` | Implemented |
-| Dynamic topology cycle detection | Kahn's algorithm | `DynamicTopology::detect_cycle()` | Implemented |
-| Atomic batch operations | Snapshot + rollback | `DynamicTopology::apply_batch()` | Implemented |
+| Topology mutation cycle detection | Kahn's algorithm | `TopologyMutation::detect_cycle()` | Implemented |
+| Atomic batch operations | Snapshot + rollback | `TopologyMutation::apply_batch()` | Implemented |
 
 ---
 
@@ -794,23 +817,23 @@ let shipper_local = project(&global, "Shipper"); // Recv dispatch
 
 ---
 
-## Dynamic topology
+## Topology mutation
 
 > **Positioning: optional capability, not the default.** axiom's default
-> worldview is a **static topology** — `DeploySpec` declared once,
-> `validate_deep` checked once, topology never mutated at runtime. Static
-> topologies are zero-cost (monomorphized path), fully analyzable before
-> deployment, and carry no dynamic tax (Theorem 15.3). The `DynamicTopology`
-> type exists for contract completeness (a runtime mirror of the pure-data
-> `DeploySpec` must exist) and for the few systems that genuinely need
-> runtime reconfiguration. One invariant bounds it:
+> worldview is a **static topology** — a `DynamicTopology` declared once,
+> `validate_deep` checked once, the instance graph never mutated at runtime.
+> Static topologies are zero-cost (monomorphized path), fully analyzable
+> before deployment, and carry no dynamic tax (Theorem 15.3). The mutation
+> form `TopologyMutation` exists for contract completeness (runtime
+> reorganization of a pure-data `DynamicTopology`) and for the few systems
+> that genuinely need runtime reconfiguration. One invariant bounds it:
 >
 > > **The instance graph is dynamic; the type space is static.**
 >
 > `Spawn`/`Link`/`Unlink`/`Retire`/`Replace` mutate *instances* of
 > already-registered machine types; axiom core has no notion of loading a
 > new `Machine` implementation at runtime (plugin code loading is a
-> runtime-adapter concern). Legitimate dynamic use cases: elastic scaling
+> runtime-adapter concern). Legitimate mutation use cases: elastic scaling
 > (replicas of an existing type), hot-swap/self-healing (`Replace`), and
 > session/tenant subgraphs — and even these can usually be expressed with a
 > **static topology + control/state changes** (pre-allocated replicas toggled
@@ -818,9 +841,11 @@ let shipper_local = project(&global, "Shipper"); // Recv dispatch
 > mutation only when the topology itself must be decided by the running
 > system.
 
-`DynamicTopology` provides runtime Spawn/Link/Unlink/Retire/Replace
-operations for systems that need to reconfigure at runtime
-(elastic scaling, hot-swap, session subgraphs).
+`TopologyMutation` (in `axiom::topology`) applies runtime
+Spawn/Link/Unlink/Retire/Replace operations to an existing deployment for
+systems that need to reconfigure at runtime (elastic scaling, hot-swap,
+session subgraphs). It is derived from a `DynamicTopology` (`from_spec`) and
+exposes `snapshot()` to recover the updated pure-data value form.
 
 ### Operations
 
@@ -846,15 +871,20 @@ succeed, or none are applied (rollback on first failure via pre-batch
 snapshots of machines, links, and history).
 
 ```rust
-use axiom::topology::{DynamicTopology, TopologyOp};
+use axiom::deploy::{DynamicTopology, MachineInstance};
+use axiom::link::LinkKind;
+use axiom::resource::MachinePhysicalSpec;
+use axiom::topology::{TopologyMutation, TopologyOp};
 
-let mut topo = DynamicTopology::new();
+let spec = DynamicTopology::new()
+    .with_machine(MachineInstance::new("a", "worker", MachinePhysicalSpec::default()))
+    .with_machine(MachineInstance::new("b", "worker", MachinePhysicalSpec::default()));
+let mut topo = TopologyMutation::from_spec(&spec);
 topo.apply_batch(vec![
-    TopologyOp::Spawn { name: "a", machine_type: "worker", .. },
-    TopologyOp::Spawn { name: "b", machine_type: "worker", .. },
     TopologyOp::Link { out: ("a", "out"), into: ("b", "in"), kind: LinkKind::Inline },
 ])?;
 // If any operation fails, all are rolled back.
+let updated = topo.snapshot();
 ```
 
 ---

@@ -1,29 +1,38 @@
-//! IO 多路复用——平台抽象 + runtime 集成。
+//! IO multiplexing — platform abstraction + runtime integration.
 //!
-//! ## 设计定位
+//! ## Design role
 //!
-//! axiom core 的 `Machine::process` 保持同步签名不变。IO 多路复用是
-//! runtime 的职责（见 `lib.rs` 设计原则）。本模块提供：
+//! axiom core's `Machine::process` keeps its synchronous signature. IO
+//! multiplexing is the runtime's responsibility (see the design principles
+//! in `lib.rs`). This module provides:
 //!
-//! - **`IoReactor` trait**：readiness 模型的平台抽象（register / poll）。
-//!   Linux → epoll，macOS/BSD → kqueue，Windows → WSAEventSelect。
-//! - **`IoEvent`**：就绪事件，作为 `Any + Send` payload 注入 machine 的
-//!   输入端口——machine 在 `process` 中收到后执行实际 IO（read/write）。
-//! - **`ManualReactor`**：预装载事件的内存 reactor，用于无 OS 依赖的
-//!   单元测试（验证 runtime 集成，不依赖真实 socket）。
+//! - **`IoReactor` trait**: the platform abstraction for the readiness model
+//!   (register / poll). Linux → epoll, macOS/BSD → kqueue, Windows →
+//!   WSAEventSelect.
+//! - **`IoEvent`**: a readiness event injected as an `Any + Send` payload
+//!   into a machine's input port — the machine performs the actual IO
+//!   (read/write) in `process` after receiving it.
+//! - **`ManualReactor`**: an in-memory reactor with preloaded events, used
+//!   for OS-independent unit tests (verifying runtime integration without
+//!   relying on real sockets).
 //!
-//! ## 集成模型（外部注册）
+//! ## Integration model (external registration)
 //!
-//! 现有 side-channel 全是 runtime→machine 单向（signal/time/lifecycle），
-//! machine 无法在 `process` 内主动注册 FD。故采用**外部注册**：
+//! The existing side channels are all one-way runtime→machine
+//! (signal/time/lifecycle), so a machine cannot proactively register an FD
+//! inside `process`. Hence **external registration**:
 //!
-//! 1. 调用方创建 IO source（如 `TcpListener`），取 raw fd/socket；
-//! 2. `rt.register_io(token, machine_name, port, raw, interest)` 注册——
-//!    runtime 维护 token→(machine, port) 映射，reactor 维护 token→fd；
-//! 3. `rt.run_io(external_inputs, timeout)` ——poll reactor → 就绪事件
-//!    转为 inputs → 合并外部 inputs → 驱动现有 tick 循环 → 返回输出。
+//! 1. The caller creates an IO source (e.g. `TcpListener`) and takes its raw
+//!    fd/socket;
+//! 2. `rt.register_io(token, machine_name, port, raw, interest)` registers
+//!    it — the runtime keeps a token→(machine, port) mapping and the reactor
+//!    keeps a token→fd mapping;
+//! 3. `rt.run_io(external_inputs, timeout)` — polls the reactor, turns ready
+//!    events into inputs, merges external inputs, drives the existing tick
+//!    loop, and returns the outputs.
 //!
-//! 这保持了 `process` 签名不变，无需扩展 `MachineContext`。
+//! This keeps the `process` signature unchanged and avoids extending
+//! `MachineContext`.
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
@@ -38,7 +47,7 @@ pub type RawIo = std::os::windows::io::RawSocket;
 #[cfg(not(any(unix, windows)))]
 pub type RawIo = i32;
 
-/// IO 就绪兴趣标志（readiness 模型）。
+/// IO readiness interest flags (readiness model).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IoInterest(u8);
 
@@ -59,37 +68,38 @@ impl IoInterest {
         self.0 & Self::WRITABLE.0 != 0
     }
 
-    /// 位向量（平台实现内部用——epoll/kqueue/WSA 的掩码构造）。
+    /// The bit vector (for internal use by platform implementations — building epoll/kqueue/WSA masks).
     pub(crate) fn bits(self) -> u8 { self.0 }
 
-    /// 从位向量构造（平台实现内部用——就绪事件归一化）。
+    /// Construct from a bit vector (for internal use by platform implementations — normalizing readiness events).
     pub(crate) fn from_bits(b: u8) -> Self { Self(b) }
 }
 
-/// IO source 的注册令牌——调用方用它关联就绪事件与 machine 输入端口。
+/// Registration token for an IO source — the caller uses it to associate readiness events with a machine's input port.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct IoToken(pub usize);
 
-/// 从 reactor 返回的就绪事件。
+/// A readiness event returned from the reactor.
 ///
-/// 作为 `Box<dyn Any + Send>` 注入 machine 的输入端口。machine 在
-/// `process` 中 downcast 收到它，按 `readiness` 执行实际 IO。
+/// Injected into a machine's input port as a `Box<dyn Any + Send>`. The
+/// machine receives it via downcast in `process` and performs the actual IO
+/// according to `readiness`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IoEvent {
     pub token: IoToken,
     pub readiness: IoInterest,
 }
 
-/// reactor 错误——OS 多路复用调用的失败归一化。
+/// Reactor error — normalization of OS multiplexing call failures.
 #[derive(Debug)]
 pub enum IoError {
-    /// register / deregister 失败（OS errno 归一化）。
+    /// register / deregister failure (normalized OS errno).
     RegisterFailed { raw_errno: i32 },
-    /// poll 失败（OS errno 归一化）。
+    /// poll failure (normalized OS errno).
     PollFailed { raw_errno: i32 },
-    /// 超出平台限制（如 WSAEventSelect 最多 64 个事件对象）。
+    /// Exceeds a platform limit (e.g. WSAEventSelect supports at most 64 event objects).
     CapacityExceeded,
-    /// 不支持的平台（无 epoll/kqueue/WSA 可用）。
+    /// Unsupported platform (no epoll/kqueue/WSA available).
     Unsupported,
 }
 
@@ -104,34 +114,36 @@ impl core::fmt::Display for IoError {
     }
 }
 
-/// readiness 模型的 IO 多路复用抽象。
+/// IO multiplexing abstraction for the readiness model.
 ///
-/// 平台实现：
-/// - Linux：`epoll`（`EpollReactor`）
-/// - macOS/BSD：`kqueue`（`KqueueReactor`）
-/// - Windows：`WSAEventSelect`（`WsaReactor`）
+/// Platform implementations:
+/// - Linux: `epoll` (`EpollReactor`)
+/// - macOS/BSD: `kqueue` (`KqueueReactor`)
+/// - Windows: `WSAEventSelect` (`WsaReactor`)
 ///
-/// 所有方法接收 `RawIo`（Unix = `RawFd`，Windows = `RawSocket`）。
-/// `poll` 返回就绪事件列表（可能为空——timeout 到期且无就绪）。
+/// All methods take a `RawIo` (Unix = `RawFd`, Windows = `RawSocket`).
+/// `poll` returns the list of readiness events (possibly empty — the timeout
+/// expired with nothing ready).
 pub trait IoReactor: Send {
-    /// 注册一个 IO source 的就绪兴趣。`token` 用于在 `poll` 结果中
-    /// 关联就绪事件与调用方上下文。
+    /// Register readiness interest for an IO source. `token` is used to
+    /// associate readiness events with the caller's context in `poll` results.
     fn register(&mut self, raw: RawIo, interest: IoInterest, token: IoToken) -> Result<(), IoError>;
 
-    /// 更新已注册 source 的兴趣（readiness 模型下 rearm）。
+    /// Update the interest of a registered source (rearm under the readiness model).
     fn reregister(&mut self, raw: RawIo, interest: IoInterest, token: IoToken) -> Result<(), IoError>;
 
-    /// 注销一个 IO source。
+    /// Deregister an IO source.
     fn deregister(&mut self, raw: RawIo) -> Result<(), IoError>;
 
-    /// 阻塞等待就绪事件，最多 `timeout`。`None` = 阻塞直到有事件；
-    /// `Some(0)` = 立即返回（非阻塞轮询）。
+    /// Block waiting for readiness events, at most `timeout`. `None` = block
+    /// until an event arrives; `Some(0)` = return immediately (non-blocking poll).
     fn poll(&mut self, timeout: Option<Duration>) -> Result<Vec<IoEvent>, IoError>;
 }
 
-// ── 平台选择 ──────────────────────────────────────────────────────────────
+// ── Platform selection ────────────────────────────────────────────────────
 //
-// 当前平台可用的最佳 reactor。`default_reactor()` 返回一个新实例。
+// The best reactor available on the current platform. `default_reactor()`
+// returns a new instance.
 #[cfg(target_os = "linux")]
 pub mod epoll;
 #[cfg(target_os = "linux")]
@@ -147,23 +159,25 @@ pub mod wsa;
 #[cfg(target_os = "windows")]
 pub use wsa::WsaReactor as DefaultReactor;
 
-/// 构造当前平台的默认 reactor。
+/// Construct the default reactor for the current platform.
 #[allow(dead_code)]
 pub fn default_reactor() -> Result<DefaultReactor, IoError> {
     DefaultReactor::new()
 }
 
-// ── ManualReactor：测试用内存 reactor ─────────────────────────────────────
+// ── ManualReactor: in-memory reactor for tests ────────────────────────────
 //
-// 预装载事件队列——`poll` 弹出预置事件。不依赖 OS socket，用于验证
-// runtime 集成（register_io → run_io → IoEvent 注入）的正确性。
+// A preloaded event queue — `poll` pops the preset events. It does not rely
+// on OS sockets; it is used to verify the runtime integration
+// (register_io → run_io → IoEvent injection).
 use alloc::collections::VecDeque;
 
-/// 内存 reactor——预装载就绪事件，`poll` 按序弹出。
+/// In-memory reactor — preloads readiness events; `poll` pops them in order.
 ///
-/// `register`/`deregister` 是 no-op（仅记录调用）。`poll` 从预置队列
-/// 弹出事件；队列空时按 `timeout` 行为：`None` → 返回空（不阻塞），
-/// `Some(0)` → 返回空，`Some(_)` → 返回空（测试场景不真睡）。
+/// `register`/`deregister` are no-ops (only recording the calls). `poll` pops
+/// events from the preloaded queue; when the queue is empty, `timeout`
+/// behavior: `None` → return empty (no blocking), `Some(0)` → return empty,
+/// `Some(_)` → return empty (tests do not actually sleep).
 pub struct ManualReactor {
     pending: VecDeque<IoEvent>,
     registered: BTreeMap<IoToken, (RawIo, IoInterest)>,
@@ -174,7 +188,7 @@ impl ManualReactor {
         Self { pending: VecDeque::new(), registered: BTreeMap::new() }
     }
 
-    /// 预注入一个就绪事件，下次 `poll` 会返回它。
+    /// Pre-inject a readiness event; the next `poll` will return it.
     pub fn push_event(&mut self, event: IoEvent) {
         self.pending.push_back(event);
     }

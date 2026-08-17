@@ -24,7 +24,7 @@
 //!   输入 5：entry → 15 → double_amp → ((15+10)×3+10)×3 = 75×3 = 255 → sink → 765
 
 use axiom::declare_ports;
-use axiom::deploy::{DeploySpec, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance};
 use axiom::link::{LinkKind, LinkSpec};
 use axiom::machine::Machine;
 use axiom::port::MachineContext;
@@ -95,7 +95,7 @@ impl axiom::machine::FusedInline for Triple {}
 /// `amp_shift` 复合 = AddTen → Triple。
 /// 语义：x → (x + 10) × 3
 fn amp_shift_composite() -> CompositeSpec {
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("add", "add_ten", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("mul", "triple", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("add", "y"), ("mul", "x"), LinkKind::Inline));
@@ -107,7 +107,7 @@ fn amp_shift_composite() -> CompositeSpec {
 /// `double_amp` 嵌套复合 = amp_shift → amp_shift。
 /// 语义：x → ((x + 10) × 3 + 10) × 3
 fn double_amp_composite() -> CompositeSpec {
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a1", "amp_shift", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("a2", "amp_shift", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("a1", "out"), ("a2", "in"), LinkKind::Inline));
@@ -136,7 +136,7 @@ fn scenario_single_layer() {
     // 拓扑：entry(AddTen) → comp(amp_shift)
     // 展开后：entry → comp.add → comp.mul
     // 输入 5：5 → entry(+10)=15 → comp.add(+10)=25 → comp.mul(×3)=75
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("entry", "add_ten", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("comp", "amp_shift", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("entry", "y"), ("comp", "in"), LinkKind::Inline));
@@ -180,7 +180,7 @@ fn scenario_nested() {
     //   a2.add: 75+10 = 85
     //   a2.mul: 85×3 = 255
     //   sink: 255×3 = 765
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("entry", "add_ten", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("quad", "double_amp", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("sink", "triple", MachinePhysicalSpec::default()))
@@ -223,7 +223,7 @@ fn scenario_fusion_across_boundary() {
     // 都是 FusedInline + Inline → 展开后融合为单个 FusedPipeline。
     // 场景 1 的拓扑（entry → comp(amp_shift)）展开后 3 台机器，
     // 融合后应降为 1 个 FusedPipeline。
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("entry", "add_ten", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("comp", "amp_shift", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("entry", "y"), ("comp", "in"), LinkKind::Inline));

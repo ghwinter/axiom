@@ -1,65 +1,69 @@
 //! # axiom-runtime
 //!
-//! axiom 的统一运行时：将 `DeploySpec` 物化为活跃的 `MachineHandle`，
-//! 驱动 `process` 循环，管理生命周期。
+//! The unified runtime of axiom: materializes a `DynamicTopology` into live `MachineHandle`s,
+//! drives the `process` loop, and manages the lifecycle.
 //!
-//! ## 设计原则
+//! ## Design principles
 //!
-//! - **统一 runtime，配置区分模式**：单线程与多线程不是两个独立类型，
-//!   而是同一个 `Runtime` 在 `RuntimeConfig::mode` 上的不同取值。
-//!   `Inline` → 调用方线程内联执行；
-//!   `Sequential` → 单线程顺序循环；
-//!   `Parallel(n)` → N 个 worker 线程并行调度。
-//! - **native loop 不可自举**：runtime 的驱动循环本身不是 Machine，
-//!   是一段 C 风格的 `loop { pull; process; route }`。
-//! - **process 保持同步**：`Machine::process` 的同步签名不变。IO 多路复用、
-//!   线程池管理是 runtime 的职责，不污染 core 的纯契约层。
-//! - **静态拓扑优先**：runtime 物化 `DeploySpec` 后，拓扑在内存中固定，
-//!   不支持运行时增删 Machine。需要"看起来动态"的行为（弹性、路由），
-//!   用静态拓扑 + Machine 内部 State 变化表达。
+//! - **Unified runtime, modes configured, not separate types**: single-threaded and multi-threaded
+//!   are not two independent types but different values of the same `Runtime` on
+//!   `RuntimeConfig::mode`.
+//!   `Inline` → inlined execution on the caller's thread;
+//!   `Sequential` → single-threaded sequential loop;
+//!   `Parallel(n)` → N worker threads scheduled in parallel.
+//! - **The native loop cannot bootstrap itself**: the runtime's driver loop is not itself a
+//!   Machine; it is a C-style `loop { pull; process; route }`.
+//! - **process stays synchronous**: the synchronous signature of `Machine::process` is unchanged.
+//!   IO multiplexing and thread-pool management are the runtime's responsibility and do not pollute
+//!   core's pure contract layer.
+//! - **Static topology first**: once the runtime materializes a `DynamicTopology`, the topology is
+//!   fixed in memory; machines cannot be added or removed at runtime. Behavior that needs to "look
+//!   dynamic" (elasticity, routing) is expressed with a static topology + Machine-internal State
+//!   changes.
 //!
-//! ## 覆盖范围
+//! ## Scope
 //!
-//! - 单线程顺序驱动循环（`Sequential` 模式，直接 move 投递）
-//! - 多线程驱动（`Parallel(n)` 模式：每机器一个 OS 线程，链接按
-//!   `LinkKind` 物化为 `mpsc::channel` / `mpsc::sync_channel` /
-//!   自定义有界覆盖 / 单槽覆盖载体；channel 断开级联停机）
-//! - `RegisterFn` 注册表 + 类型擦除 `RunningMachine`
-//! - `materialize` / `tick` / `shutdown` 生命周期
-//! - **output → input 路由**（tick 按 `LinkSpec` 把输出投递到下游，
-//!   BFS 逐级传播，含 Tee fan-out）
-//! - **停机传播**（`Done` = 停机信号：机器停机、积压丢弃、级联传播到
-//!   所有入边源均已停机的下游；Parallel 线程收到 `Done` 立即退出）
-//! - **fan-in 支持**（Parallel 模式多入边经 forward 线程合并消费，
-//!   按到达顺序注入）
-//! - **B 档载体**：`Overwriting` 有界覆盖（满时覆盖最老）、`Latest`/
-//!   `SharedState` 单槽覆盖、`ReadPolicy::NonBlocking` 轮询
-//! - **pipelineN 融合**：`materialize` 自动识别相邻 `FusedInline` 机器
-//!   的 Inline 链，替换为 `FusedPipeline`——消除每跳的路由查找
-//!   （2 次 String 克隆），每跳从 +4 降到 +2 alloc（R003）
-//! - **复合 Machine**：`register_composite` 把子拓扑 + 端口映射封装为
-//!   单一 `machine_type`；`materialize` 递归展开（名字空间化子机器 +
-//!   重定向外部链接），展开在融合之前——`FusedPipeline` 可跨原复合
-//!   边界融合
+//! - Single-threaded sequential driver loop (`Sequential` mode, direct move delivery)
+//! - Multi-threaded driving (`Parallel(n)` mode: one OS thread per machine; links materialize per
+//!   `LinkKind` as `mpsc::channel` / `mpsc::sync_channel` / custom bounded overwrite / single-slot
+//!   overwrite carriers; channel disconnection cascades shutdown)
+//! - `RegisterFn` registry + type-erased `RunningMachine`
+//! - `materialize` / `tick` / `shutdown` lifecycle
+//! - **output → input routing** (tick delivers outputs downstream per `LinkSpec`, propagating
+//!   level by level in BFS order, including Tee fan-out)
+//! - **shutdown propagation** (`Done` = stop signal: the machine stops, backlog is dropped, and the
+//!   stop cascades to every downstream whose in-edge sources are all stopped; a Parallel thread
+//!   exits immediately upon receiving `Done`)
+//! - **fan-in support** (in Parallel mode, multiple in-edges are merged and consumed via a forward
+//!   thread, injected in arrival order)
+//! - **Tier-B carriers**: `Overwriting` bounded overwrite (overwrites the oldest when full),
+//!   `Latest`/`SharedState` single-slot overwrite, `ReadPolicy::NonBlocking` polling
+//! - **pipelineN fusion**: `materialize` automatically recognizes Inline chains of adjacent
+//!   `FusedInline` machines and replaces them with a `FusedPipeline` — eliminating the per-hop
+//!   route lookup (2 String clones), bringing each hop from +4 down to +2 allocs (R003)
+//! - **Composite Machine**: `register_composite` wraps a sub-topology + port mapping as a single
+//!   `machine_type`; `materialize` expands it recursively (namespaced sub-machines + redirected
+//!   external links), and expansion happens before fusion — so `FusedPipeline` can fuse across
+//!   original composite boundaries
 //!
-//! 未覆盖（后续增量）：
-//! - `SharedState` 的多读者语义（当前单消费者近似）
-//! - Windows 大规模 IO 的 IOCP completion 模型（当前 WSAEventSelect
-//!   readiness 模型支持 ≤64 源；生产级数千连接需 IOCP）
-//! - 每 tick 重建线程 scope 的批量注入形态（并行收益依赖命令持续到达，
-//!   而非一次性批量注入）
+//! Not covered (later increments):
+//! - Multi-reader semantics of `SharedState` (currently a single-consumer approximation)
+//! - IOCP completion model for large-scale Windows IO (the current WSAEventSelect readiness model
+//!   supports ≤64 sources; production-scale thousands of connections need IOCP)
+//! - Bulk-injection shapes that rebuild the thread scope per tick (parallel gains depend on a
+//!   sustained stream of commands arriving, not a one-off bulk injection)
 //!
-//! ## 模块结构
+//! ## Module structure
 //!
 //! - [`config`] — `ExecMode` / `RuntimeConfig`
 //! - [`erasure`] — `RunningMachine` trait + `ProcessResult` + `MachineWrapper`
 //! - [`registry`] — `RegisterFn` + `Registry`
 //! - [`topology`] — `LiveTopology` + `PhysicalLink`
-//! - [`carrier`] — Parallel 链接载体（`ChanSender`/`ChanReceiver` + 覆盖/单槽实现）
-//! - [`routing`] — 路由 + 停机传播 + 端点校验 + 环检测
-//! - [`fusion`] — pipelineN 融合（`FusedPipeline` + 链识别 + `apply_fusion`）
-//! - [`io`] — IO 多路复用（`IoReactor` trait + epoll/kqueue/WSAEventSelect 平台实现）
-//! - [`runtime`] — `Runtime` 主体（`materialize`/`tick`/`shutdown`/`run_io`）
+//! - [`carrier`] — Parallel link carriers (`ChanSender`/`ChanReceiver` + overwrite/single-slot implementations)
+//! - [`routing`] — routing + shutdown propagation + endpoint validation + cycle detection
+//! - [`fusion`] — pipelineN fusion (`FusedPipeline` + chain recognition + `apply_fusion`)
+//! - [`io`] — IO multiplexing (`IoReactor` trait + epoll/kqueue/WSAEventSelect platform implementations)
+//! - [`runtime`] — the `Runtime` core (`materialize`/`tick`/`shutdown`/`run_io`)
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -86,11 +90,12 @@ mod typed_slot;
 #[cfg(test)]
 mod tests;
 
-// 公共 API re-export
-// CompositeSpec / expand_composites / CompositeError 现在从 core 引用——
-// 复合是结构定义能力，属于 axiom core；runtime 只在物化时调用 expand_composites。
 pub use axiom::composite::{CompositeSpec, CompositeError, expand_composites};
-pub use axiom::static_exec::{CloneSplit, IdLink, Link, Merge, Split, StaticExecError};
+pub use axiom::static_exec::{
+    Chain, Composite, Diamond, FlowThrough, run_parallel, StaticChain, StaticExecError,
+    StraightClone, StraightId, StraightLink, StraightMachine, StraightMerge, StraightSplit,
+};
+pub use axiom::topology::{Topology, StaticTopology};
 pub use replay::{ReplayJournal, Replayer};
 pub use config::{ExecMode, RuntimeConfig};
 pub use erasure::{ProcessResult, RunningMachine};
@@ -101,8 +106,5 @@ pub use io::{
 };
 pub use registry::{RegisterFn, Registry};
 pub use runtime::Runtime;
-pub use static_path::{diamond, fanin2, fanout2, feedback, pipeline2, pipeline3, pipeline_chain};
+pub use static_path::{diamond, feedback, pipeline_chain};
 pub use topology::{LiveTopology, PhysicalLink};
-
-
-

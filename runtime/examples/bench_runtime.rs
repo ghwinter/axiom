@@ -1,29 +1,34 @@
-//! axiom-runtime 性能基准——验证三个核心特性的开销/收益。
+//! axiom-runtime performance benchmark — measures the cost/benefit of three core features.
 //!
-//! 运行（release 才有意义）：
+//! Run (only meaningful in release):
 //!   cargo run --manifest-path runtime/Cargo.toml --release --example bench_runtime
 //!
-//! # 基准组
+//! # Benchmark groups
 //!
-//! 1. **fusion_overhead**：3 级 FusedInline 链，register_fused vs register。
-//!    验证融合降低每跳 alloc（R003）：fused 的 ns/tick 应显著低于 non-fused，
-//!    且随链长增长差距扩大。
-//! 2. **chain_length_scaling**：链长 1/3/6/10，fused vs non-fused。
-//!    验证融合收益随链长线性增长（non-fused 每跳 +路由开销，fused 内化）。
-//! 3. **io_routing**：ManualReactor + N 个 token，run_io 事件路由吞吐。
-//!    验证 IO 事件合并外部 inputs 的开销在合理范围。
+//! 1. **fusion_overhead**: 3-level FusedInline chain, register_fused vs register.
+//!    Verifies that fusion reduces per-hop allocs (R003): fused ns/tick should be markedly
+//!    lower than non-fused, and the gap widens as chain length grows.
+//! 2. **chain_length_scaling**: chain lengths 1/3/6/10, fused vs non-fused.
+//!    Verifies fusion benefit grows linearly with chain length (non-fused adds per-hop
+//!    routing overhead; fused internalizes it).
+//! 3. **io_routing**: ManualReactor + N tokens, run_io event routing throughput.
+//!    Verifies that merging IO events with external inputs keeps overhead within a
+//!    reasonable range.
 //!
-//! # 设计说明
+//! # Design notes
 //!
-//! - 零外部依赖（无 criterion）：用 `std::time::Instant` + 自动迭代计数。
-//! - 每次 `tick` 注入一个输入，BFS 传播到终端输出——测单条链的端到端延迟。
-//! - Parallel 模式的 tick 每次 spawn 线程，不适合微基准（吞吐由线程创建
-//!   开销主导，非路由开销）——故本基准只覆盖 Sequential。
+//! - Zero external dependencies (no criterion): uses `std::time::Instant` + automatic
+//!   iteration counting.
+//! - Each `tick` injects one input, propagated by BFS to the terminal output — measures
+//!   end-to-end latency of a single chain.
+//! - Parallel-mode tick spawns a thread per tick, which is unsuitable for micro-benchmarks
+//!   (throughput is dominated by thread-creation overhead, not routing) — so this benchmark
+//!   covers Sequential only.
 
 use std::time::{Duration, Instant};
 
 use axiom::declare_ports;
-use axiom::deploy::{DeploySpec, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance};
 use axiom::link::{LinkKind, LinkSpec};
 use axiom::machine::Machine;
 use axiom::port::MachineContext;
@@ -32,7 +37,7 @@ use axiom::resource::MachinePhysicalSpec;
 use axiom_runtime::{IoEvent, IoInterest, IoToken, ManualReactor, RawIo, Runtime, RuntimeConfig};
 
 // ════════════════════════════════════════════════════════════════════════
-// 基准机器：Doubler（×2），满足 FusedInline
+// Benchmark machines: Doubler (×2), satisfies FusedInline
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -66,7 +71,7 @@ impl Machine for Doubler {
 }
 impl axiom::machine::FusedInline for Doubler {}
 
-// IO 就绪处理机器：收到 IoEvent 输入后产出 readiness 标识值。
+// IO readiness handling machine: produces a readiness marker value on receiving an IoEvent input.
 declare_ports! {
     #[derive(Debug, Clone, PartialEq)]
     pub struct IoHandlerPorts {
@@ -97,12 +102,12 @@ impl Machine for IoHandler {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 拓扑构建助手
+// Topology building helpers
 // ════════════════════════════════════════════════════════════════════════
 
-/// 构建 N 级 Doubler 链：d1 → d2 → ... → dN（全 Inline）。
-fn doubler_chain(n: usize) -> DeploySpec {
-    let mut spec = DeploySpec::new();
+/// Build an N-level Doubler chain: d1 → d2 → ... → dN (all Inline).
+fn doubler_chain(n: usize) -> DynamicTopology {
+    let mut spec = DynamicTopology::new();
     for i in 1..=n {
         spec = spec.with_machine(MachineInstance::new(
             format!("d{i}"), "doubler", MachinePhysicalSpec::default(),
@@ -119,7 +124,7 @@ fn doubler_chain(n: usize) -> DeploySpec {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 基准 harness（极简：自动迭代计数）
+// Benchmark harness (minimal: automatic iteration counting)
 // ════════════════════════════════════════════════════════════════════════
 
 struct BenchResult {
@@ -140,9 +145,9 @@ impl std::fmt::Display for BenchResult {
     }
 }
 
-/// 运行闭包 `f` 若干次（自动选迭代数使总时长 ≥ 200ms），返回统计。
+/// Run closure `f` several times (auto-selecting the iteration count so total duration ≥ 200ms), returning statistics.
 fn bench<F: FnMut()>(name: &str, mut f: F) -> BenchResult {
-    // warmup + 迭代数探测
+    // warmup + iteration-count probing
     let target = Duration::from_millis(200);
     let mut iter = 1u64;
     loop {
@@ -158,7 +163,7 @@ fn bench<F: FnMut()>(name: &str, mut f: F) -> BenchResult {
         }
     }
 
-    // 采样 5 轮取 mean/p99
+    // sample 5 rounds, take mean/p99
     let mut samples: Vec<Duration> = Vec::with_capacity(5);
     for _ in 0..5 {
         let start = Instant::now();
@@ -174,11 +179,11 @@ fn bench<F: FnMut()>(name: &str, mut f: F) -> BenchResult {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 基准 1：fusion_overhead —— 融合 vs 非融合（3 级链）
+// Benchmark 1: fusion_overhead — fused vs non-fused (3-level chain)
 // ════════════════════════════════════════════════════════════════════════
 
 fn bench_fusion_overhead() {
-    println!("\n── fusion_overhead: 3 级 Doubler 链，fused vs non-fused ──────");
+    println!("\n── fusion_overhead: 3-level Doubler chain, fused vs non-fused ──");
     let spec = doubler_chain(3);
 
     // 非融合：register（is_fused_compatible=false，不触发融合）
@@ -250,7 +255,7 @@ fn bench_io_routing() {
     // 8 个 IoHandler 机器，各注册一个 token。每轮 poll 产出 8 个事件，
     // run_io 合并外部 inputs 驱动 tick。
     let n_handlers = 8usize;
-    let mut spec = DeploySpec::new();
+    let mut spec = DynamicTopology::new();
     for i in 0..n_handlers {
         spec = spec.with_machine(MachineInstance::new(
             format!("h{i}"), "io_handler", MachinePhysicalSpec::default(),

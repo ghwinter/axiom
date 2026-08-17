@@ -1,18 +1,18 @@
 //! # axiom-derive
 //!
-//! 过程宏，从单一 struct 声明自动生成 axiom 端口样板代码。
+//! Procedural macros that auto-generate axiom port boilerplate from a single struct declaration.
 //!
-//! ## `#[ports]` 属性宏
+//! ## `#[ports]` attribute macro
 //!
-//! 在一个带泛型的 unit struct 上标注 `#[ports]`，用字段声明端口，
-//! 宏自动生成：
+//! Annotate a unit struct with generics using `#[ports]`, declaring ports via fields;
+//! the macro auto-generates:
 //!
-//! - `Input` 枚举（所有 `#[in]` 字段）
-//! - `Output` 枚举（所有 `#[out]` 字段）
+//! - an `Input` enum (all `#[in]` fields)
+//! - an `Output` enum (all `#[out]` fields)
 //! - `HasPortInfo` impl × 2
 //! - `PortSet` impl
 //!
-//! ### 语法
+//! ### Syntax
 //!
 //! ```ignore
 //! #[axiom::ports]
@@ -22,23 +22,23 @@
 //! }
 //! ```
 //!
-//! ### 端口属性
+//! ### Port attributes
 //!
-//! - `#[in]` — 输入端口。可选指定 FlowKind：`#[in(Control)]`（默认 `Data`）。
-//! - `#[out]` — 输出端口。同上。
-//! - 端口名 = 字段名；枚举变体名 = 字段名 PascalCase 化。
+//! - `#[in]` — an input port. Optionally specify a FlowKind: `#[in(Control)]` (defaults to `Data`).
+//! - `#[out]` — an output port. Same as above.
+//! - Port name = field name; enum variant name = the field name PascalCased.
 //!
-//! ### 泛型
+//! ### Generics
 //!
-//! 宏保留 struct 的泛型参数，传播到生成的枚举和 impl。所有 impl 统一
-//! 添加 `Send + Sync + 'static` 约束（`PortSet: Send + Sync + 'static` 的要求）。
+//! The macro preserves the struct's generic parameters, propagating them into the generated enums and impls.
+//! All impls uniformly add the `Send + Sync + 'static` bound (the `PortSet: Send + Sync + 'static` requirement).
 //!
-//! ### 空端口
+//! ### Empty ports
 //!
-//! 无 `#[in]` 字段 → 生成零变体 `Input` 枚举（uninhabited）。
-//! 无 `#[out]` 字段 → 生成零变体 `Output` 枚举（uninhabited）。
+//! No `#[in]` fields → a zero-variant `Input` enum is generated (uninhabited).
+//! No `#[out]` fields → a zero-variant `Output` enum is generated (uninhabited).
 //!
-//! 这与 builtin 的 `SinkOutput {}` 模式一致——`ProcessOutput::Yield` 无法构造。
+//! This matches the builtin `SinkOutput {}` pattern — `ProcessOutput::Yield` cannot be constructed.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -49,35 +49,35 @@ use syn::{
 };
 
 // ════════════════════════════════════════════════════════════════════════════
-// 端口声明解析
+// Port-declaration parsing
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 一个端口的声明信息。
+/// Declaration info for a single port.
 struct PortDecl {
-    /// 端口名（字段名，snake_case）。
+    /// Port name (field name, snake_case).
     name: String,
-    /// 枚举变体名（字段名 PascalCase 化）。
+    /// Enum variant name (field name PascalCased).
     variant: Ident,
-    /// 端口类型。
+    /// Port type.
     ty: syn::Type,
-    /// FlowKind，默认 "Data"。
+    /// FlowKind, defaults to "Data".
     flow: String,
 }
 
-/// 从字段属性解析 `#[in]` / `#[out]` 及可选的 FlowKind。
+/// Parse `#[in]` / `#[out]` and the optional FlowKind from the field's attributes.
 ///
-/// 返回 `Some((dir, flow))` 或 `None`（字段无端口属性）。
+/// Returns `Some((dir, flow))` or `None` (the field has no port attribute).
 fn parse_port_attr(attrs: &[Attribute]) -> Option<(String, String)> {
     for attr in attrs {
         let path = attr.path();
         if path.is_ident("input") || path.is_ident("output") {
             let dir = if path.is_ident("input") { "in" } else { "out" };
-            // 解析可选的 FlowKind：#[in(Data)] / #[in(Control)] / #[in(Observe)]
+            // Parse the optional FlowKind: #[in(Data)] / #[in(Control)] / #[in(Observe)]
             let flow = match &attr.meta {
                 Meta::Path(_) => "Data".to_string(),
                 Meta::List(meta_list) => {
                     let tokens = meta_list.tokens.to_string();
-                    // tokens 形如 "Data" / "Control" / "Observe"
+                    // tokens look like "Data" / "Control" / "Observe"
                     tokens.trim().to_string()
                 }
                 Meta::NameValue(nv) => {
@@ -95,7 +95,7 @@ fn parse_port_attr(attrs: &[Attribute]) -> Option<(String, String)> {
     None
 }
 
-/// 把 snake_case 字段名转为 PascalCase 枚举变体名。
+/// Convert a snake_case field name into a PascalCase enum variant name.
 fn to_pascal_case(s: &str) -> Ident {
     let pascal: String = s
         .split('_')
@@ -111,10 +111,10 @@ fn to_pascal_case(s: &str) -> Ident {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 代码生成
+// Code generation
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 提取泛型参数的 ident 列表（仅类型参数，跳过生命周期）。
+/// Extract the ident list of the generic parameters (type parameters only, skipping lifetimes).
 fn generic_idents(generics: &Generics) -> Vec<Ident> {
     generics
         .params
@@ -126,7 +126,7 @@ fn generic_idents(generics: &Generics) -> Vec<Ident> {
         .collect()
 }
 
-/// 生成统一的 where 子句约束：`T: Send + Sync + 'static` for each type param.
+/// Generate a uniform where-clause constraint: `T: Send + Sync + 'static` for each type param.
 fn where_clause(generics: &Generics) -> TokenStream2 {
     let idents: Vec<Ident> = generic_idents(generics);
     if idents.is_empty() {
@@ -136,7 +136,7 @@ fn where_clause(generics: &Generics) -> TokenStream2 {
     }
 }
 
-/// 生成泛型参数列表（`<I, O>`）。
+/// Generate the generic parameter list (`<I, O>`).
 fn generic_params(generics: &Generics) -> TokenStream2 {
     if generics.params.is_empty() {
         quote! {}
@@ -146,15 +146,15 @@ fn generic_params(generics: &Generics) -> TokenStream2 {
     }
 }
 
-/// 为一组端口声明生成枚举。
+/// Generate an enum for a group of port declarations.
 ///
-/// 空列表生成零变体枚举（uninhabited）。
+/// An empty list produces a zero-variant enum (uninhabited).
 fn generate_enum(name: &Ident, generics: &Generics, ports: &[PortDecl]) -> TokenStream2 {
     let gp = generic_params(generics);
     let wc = where_clause(generics);
 
     if ports.is_empty() {
-        // 零变体枚举——uninhabited type。
+        // Zero-variant enum — uninhabited type.
         quote! {
             #[derive(Debug, Clone, PartialEq)]
             pub enum #name #gp #wc {}
@@ -177,7 +177,7 @@ fn generate_enum(name: &Ident, generics: &Generics, ports: &[PortDecl]) -> Token
     }
 }
 
-/// 为一组端口声明生成 `HasPortInfo` impl。
+/// Generate a `HasPortInfo` impl for a group of port declarations.
 fn generate_has_port_info(
     enum_name: &Ident,
     generics: &Generics,
@@ -187,7 +187,7 @@ fn generate_has_port_info(
     let wc = where_clause(generics);
 
     if ports.is_empty() {
-        // 零变体枚举——所有方法 match *self {}（unreachable）。
+        // Zero-variant enum — every method matches on *self {} (unreachable).
         quote! {
             impl #gp ::axiom::portset::HasPortInfo for #enum_name #gp #wc {
                 fn port_name(&self) -> &'static str { match *self {} }
@@ -289,7 +289,7 @@ fn generate_has_port_info(
     }
 }
 
-/// 生成 `PortSet` impl。
+/// Generate a `PortSet` impl.
 fn generate_port_set(
     ports_name: &Ident,
     generics: &Generics,
@@ -301,7 +301,7 @@ fn generate_port_set(
     let gp = generic_params(generics);
     let wc = where_clause(generics);
 
-    // PortSchema 构建
+    // PortSchema construction
     let mut schema_calls: Vec<TokenStream2> = Vec::new();
     for p in inputs {
         let name = &p.name;
@@ -342,7 +342,7 @@ fn generate_port_set(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// #[ports] 属性宏入口
+// #[ports] attribute-macro entry point
 // ════════════════════════════════════════════════════════════════════════════
 
 #[proc_macro_attribute]
@@ -354,7 +354,7 @@ pub fn ports(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let vis = &input.vis;
     let attrs = &input.attrs;
 
-    // 解析字段
+    // Parse fields
     let fields = match &input.data {
         syn::Data::Struct(s) => match &s.fields {
             Fields::Named(named) => &named.named,
@@ -415,8 +415,8 @@ pub fn ports(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    // 生成枚举名：去掉 "Ports" 后缀 + "Input" / "Output"
-    // 例如 IdentityPorts → IdentityInput / IdentityOutput
+    // Generate the enum names: strip the "Ports" suffix + "Input" / "Output"
+    // e.g. IdentityPorts → IdentityInput / IdentityOutput
     let base_name = struct_name.to_string();
     let base_name = base_name
         .strip_suffix("Ports")
@@ -426,7 +426,7 @@ pub fn ports(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let gp = generic_params(generics);
 
-    // 生成各部分
+    // Generate each part
     let input_enum = generate_enum(&input_enum_name, generics, &inputs);
     let output_enum = generate_enum(&output_enum_name, generics, &outputs);
     let input_impl = generate_has_port_info(&input_enum_name, generics, &inputs);
@@ -440,7 +440,7 @@ pub fn ports(_attr: TokenStream, item: TokenStream) -> TokenStream {
         &outputs,
     );
 
-    // 原始 struct 改为 PhantomData unit struct（保留泛型和可见性）
+    // Turn the original struct into a PhantomData unit struct (preserving generics and visibility)
     let gen_idents = generic_idents(generics);
     let phantom = if gen_idents.is_empty() {
         quote! { (()) }

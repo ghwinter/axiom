@@ -1,9 +1,9 @@
 [package]
 name = "axiom-runtime"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Unified runtime for axiom: materialises DeploySpec into live MachineHandles, drives the process loop, manages lifecycle. Single-threaded and multi-threaded modes via configuration, not via separate types. // axiom 的统一运行时：将 DeploySpec 物化为活跃的 MachineHandle，驱动 process 循环，管理生命周期。单线程与多线程通过配置区分，而非通过独立类型。"
+description = "Unified runtime for axiom: materialises DynamicTopology into live MachineHandles, drives the process loop, manages lifecycle. Single-threaded and multi-threaded modes via configuration, not via separate types. // axiom 的统一运行时：将 DynamicTopology 物化为活跃的 MachineHandle，驱动 process 循环，管理生命周期。单线程与多线程通过配置区分，而非通过独立类型。"
 license = "MIT"
 repository = "https://github.com/ghwinter/axiom"
 homepage = "https://github.com/ghwinter/axiom"
@@ -12,10 +12,10 @@ keywords = ["actor-model", "runtime", "topology", "concurrency", "execution"]
 categories = ["concurrency", "rust-patterns"]
 
 [dependencies]
-axiom = { path = "..", version = "0.1.0" }
+axiom = { path = "..", version = "0.2.0" }
 
 [dev-dependencies]
-# 测试依赖保持最小
+# Keep test dependencies minimal.
 
 [features]
 default = ["std"]

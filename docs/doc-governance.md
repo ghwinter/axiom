@@ -1,125 +1,139 @@
-# doc-governance.md — 文档标准与决策记录制度
+# Documentation Standards
 
-> **性质**：axiom 的文档工程标准（M1）与决策记录制度（M2）。本文档定义
-> 文档分层（tier taxonomy）、字数预算、写作纪律、以及"为什么这样设计"
-> 的记录规范。目标是让文档**每事实只有一个家（one home per fact）**、
-> 可机械检查、不膨胀。
+This document defines how axiom documentation is organized, written, and
+maintained. It is the single source of truth for documentation practice:
+every fact has exactly one home, and every document follows one of the styles
+defined below.
 
----
+## 1. Document tiers
 
-## 一、文档层级（tier taxonomy）
+axiom separates documents into a public tier taxonomy and an internal
+workspace. Each tier has a distinct audience, language, and style. A fact
+belongs to exactly one tier; other tiers link to it and never restate it
+(one home per fact).
 
-**原则**：每条事实有且仅有一个"家"；其他层只链接、不复述。
+### Public tiers
 
-| Tier | 职责（只放这里） | 文档 |
-|---|---|---|
-| 根 README | 项目定位、快速上手、能力总览、测试状态 | `README.md`（英文）· `README.zh.md`（中文） |
-| 哲学 | 世界观：抽象/物理解耦、零成本、静态优先 | `docs/philosophy.md` |
-| 基础 | 代数基础：公理-定理-证明，形式化映射 | `docs/foundations.md` |
-| 架构 | 架构细节：端口、链接、部署、runtime、组合子 | `docs/architecture.md` |
-| 原则 | 元问题与设计原则（零成本范式、验证判据） | `docs/design-principles.md` |
-| 适配器 | adapter 生态规则、runtime contract 认证门槛 | `docs/adapters.md` |
-| 图 | 系统分层、载体矩阵、路线图 | `docs/architecture_diagrams.md` |
-| 文档标准 | 本文档：tier、预算、纪律、决策记录 | `docs/doc-governance.md` |
+| Tier | Audience | Language | Style model | Location |
+|------|----------|----------|-------------|----------|
+| L1 API reference | Users of a crate | English | Rust standard library / rustdoc conventions | in-source `///` docs |
+| L2 Narrative | New and existing users | English | Framework user guides (intro, architecture, concepts) | `README.md`, `docs/*.md` |
+| L3 Formal | Mathematically inclined readers | English | Academic paper (definitions, axioms, theorems, proofs) | `docs/foundations.md`, `docs/structural-model.md` |
+| L4 Release | Maintainers and integrators | English | Keep a Changelog conventions | `CHANGELOG.md`, `docs/migration-*.md` |
 
-**双语惯例**：文档系统只使用中英两种语言。根 README 采用双文件——
-`README.md`（纯英文）+ `README.zh.md`（纯中文），顶部互相链接
-（`English | [中文](README.zh.md)`）。docs 其余文档以中文为主（术语保留
-英文原文）；若某文档需要英文版，沿用 `docs/<name>.zh.md` 对映命名。
+- **L1** documents every public item of a crate. Follow the standard-library
+  conventions: `///` doc comments on items, `//!` module docs with an example
+  as the first thing readers see. Code examples must compile as doctests.
+- **L2** explains the system to a reader who has not seen it before. It may be
+  narrative (an introduction or tutorial) or architectural (component
+  overview, execution model, design rationale). It links to L1 for precise
+  signatures and to L3 for formal statements.
+- **L3** states definitions, axioms, theorems, corollaries, and proofs with a
+  consistent numbering scheme. It is written for precision: every symbol is
+  defined before use, and every claim is either proved or explicitly marked as
+  an assumption.
+- **L4** records what changed between releases. Follow Keep a Changelog
+  (`Added` / `Changed` / `Removed` / `Fixed` sections under a version heading
+  with a date). Migration guides pair each breaking change with its
+  replacement.
 
-**one-home 规则**：同一事实（如"静态路径是串并联 DAG"）只在一个 tier 详述，
-其他层链向它。新增内容前先定位"它属于哪个 tier"；若多个层都需要，只有一层
-详述，其余链接。
+### Internal workspace
 
-## 二、字数预算
+| Tier | Audience | Language | Content | Location |
+|------|----------|----------|---------|----------|
+| I1 Design records | Project maintainers | Chinese (working language) | Analysis, design rationale, iteration notes, comparisons, roadmaps | `docs/internal/*.md` |
 
-**单位**：按空白分割的粗略词数（中文文档此统计低估，仅作趋势门禁）。
+- **I1** is a working space, not publication. It records why design decisions
+  were made, including discarded alternatives and empirical data that shaped
+  the decision. It is allowed to be informal and time-stamped.
+- I1 documents are never linked from public tiers; public tiers restate only
+  the settled conclusion, with its justification, in L2 or L3 form.
+- The internal workspace never replaces a public document: once a design is
+  settled, its conclusion lives in the public tiers and the I1 record is
+  archived.
 
-| 文档 | 当前 | 预算上限 |
-|---|---|---|
-| `README.md` | — | 2500 |
-| `docs/philosophy.md` | 4107 | 5000 |
-| `docs/foundations.md` | 3411 | 4000 |
-| `docs/architecture.md` | 5476 | 6500 |
-| `docs/design-principles.md` | 494 | 1500 |
-| `docs/adapters.md` | — | 1500 |
-| `docs/architecture_diagrams.md` | 1692 | 2000 |
-| `docs/doc-governance.md`（本文档） | — | 1500 |
+## 2. Language policy
 
-**超限处理**（按序）：① 把属于其他 tier 的内容迁移过去，留一行链接；
-② 压缩本层表述；③ 仅在内容确实需要时提高预算并记录理由。
-**门禁命令**（PowerShell）：
+- Public tiers (L1–L4) are written in English. This is the language of precise
+  technical description; identifiers are never translated.
+- I1 design records are written in Chinese, the working language of the
+  maintainers. Code identifiers remain in English.
+- A public document contains no narrative history ("previously", "now",
+  "changed from"), no work-in-progress markers, and no internal plan labels
+  (milestones, task codes, phase numbers). It states the system as it is.
 
-```powershell
-Get-ChildItem docs\*.md | ForEach-Object {
-  $w = (Get-Content $_.FullName -Raw) -split '\s+' | Where-Object { $_ -ne '' }
-  "$($_.Name): $($w.Count) words"
-}
-```
+## 3. Writing rules
 
-## 三、slop 清单（写作时逐项自查）
+- **Current state**: describe the system as it exists, not how it changed.
+  Change stories belong in L4 (changelog, migration guide) and I1 (design
+  records).
+- **One home per fact**: before writing anything, decide which tier owns the
+  fact. If more than one tier needs it, exactly one elaborates; the others
+  link to it.
+- **Link over restate**: cross-tier references use relative Markdown links,
+  not bare file names.
+- **Identifiers verbatim**: types, traits, functions, and paths appear exactly
+  as in the code, never translated or paraphrased.
+- **Precision over metaphor**: use a term only in its literal sense. "Contract"
+  means an obligation or invariant; "boundary" means a literal process,
+  safety, or transaction boundary. Do not inflate emphasis; bold only the
+  clause that changes behavior.
 
-- **叙述历史**："previously / now / 已改为 / 曾"——写当前事实，变更故事进
-  提交信息与决策记录。
-- **状态标注**："implemented! / future: …"——状态会腐化，仓库与代码是
-  权威，文档写当前现实。
-- **手抄目录/清单**：凡可从源码生成的（catalog、矩阵），不手写。
-- **推理转录**：不要"为什么这么做"的长篇推导过程，保留结论与一句理由，
-  详述进决策记录。
-- **段落墙**：一段多规则、多括号插入语——拆段或降级到归属层。
-- **强调通胀**：全篇加粗/CAPS 等于无强调——只强调改变行为的子句。
-- **隐喻泛化**：用精确术语（"契约"只用于义务/不变量，"边界"只用于字面的
-  流程/安全/事务边界），不滥用。
+## 4. Slop checklist
 
-## 四、决策记录制度（M2）
+Reread each document for these failure modes before committing:
 
-**目的**：axiom 是哲学驱动项目——"为什么"与代码同等重要，且决策理由应在
-仓库中可回看，不散落在对话/讨论里。
+- **Narrative history**: "previously / now / has changed" — write the current
+  fact; the change story goes to the changelog and the design record.
+- **Status labels**: "implemented!", "future: …" — status decays. The
+  repository is the authority; documents describe present reality.
+- **Hand-copied catalogs**: any table or matrix that can be generated from the
+  source (module lists, evidence registers) is not maintained by hand.
+- **Reasoning transcripts**: do not reproduce long derivations of "why". Keep
+  the conclusion and a one-sentence justification; the full reasoning goes to
+  the design record.
+- **Paragraph walls**: one paragraph per rule; split compound sentences.
+- **Emphasis inflation**: all-bold text is no emphasis at all.
+- **Metaphor creep**: replace figurative language with exact terms.
 
-**三态结构**（`docs/decisions/`）：
+## 5. Word budgets
 
-```text
-docs/decisions/
-  proposed/     提案中的决策（待实施/待评审）
-  implemented/  已实施并验证的决策（现在时描述）
-  archived/     已冻结的历史记录（不再修改）
-```
+Budgets keep each tier focused. Exceeding one is a signal that content belongs
+to another tier or to an I1 record.
 
-**记录模板**（每个决策一个文件）：
+| Document | Budget (words) |
+|----------|----------------|
+| `README.md` | 2500 |
+| `docs/philosophy.md` | 5000 |
+| `docs/foundations.md` | 4000 |
+| `docs/architecture.md` | 6500 |
+| `docs/design-principles.md` | 1500 |
+| `docs/adapters.md` | 1500 |
+| `docs/architecture_diagrams.md` | 2000 |
+| `docs/structural-model.md` | 4000 |
+| `docs/zero-cost-paradigm.md` | 2500 |
+| `docs/migration-*.md` | 2000 each |
+| `docs/doc-governance.md` (this document) | 1500 |
 
-```markdown
-# <决策名>
+Remediation order when a document exceeds its budget: migrate content that
+belongs to another tier, leaving one linking line; then compress the remaining
+prose; only raise the budget for content that is genuinely necessary, and
+record the reason.
 
-- **状态**：proposed | implemented | archived
-- **日期**：YYYY-MM-DD
-- **动机**：为什么需要这个决策（元问题/约束/实证）
-- **决策**：结论（一两句）
-- **理由**：为什么是这个选择（可多句）
-- **代价**：放弃了什么 / 边界是什么
-- **验证**：如何验证（测试/bench/断言）
-```
+## 6. Decision records
 
-**规则**：
-- 非平凡变更（新契约、执行模型变更、API 破坏）必须伴随决策记录；
-- implemented 用现在时描述已发货现实，不用 "should / 将";
-- archived 冻结，永不修改（新情况开新记录并链接旧记录）。
+axiom is a philosophy-driven project: the "why" of a decision matters as much
+as the code, and the reasoning must be reviewable in the repository.
 
-**现有决策索引**（历史记录在 `docs/design-principles.md` 附录与迭代记录中）：
-D1 物理 = 有限执行形态集合 · D2 性能差距先分类 · D3 显式 > 隐式 ·
-D4 单一事实源 · D5 验证判据 · D6 来源/去向是业务错误 · D7 执行形态同构。
-新决策沿用此编号（D8 起）并落盘到 `docs/decisions/implemented/`。
+A non-trivial change (a new contract, an execution-model change, a breaking
+API change) must be accompanied by a decision record in `docs/internal/` (I1
+style). The record states:
 
-## 五、写作规则
+- the motivation (the meta-problem, constraint, or evidence),
+- the decision (one or two sentences),
+- the rationale (why this choice),
+- the cost (what was given up, the boundary),
+- the verification (how the decision is validated: tests, benchmarks, proofs).
 
-- **当前状态**：写系统现在是什么样，不写它是怎么变的。
-- **链接优先**：跨 tier 引用用相对 Markdown 链接，不裸写文件名。
-- **代码/标识符保持原文**：类型、trait、函数名、路径用原样（不翻译）。
-- **中英双语**：中文文档为主，术语保留英文原文（`Machine`/`FlowKind` 等）。
-- **提交配套**：改行为（契约/语义）的变更，同一提交内更新相关文档 +
-  决策记录。
-
----
-
-> **一句话**：文档的分层、预算、纪律与决策记录共同保证 axiom 的"为什么"
-> 可回看、可检查、不膨胀——这是 P3 工程化的地基：代码的验证力（P0–P2）
-> 与文档/决策的可审计性（P3）共同构成 axiom 的"可验证 + 可追溯"。
+Settled decisions are summarized in the public tiers with their justification;
+the full record remains in the internal workspace.

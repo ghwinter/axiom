@@ -14,11 +14,13 @@ use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
-// 当 `derive` feature 启用时，用 `#[ports]` 宏自动生成端口样板；
-// 否则手写（保持零依赖能力）。
-// observe 端口用 `#[output(Observe)]` 表达——宏会生成
-// `PortDecl::new::<Vec<I>>("snapshots", Out, Observe)`，与手写的
-// `PortDecl::observe::<Vec<I>>("snapshots")` 完全等价（见 port.rs）。
+// When the `derive` feature is enabled, the `#[ports]` macro generates the
+// port boilerplate automatically; otherwise it is written by hand
+// (preserving the zero-dependency capability).
+// The observe port is expressed with `#[output(Observe)]` — the macro
+// generates `PortDecl::new::<Vec<I>>("snapshots", Out, Observe)`, which is
+// fully equivalent to the hand-written
+// `PortDecl::observe::<Vec<I>>("snapshots")` (see port.rs).
 #[cfg(feature = "derive")]
 #[crate::ports]
 pub struct CollectorPorts<I> {

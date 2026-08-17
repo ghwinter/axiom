@@ -1,7 +1,7 @@
-//! 路由与停机传播辅助——Sequential/Parallel 共用的纯函数。
+//! Routing and shutdown propagation helpers — pure functions shared by Sequential/Parallel.
 //!
-//! 这些函数无状态、无副作用（除 `mark_stopped` 改传入集合），便于
-//! 在两种驱动模式下复用，也便于单元测试。
+//! These functions are stateless and side-effect-free (except `mark_stopped`, which mutates
+//! the passed-in set), so they can be reused in both driving modes and are easy to unit test.
 
 use alloc::collections::BTreeMap;
 use alloc::string::String;
@@ -13,9 +13,9 @@ use crate::erasure::{ProcessResult, RunningMachine};
 use crate::error::RuntimeError;
 use crate::topology::PhysicalLink;
 
-/// Parallel 模式的路由：输出按 (本机器 src_port) 发到下游 carrier；
-/// 无下游（终端机器 / 观察端口）则发到结果收集 channel。
-/// 消息附带 dst_port 名——下游线程用它 inject。
+/// Routing in Parallel mode: outputs are sent to downstream carriers by (this machine's src_port);
+/// with no downstream (terminal machine / observation port) they go to the result collection channel.
+/// Messages carry the dst_port name — the downstream thread uses it to inject.
 pub(crate) fn route_parallel_outputs(
     result: ProcessResult,
     my_routes: &BTreeMap<String, (String, ChanSender)>,
@@ -48,16 +48,19 @@ pub(crate) fn route_parallel_outputs(
     }
 }
 
-/// 停机传播：标记机器停机，并递归停机"所有入边源均已停机"的下游。
+/// Shutdown propagation: mark a machine stopped, then recursively stop any downstream
+/// whose sources are all stopped.
 ///
-/// `pending_sources` 是 `LiveTopology::in_degree` 的克隆副本（按
-/// `topo_order` 索引）；`machine_index` 把机器名映射到该索引。
-/// 源停机时递减下游的入度，归零表示该机器不再有任何活跃上游 →
-/// 它也应停机（级联）。环由 `stopped` 位集（按 ID，P0）终止。
+/// `pending_sources` is a cloned copy of `LiveTopology::in_degree` (indexed by
+/// `topo_order`); `machine_index` maps machine names to that index.
+/// When a source stops, it decrements the downstream's in-degree; reaching zero means
+/// the machine no longer has any active upstream → it should stop too (cascade). Cycles
+/// are terminated by the `stopped` bit set (by ID, P0).
 ///
-/// 用索引数组而非 `BTreeMap<String, usize>` 承载入度——`materialize`
-/// 一次性建表，tick 热路径只克隆 `Vec<usize>`（单次分配，与链路数
-/// 无关），保证 R002 "每链接常数分配"不变量。
+/// The in-degree is carried by an index array rather than `BTreeMap<String, usize>` —
+/// `materialize` builds the table once, and the tick hot path only clones `Vec<usize>`
+/// (a single allocation, independent of link count), preserving the "constant allocation
+/// per link" invariant of R002.
 pub(crate) fn mark_stopped(
     machine_id: usize,
     machine_name: &str,
@@ -80,11 +83,12 @@ pub(crate) fn mark_stopped(
     }
 }
 
-/// 检测拓扑是否含环（基于 Kahn 算法——与 core 的 `detect_cycle` 一致）。
+/// Detect whether the topology contains a cycle (based on Kahn's algorithm — consistent with
+/// core's `detect_cycle`).
 ///
-/// 有环时 Parallel 模式无法靠 channel 断开级联停机（环中线程互相
-/// 保活），需改用全局 stop_signal + tick 限制驱动。无环时保持现有
-/// 级联停机路径。
+/// With a cycle, Parallel mode cannot rely on channels to break cascaded shutdown (threads in
+/// a cycle keep each other alive), so it must fall back to a global stop_signal + tick limit.
+/// Without a cycle, the existing cascaded shutdown path is kept.
 pub(crate) fn has_cycle(
     machine_names: &[String],
     links: &[PhysicalLink],
@@ -111,12 +115,14 @@ pub(crate) fn has_cycle(
     visited < machine_names.len()
 }
 
-/// 校验链接端点：机器存在 + 端口存在 + 方向匹配（src 端是输出，dst 端是输入）。
+/// Validate link endpoints: machine exists + port exists + direction matches (src side is an
+/// output, dst side is an input).
 ///
-/// 之前的实现只取了 machine 却丢弃 port_schema（`let _ =`），端口名从未
-/// 被校验——链接引用了不存在的端口时物化不会报错，直到 tick 时 inject
-/// 静默返回 Idle（消息被吞）。现在显式校验方向，让 `DanglingRef` 在
-/// 物化阶段就暴露无效端口。
+/// The previous implementation only took the machine and discarded the port_schema (`let _ =`),
+/// so port names were never validated — links referencing a nonexistent port did not error
+/// during materialization, and inject would silently return Idle at tick time (message swallowed).
+/// Now the direction is explicitly validated so `DanglingRef` exposes invalid ports at
+/// materialization time.
 pub(crate) fn validate_endpoint(
     machines: &BTreeMap<String, Box<dyn RunningMachine>>,
     machine: &str,

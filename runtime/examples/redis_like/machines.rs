@@ -1,17 +1,17 @@
-//! # Redis 风格服务器 — 机器集
+//! # Redis-style server — machine set
 //!
-//! 蓝图 `blueprint.rs` 中 6 个模块的 Machine 实现：
+//! Machine implementations for the 6 modules in the `blueprint.rs` blueprint:
 //!
-//! | 模块 | 职责 | 输入 | 输出 | 状态 |
+//! | Module | Responsibility | Input | Output | State |
 //! |---|---|---|---|---|
-//! | `ConnReader` | 物理读 socket | `io` (IoEvent) | `raw` (conn_id, bytes) | 共享连接表 |
-//! | `RespParser` | 增量 RESP 解析 | `raw` | `cmd` (ParsedCommand) | 每连接解析缓冲 |
-//! | `DataStore` | KV/List/Hash 语义 | `cmd` | `reply` + `log` | 数据存储 |
-//! | `RespEncoder` | RESP 编码（无状态纯变换，FusedInline） | `reply` | `out` (conn_id, bytes) | — |
-//! | `ConnWriter` | 物理写 socket | `resp` | — | 共享连接表 |
-//! | `AofWriter` | AOF 追加持久化 | `log` (Option<line>) | — | 文件句柄 |
+//! | `ConnReader` | Physical socket read | `io` (IoEvent) | `raw` (conn_id, bytes) | shared connection table |
+//! | `RespParser` | Incremental RESP parsing | `raw` | `cmd` (ParsedCommand) | per-connection parse buffer |
+//! | `DataStore` | KV/List/Hash semantics | `cmd` | `reply` + `log` | data store |
+//! | `RespEncoder` | RESP encoding (stateless pure transform, FusedInline) | `reply` | `out` (conn_id, bytes) | — |
+//! | `ConnWriter` | Physical socket write | `resp` | — | shared connection table |
+//! | `AofWriter` | AOF append persistence | `log` (Option<line>) | — | file handle |
 //!
-//! 连接动态性全部落在 `State`（`HashMap<conn_id, ...>`），拓扑保持静态。
+//! All connection dynamism lives in `State` (`HashMap<conn_id, ...>`); the topology stays static.
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
@@ -26,16 +26,16 @@ use axiom::port::{ConfigSchema, MachineContext};
 use axiom_runtime::IoEvent;
 
 // ════════════════════════════════════════════════════════════════════════
-// 共享物理资源：连接表（OS 层 socket，跨抽象边界共享）
+// Shared physical resource: connection table (OS-level sockets, shared across the abstraction boundary)
 // ════════════════════════════════════════════════════════════════════════
 
-/// 连接表：conn_id → TcpStream。由 main 的 accept 循环填充，
-/// `ConnReader`（读）与 `ConnWriter`（写）共享。
+/// Connection table: conn_id → TcpStream. Filled by main's accept loop;
+/// shared by `ConnReader` (read) and `ConnWriter` (write).
 pub type SharedTable = Arc<Mutex<ConnTable>>;
 
-/// 全局共享连接表：`ConnReader`/`ConnWriter`（init 各自创建 State）与
-/// main 的 accept 循环必须操作**同一张**表——用进程级单例保证。
-/// 这是 OS 资源层的物理共享（蓝图不表达）。
+/// The process-global shared connection table: `ConnReader`/`ConnWriter` (each creates its own
+/// State in init) and main's accept loop must operate on the **same** table — enforced with a
+/// process-level singleton. This is physical sharing at the OS-resource layer (not expressed in the blueprint).
 pub fn shared_table() -> SharedTable {
     static TABLE: OnceLock<SharedTable> = OnceLock::new();
     TABLE
@@ -49,22 +49,22 @@ pub struct ConnTable {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 数据类型（端口 payload）
+// Data types (port payloads)
 // ════════════════════════════════════════════════════════════════════════
 
-/// 连接原始字节：`(conn_id, bytes)`；`bytes` 为空 = EOF/关闭。
+/// Raw connection bytes: `(conn_id, bytes)`; empty `bytes` = EOF/closed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawBytes(pub usize, pub Vec<u8>);
 
-/// 一条已解析命令。
+/// One parsed command.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParsedCommand {
     pub conn_id: usize,
-    pub name: String,          // 大写命令名
-    pub args: Vec<Vec<u8>>,    // 命令参数（不含命令名）
+    pub name: String,          // uppercase command name
+    pub args: Vec<Vec<u8>>,    // command arguments (excluding the command name)
 }
 
-/// 逻辑回复（协议无关，由 RespEncoder 编码）。
+/// A logical reply (protocol-independent; encoded by RespEncoder).
 #[derive(Debug, Clone, PartialEq)]
 pub struct RespValue {
     pub conn_id: usize,
@@ -80,7 +80,7 @@ pub enum RespKind {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 1：ConnReader — 物理读（事件驱动）
+// Module 1: ConnReader — physical read (event-driven)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -119,12 +119,12 @@ impl Machine for ConnReader {
         let conn_id = evt.token.0;
         let mut table = state.lock().unwrap();
         let Some(stream) = table.conns.get_mut(&conn_id) else {
-            return SingleOutput::Idle; // 连接已关闭/未知
+            return SingleOutput::Idle; // connection closed/unknown
         };
         let mut buf = [0u8; 8192];
         match stream.read(&mut buf) {
             Ok(0) => {
-                // EOF：对端关闭 → 从表中移除，向下游发空字节标记关闭。
+                // EOF: peer closed → remove from table, send empty bytes downstream as close marker.
                 table.conns.remove(&conn_id);
                 SingleOutput::Yield(ConnReaderOutput::raw(RawBytes(conn_id, Vec::new())))
             }
@@ -140,7 +140,7 @@ impl Machine for ConnReader {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 2：RespParser — 增量 RESP 命令解析
+// Module 2: RespParser — incremental RESP command parsing
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -158,7 +158,7 @@ declare_ports! {
 pub struct RespParser;
 
 impl Machine for RespParser {
-    type State = HashMap<usize, Vec<u8>>; // conn_id → 未解析完的缓冲
+    type State = HashMap<usize, Vec<u8>>; // conn_id → unconsumed parse buffer
     type Input = RespParserInput;
     type Output = RespParserOutput;
     type Ports = RespParserPorts;
@@ -177,7 +177,7 @@ impl Machine for RespParser {
     ) -> SingleOutput<RespParserOutput> {
         let RespParserInput::raw(RawBytes(conn_id, bytes)) = input;
         if bytes.is_empty() {
-            // EOF：丢弃该连接的未完成解析缓冲。
+            // EOF: discard this connection's incomplete parse buffer.
             state.remove(&conn_id);
             return SingleOutput::Idle;
         }
@@ -194,19 +194,19 @@ impl Machine for RespParser {
                 };
                 SingleOutput::Yield(RespParserOutput::cmd(cmd))
             }
-            None => SingleOutput::Idle, // 不完整，等更多字节
+            None => SingleOutput::Idle, // incomplete; wait for more bytes
         }
     }
     fn cleanup(_: HashMap<usize, Vec<u8>>, _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
 }
 
-/// 尝试从缓冲开头解析一条 RESP 命令：`*N\r\n ($len\r\n bytes\r\n){N}`。
-/// 返回 `(args, consumed)`；缓冲不足时返回 None（保持缓冲）。
+/// Attempts to parse one RESP command from the start of the buffer: `*N\r\n ($len\r\n bytes\r\n){N}`.
+/// Returns `(args, consumed)`; returns None when the buffer is insufficient (buffer is retained).
 fn try_parse_command(buf: &[u8]) -> Option<(Vec<Vec<u8>>, usize)> {
     let (n_line, rest) = split_crlf(buf)?;
     let n: usize = std::str::from_utf8(n_line.strip_prefix(b"*")?).ok()?.parse().ok()?;
     if n == 0 || n > 1024 {
-        return None; // 安全上限（防恶意/畸形输入撑爆内存）
+        return None; // safety cap (prevents malicious/malformed input from exhausting memory)
     }
     let mut rest = rest;
     let mut args = Vec::with_capacity(n);
@@ -217,7 +217,7 @@ fn try_parse_command(buf: &[u8]) -> Option<(Vec<Vec<u8>>, usize)> {
             return None;
         }
         if after.len() < len + 2 {
-            return None; // 不完整
+            return None; // incomplete
         }
         args.push(after[..len].to_vec());
         rest = &after[len + 2..];
@@ -231,30 +231,30 @@ fn split_crlf(b: &[u8]) -> Option<(&[u8], &[u8])> {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 调试命令（Control 流：DEBUG FLUSH / DEBUG SET / DEBUG INFO）
+// Debug commands (Control flow: DEBUG FLUSH / DEBUG SET / DEBUG INFO)
 // ════════════════════════════════════════════════════════════════════════
 
-/// 调试命令：从外部（Debugger 模块）注入 DataStore 的 **Control 流**。
-/// 调试是旁路控制——**不记 AOF**（不污染持久化事件溯源）。
+/// Debug command: injected into the DataStore's **Control flow** from outside (the Debugger module).
+/// Debugging is out-of-band control — it does **not** go to the AOF (does not pollute the persisted event source).
 #[derive(Debug, Clone, PartialEq)]
 pub enum DebugCmd {
-    /// 清空数据存储。
+    /// Clears the data store.
     Flush,
-    /// 直接注入键值。
+    /// Directly injects a key/value pair.
     Set(String, String),
-    /// 返回统计（键数量）。
+    /// Returns statistics (key count).
     Info,
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 8.5：BroadcastTee — 显式 fan-out（动态路径广播）
+// Module 8.5: BroadcastTee — explicit fan-out (dynamic path broadcast)
 // ════════════════════════════════════════════════════════════════════════
 //
-// axiom 动态路径的路由是 1 对 1：一个输出端口只能链接一个目标。fan-out
-// 是**机器的职责**（Split/CloneSplit 契约）——本机器把一条 Control 命令
-// 克隆广播到两个分片（debugger → tee → data_store_0.ctrl + data_store_1.ctrl）。
-// 蓝图里直接"一个输出端口链接两个目标"会被 validate_deep 拒绝
-// （FanOutViaTee）——fan-out 必须显式。
+// Axiom dynamic-path routing is 1-to-1: one output port can link to only one target. Fan-out is
+// the **machine's responsibility** (Split/CloneSplit contract) — this machine clones and
+// broadcasts one Control command to both shards (debugger → tee → data_store_0.ctrl + data_store_1.ctrl).
+// Linking one output port to two targets directly in a blueprint is rejected by validate_deep
+// (FanOutViaTee) — fan-out must be explicit.
 
 declare_ports! {
     #[derive(Debug, Clone, PartialEq)]
@@ -297,7 +297,7 @@ impl Machine for BroadcastTee {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 2.5：Sharder — 分片路由（复杂拓扑：fan-out 到 N 个 DataStore）
+// Module 2.5: Sharder — shard routing (complex topology: fan-out to N DataStores)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -313,27 +313,27 @@ declare_ports! {
     }
 }
 
-/// 分片路由目标。
+/// Shard routing target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShardTarget {
     Zero,
     One,
-    /// 全局命令（FLUSHALL）需广播到所有分片。
+    /// Global commands (FLUSHALL) must broadcast to all shards.
     Both,
 }
 
-/// 按 key 哈希决定分片（确定性：同一 key 永远同一分片）。
+/// Decides the shard by key hash (deterministic: the same key always goes to the same shard).
 ///
-/// 无 key 命令：
-/// - `FLUSHALL` → 广播（Both）——两分片都要清空；
-/// - `PING` / `QUIT` / `INFO` → 单发 shard0（回复唯一性：一条命令
-///   只产生一条回复，避免同一 conn_id 被写两次 socket）。
+/// Keyless commands:
+/// - `FLUSHALL` → broadcast (Both) — both shards must be cleared;
+/// - `PING` / `QUIT` / `INFO` → single to shard0 (reply uniqueness: one command produces
+///   exactly one reply, avoiding writing the same conn_id to the socket twice).
 pub fn shard_of(cmd: &ParsedCommand) -> ShardTarget {
     match cmd.name.as_str() {
         "FLUSHALL" => ShardTarget::Both,
         "PING" | "QUIT" | "INFO" | "DEBUG" => ShardTarget::Zero,
         _ => {
-            // 有 key 命令：args[0] 是 key。FNV-1a 风格哈希 → 2 分片。
+            // Keyed command: args[0] is the key. FNV-1a-style hash → 2 shards.
             let key = cmd.args.first().map(|k| k.as_slice()).unwrap_or(b"");
             let h = key.iter().fold(0u64, |h, b| {
                 (h ^ *b as u64).wrapping_mul(0x100000001b3)
@@ -371,7 +371,7 @@ impl Machine for Sharder {
                     MultiOutput::YieldMulti(vec![SharderOutput::shard1(cmd)])
                 }
                 ShardTarget::Both => {
-                    // 广播：两分片各一份（克隆）。
+                    // Broadcast: one copy to each shard (cloned).
                     MultiOutput::YieldMulti(vec![
                         SharderOutput::shard0(cmd.clone()),
                         SharderOutput::shard1(cmd),
@@ -383,7 +383,7 @@ impl Machine for Sharder {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 3：DataStore — KV / List / Hash 数据语义（Redis 单线程数据层）
+// Module 3: DataStore — KV / List / Hash data semantics (Redis single-threaded data layer)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -391,7 +391,7 @@ declare_ports! {
     pub struct DataStorePorts {
         input type DataStoreInput {
             cmd  [Data]    => ParsedCommand,
-            ctrl [Control] => DebugCmd, // 调试注入（Control 流，不改变主数据语义）
+            ctrl [Control] => DebugCmd, // debug injection (Control flow, does not change main data semantics)
         }
         output type DataStoreOutput {
             reply   [Data]    => RespValue,
@@ -401,7 +401,7 @@ declare_ports! {
     }
 }
 
-/// 存储值：字符串 / 列表 / 哈希。
+/// Stored value: string / list / hash.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Str(String),
@@ -433,9 +433,9 @@ impl Machine for DataStore {
             DataStoreInput::cmd(cmd) => {
                 let conn_id = cmd.conn_id;
                 let (kind, is_write) = execute(state, &cmd);
-                // 写命令 → AOF 日志行（RESP 格式，可重放）；读命令 → None。
+                // Write command → AOF log line (RESP format, replayable); read command → None.
                 let log = is_write.then(|| encode_command(&cmd));
-                // observe：观察端口（供测试/重放断言）。
+                // observe: the observer port (for tests/replay assertions).
                 let summary = format!("{} => {:?}", cmd.name, kind);
                 MultiOutput::YieldMulti(vec![
                     DataStoreOutput::reply(RespValue { conn_id, kind }),
@@ -443,7 +443,7 @@ impl Machine for DataStore {
                     DataStoreOutput::observe((conn_id, summary)),
                 ])
             }
-            // 调试注入（Control 流）：旁路控制，**不记 AOF**。
+            // Debug injection (Control flow): out-of-band control, **not logged to AOF**.
             DataStoreInput::ctrl(cmd) => match cmd {
                 DebugCmd::Flush => {
                     let n = state.len();
@@ -476,7 +476,7 @@ impl Machine for DataStore {
     fn cleanup(_: HashMap<String, Value>, _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
 }
 
-/// 命令分发表：执行并返回 (回复, 是否写)。
+/// Command dispatch table: executes and returns (reply, whether it is a write).
 fn execute(state: &mut HashMap<String, Value>, cmd: &ParsedCommand) -> (RespKind, bool) {
     let a = |i: usize| cmd.args.get(i).map(|v| String::from_utf8_lossy(v).into_owned());
     match cmd.name.as_str() {
@@ -585,7 +585,7 @@ fn execute(state: &mut HashMap<String, Value>, cmd: &ParsedCommand) -> (RespKind
     }
 }
 
-/// 把命令编码为 RESP 格式（AOF 行，可重放）。
+/// Encodes a command as RESP format (AOF line, replayable).
 pub fn encode_command(cmd: &ParsedCommand) -> Vec<u8> {
     let mut out = Vec::with_capacity(64);
     out.extend_from_slice(format!("*{}\r\n", cmd.args.len() + 1).as_bytes());
@@ -603,7 +603,7 @@ fn push_arg(out: &mut Vec<u8>, arg: &[u8]) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 4：RespEncoder — RESP 编码（无状态纯变换，可融合）
+// Module 4: RespEncoder — RESP encoding (stateless pure transform, fusable)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -655,7 +655,7 @@ impl Machine for RespEncoder {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 5：ConnWriter — 物理写回（连接表写 socket）
+// Module 5: ConnWriter — physical write-back (writes socket via connection table)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -665,7 +665,7 @@ declare_ports! {
             resp [Data] => (usize, Vec<u8>),
         }
         output type ConnWriterOutput {
-            // 纯汇：无输出端口
+            // pure sink: no output ports
         }
     }
 }
@@ -693,8 +693,8 @@ impl Machine for ConnWriter {
         let ConnWriterInput::resp((conn_id, bytes)) = input;
         let mut table = state.lock().unwrap();
         if let Some(stream) = table.conns.get_mut(&conn_id) {
-            // 简化：直接写（响应通常 < MTU）。非阻塞 + 待写缓冲 + WRITABLE
-            // 事件是后续物理化增量（见 blueprint 模块文档）。
+            // Simplification: write directly (replies are usually < MTU). Non-blocking + pending
+            // write buffer + WRITABLE events are a later physicalization increment (see blueprint module docs).
             let _ = stream.write_all(&bytes);
         }
         SingleOutput::Idle
@@ -703,29 +703,29 @@ impl Machine for ConnWriter {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 6：AofWriter — 追加持久化（写命令日志）
+// Module 6: AofWriter — append persistence (write-command log)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
     #[derive(Debug, Clone, PartialEq)]
     pub struct MonitorPorts {
         input type MonitorInput {
-            log [Observe] => (usize, String), // 订阅 data_store.observe
+            log [Observe] => (usize, String), // subscribes to data_store.observe
         }
         output type MonitorOutput {
-            report [Observe] => (usize, String), // 透传观察（无下游 → 终端输出，供断言）
+            report [Observe] => (usize, String), // pass-through observe (no downstream → terminal output, for assertions)
         }
     }
 }
 
-/// Monitor 状态：事件计数 + 最近事件环形缓冲（低速观测，容量封顶）。
+/// Monitor state: event count + ring buffer of recent events (slow observer, bounded capacity).
 pub struct MonitorState {
     pub events: u64,
     pub ring: Vec<String>,
 }
 
-/// 模拟低速观测工作负载（ns/事件；bench 用，默认 0 = 不做模拟）。
-/// 真实观测（日志格式化/磁盘写入/聚合）远慢于主路径——用忙等待模拟。
+/// Simulated slow-observer workload (ns/event; used by bench, default 0 = no simulation).
+/// Real observation (log formatting/disk writes/aggregation) is far slower than the main path — simulated with busy-wait.
 pub static MONITOR_WORK_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub struct Monitor;
@@ -752,7 +752,7 @@ impl Machine for Monitor {
         input: MonitorInput,
     ) -> SingleOutput<MonitorOutput> {
         let MonitorInput::log((conn_id, line)) = input;
-        // 模拟低速观测（bench 注入）：观测模块比主路径慢 → 积压/丢弃语义生效
+        // Simulate a slow observer (bench injection): the observer is slower than the main path → backlog/drop semantics kick in
         let work_ns = MONITOR_WORK_NS.load(std::sync::atomic::Ordering::Relaxed);
         if work_ns > 0 {
             let start = std::time::Instant::now();
@@ -765,24 +765,24 @@ impl Machine for Monitor {
         if state.ring.len() > 64 {
             state.ring.remove(0);
         }
-        // 透传观察（观测流不得影响被观测模块——本输出只消费不反作用）
+        // Pass-through observe (the observation stream must not affect the observed module — this output only consumes, no feedback)
         SingleOutput::Yield(MonitorOutput::report((conn_id, line)))
     }
     fn cleanup(_: MonitorState, _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 8：Debugger — 调试注入（Control 流反向输入）
+// Module 8: Debugger — debug injection (reverse Control-flow input)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
     #[derive(Debug, Clone, PartialEq)]
     pub struct DebuggerPorts {
         input type DebuggerInput {
-            cmd [Data] => DebugCmd, // 外部注入（main 的调试入口）
+            cmd [Data] => DebugCmd, // externally injected (main's debug entry point)
         }
         output type DebuggerOutput {
-            out [Control] => DebugCmd, // Control 流 → data_store.ctrl
+            out [Control] => DebugCmd, // Control flow → data_store.ctrl
         }
     }
 }
@@ -818,12 +818,12 @@ declare_ports! {
             log [Data] => Option<Vec<u8>>,
         }
         output type AofWriterOutput {
-            // 纯汇：无输出端口
+            // pure sink: no output ports
         }
     }
 }
 
-/// AOF 状态：惰性打开的文件句柄（路径由实例名派生，支持多实例分片日志）。
+/// AOF state: lazily opened file handle (path derived from the instance name, supports per-instance shard logs).
 pub struct AofState {
     pub file: Option<std::fs::File>,
 }
@@ -851,8 +851,8 @@ impl Machine for AofWriter {
         let AofWriterInput::log(line) = input;
         if let Some(line) = line {
             let f = state.file.get_or_insert_with(|| {
-                // 实例名派生路径：aof_writer → redis_like.aof，
-                // aof_writer_0/1 → redis_like_aof_writer_0.aof（分片集群各自日志）。
+                // Path derived from the instance name: aof_writer → redis_like.aof,
+                // aof_writer_0/1 → redis_like_aof_writer_0.aof (one log per shard of the cluster).
                 let path = if ctx.name() == "aof_writer" {
                     "redis_like.aof".to_string()
                 } else {
@@ -865,7 +865,7 @@ impl Machine for AofWriter {
                     .expect("open AOF")
             });
             let _ = f.write_all(&line);
-            // 简化：不逐条 flush（批量落盘是物理化增量）。
+            // Simplification: no per-line flush (batched disk writes are a physicalization increment).
         }
         SingleOutput::Idle
     }

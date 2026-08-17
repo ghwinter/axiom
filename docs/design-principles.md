@@ -1,269 +1,267 @@
-# 元问题与设计原则（Meta-problems and Design Principles）
+# Design Principles
 
-> **性质**：正式文档（`docs/`），axiom 的设计哲学补充——记录长程迭代中反复
-> 出现的**元问题**（关于抽象、物理、验证、零成本的更深层追问）与对应的思考。
-> 与 `philosophy.md` 的关系：`philosophy.md` 陈述 axiom 的世界观（抽象层/物理
-> 层解耦、零成本、静态优先）；本文档记录**这些主张在迭代中暴露的元问题**——
-> 判据的演进、违反的分类、范式的统一——以及由此形成的设计原则。
+> **Nature.** A formal document in `docs/`, complementing axiom's design philosophy. It records the **meta-problems** — the deeper questions about abstraction, physics, verification, and zero cost that recur across iteration — together with the corresponding design principles. Relationship to [philosophy.md](philosophy.md): it states axiom's worldview (abstraction/physics decoupling, zero cost, static-first); this document records the **meta-problems those claims exposed during iteration** — the evolution of criteria, the classification of violations, the unification of paradigms — and the design principles formed from them.
 
 ---
 
-## 一、抽象与物理：what 与 how 的精确边界
+## 1. Abstraction and Physics: The Precise Boundary of What and How
 
-### 1.1 两个存在层级（回顾）
+### 1.1 The Two Layers of Existence (Recap)
 
-抽象层 $\mathcal{A}$（模块、端口、拓扑、语义标注）与物理层 $\mathcal{P}_h$
-（线程、内存、指令）互不相交。axiom 的职责是让抽象标注**不侵入物理执行**。
+The abstraction layer $\mathcal{A}$ (modules, ports, topology, semantic annotations) and the physical layer $\mathcal{P}_h$ (threads, memory, instructions) are disjoint. axiom's responsibility is to keep abstract annotations from invading physical execution.
 
-### 1.2 元问题：物理过程是"无限自由"还是"有限集合"？
+### 1.2 Meta-Problem: Unbounded Freedom or a Finite Set of Physical Processes?
 
-**追问**：不同任务（IO 密集 / 计算密集 / 吞吐 / 延迟敏感 / 多核并行）的最优
-物理过程各不相同——是否存在"通用最优"？如果没有，抽象是否应完全放弃物理？
+**Question.** Different tasks (IO-bound, compute-bound, throughput, latency-sensitive, multi-core parallel) have different optimal physical processes. Is there a universal optimum? If not, should the abstraction abandon the physical process entirely?
 
-**思考**：物理过程**不是无限空间，而是有限的正交维度选择集合**：
+**Reasoning.** The physical process is **not an unbounded space but a finite set of orthogonal dimension choices**:
 
 ```text
-物理过程选择空间 = 数据流形态 × 并发形态 × 资源策略
-  数据流形态：流式（逐值直通）｜批量（分段收集）｜窗口（攒批）
-  并发形态：  单线程 ｜ 并行（分片）｜ 异步（事件循环/IO 复用）
-  资源策略：  延迟优先 ｜ 吞吐优先 ｜ IO 效率优先
+physical-process choice space = data-flow shape × concurrency shape × resource policy
+  data-flow shape:   streaming (direct pass-through per value) | batched (staged collection) | windowed (batch accumulation)
+  concurrency shape: single-threaded | parallel (sharded) | async (event loop / IO multiplexing)
+  resource policy:   latency-first | throughput-first | IO-efficiency-first
 ```
 
-**原则（设计原则 D1）**：物理过程不是"开发者自由发挥"的无限空间，而是
-**有限的标准执行形态集合**。抽象层声明 what（拓扑/端口/语义），物理层提供
-有限的 how 集合（执行形态），部署时选择。开发者只需声明**任务类型**，runtime
-从集合中选对应实现——这比"放弃物理过程"（无法兑现性能承诺）和"标准化单一
-物理过程"（无法适配任务差异）都正确。
+**Principle (finite set of execution forms).** The physical process is not an unbounded space in which developers improvise freely; it is a **finite set of standard execution forms**. The abstraction layer declares *what* (topology, ports, semantics); the physical layer provides a finite *how* set (execution forms), chosen at deployment time. The developer declares only the **task type**, and the runtime selects the corresponding implementation from the set.
 
-### 1.3 deploy-time physics 的完整含义
+**Rationale.** This is more correct than both alternatives: "abandoning the physical process" cannot honor performance promises, and "standardizing on a single physical process" cannot adapt to task differences.
 
-axiom 已有的物理维度：并发形态（`ExecutionHint`）、载体（`LinkKind`）、资源
-（`MachinePhysicalSpec`）。**数据流形态维度此前缺失**——静态路径的实现默认
-"批量中转"，这是无意识的选择而非声明。补上该维度（流式/批量/窗口），使
-物理过程选择空间完整。
+**Boundary.** The finite set covers physical processes; structural definitions (topology, composition) are axiom's contract capability. A custom physical process beyond the set belongs to the adapter layer — axiom does not offer unbounded physical freedom, but organizes physics into a finite, verifiable choice set decoupled from abstract declarations (§4.4).
+
+### 1.3 The Full Meaning of Deploy-Time Physics
+
+axiom's physical dimensions are: concurrency shape (`ExecutionHint`), carrier (`LinkKind`), and resources (`MachinePhysicalSpec`). The data-flow shape (streaming / batched / windowed) is the fourth dimension of the choice space; it is realized by the execution model rather than a spec field — the static path executes in streaming form (§2.4), each value flowing through the fused loop individually instead of batched relaying.
 
 ---
 
-## 二、零成本抽象：从"无额外操作"到"执行形态同构"
+## 2. Zero-Cost Abstraction: From "No Extra Operations" to Execution-Shape Isomorphism
 
-### 2.1 元问题：零成本的判据是什么？
+### 2.1 Meta-Problem: What Is the Criterion for Zero Cost?
 
-**追问**：non-invasion axiom（`t(α) = t(h) + ε, ε < 5%`）是否被实现真正满足？
-实测静态路径（菱形）比手写慢 ~13×——判据被违反。问题是：违反属于哪一类？
+**Question.** Is the non-invasion axiom ($t(\alpha) = t(h) + \epsilon$, $\epsilon < 5\%$) actually satisfied by the implementation? Measurement showed the static path (diamond) ~13× slower than hand-written — the criterion was violated. The question is: which class does the violation belong to?
 
-### 2.2 两类违反的精确分类
+### 2.2 A Precise Classification of Two Kinds of Violations
 
-| 类 | 定义 | 性质 | 修复方式 |
+| Class | Definition | Nature | Fix |
 |---|---|---|---|
-| **形态内冗余** | 抽象形态内部的多余操作（标签、检查、包装、上下文传递） | 常数因子，形态与手写同 | **代码问题，补丁可修** |
-| **形态差** | 抽象形态与手写形态根本不同（批量 vs 流式、递归 vs 线性） | 结构性距离（随规模/层级增长） | **范式问题，需执行模型革新** |
+| **In-shape redundancy** | redundant operations within the abstraction shape (labels, checks, wrapping, context passing) | constant factor, shape identical to hand-written | **code problem, fixable by patch** |
+| **Shape difference** | the abstraction shape fundamentally differs from the hand-written shape (batched vs streaming, recursive vs linear) | structural distance (grows with scale / hierarchy) | **paradigm problem, requires execution-model innovation** |
 
-**实证**：静态路径最初 ~13×，其中标签税（端口枚举 match、`MachineContext`、
-`ProcessOutput` 分派、`Option` 检查）属**形态内冗余**——P0 的 `StraightMachine`
-裸载荷直传消除后收到 ~5–6×。剩余是**形态差**：批量中转（每输入在 5+ 个中间
-`Vec` 间移动）vs 手写（仅 1 个 out `Vec`）。
+**Evidence.** The static path measured ~13× slower than hand-written. The label tax (port enumeration `match`, `MachineContext`, `ProcessOutput` dispatch, `Option` checks) is **in-shape redundancy** — removing it via `StraightMachine`'s bare payload pass-through recovers to ~5–6×. The remainder is a **shape difference**: batched relay (each input moves through 5+ intermediate `Vec`s) versus hand-written (a single out `Vec`).
 
-### 2.3 补丁 vs 范式革新的判断准则
+### 2.3 Principle: Classify Any Performance Gap First
 
-**原则（设计原则 D2）**：任何性能差距，先分类：
-- 差距是**常数因子**（不随规模/层级增长）→ 形态内冗余，补丁可修；
-- 差距是**结构性**（随规模/层级增长）→ 形态差，补丁无法根除，必须革新
-  执行模型。
+**Principle (classify performance gaps first).** Any performance gap is classified before being addressed:
 
-### 2.4 实验证据：流式形态 = 手写
+- a gap that is a **constant factor** (does not grow with scale / depth) is in-shape redundancy, fixable by patch;
+- a gap that is **structural** (grows with scale / depth) is a shape difference that a patch cannot eliminate — the execution model must be innovated.
 
-`cargo bench --bench dag`（release，100k 输入，语义三者全等）：
+**Rationale.** The two classes demand different fixes: a patch suffices for in-shape redundancy; only an execution-model innovation removes a shape difference.
 
-| 执行形态 | vs 手写 |
+**Boundary.** The classification is determined by whether the gap grows with scale or depth, not by its magnitude alone; it applies to the gap between an abstraction path and its structurally equivalent hand-written counterpart.
+
+### 2.4 Experimental Evidence: Streaming Shape Equals Hand-Written
+
+`cargo bench --bench dag` (release, 100k inputs, all three semantics equivalent):
+
+| Execution shape | vs hand-written |
 |---|---|
-| 批量 Diamond（批量中转） | ~6× |
-| 手写循环 | 1.0× |
-| **流式直通（无中间 Vec）** | **~1.01×** |
+| Batched diamond (batched relay) | ~6× |
+| Hand-written loop | 1.0× |
+| **Streaming pass-through (no intermediate `Vec`)** | **~1.01×** |
 
-流式形态与手写同构——范式革新方向（批量 → 流式）被实证支持。
+The streaming shape is isomorphic to the hand-written one — the paradigm direction (batched → streaming) is empirically supported.
 
 ---
 
-## 三、验证的元问题：验证时刻类型集合是否可知
+## 3. Meta-Problems of Verification: Is the Type Set at Verification Time Knowable?
 
-### 3.1 静态 vs 动态的精确判据
+### 3.1 The Precise Criterion for Static vs Dynamic
 
-**追问**："静态优先"到底静态在什么？配置驱动的系统也是"静态"吗？
+**Question.** What exactly is "static" in static-first? Is a configuration-driven system "static" too?
 
-**思考**：不是"装配发生在启动前还是启动后"决定静态性，而是——**验证器运行时
-刻系统可能出现的类型集合是否可知**。按此判据切三层：
+**Reasoning.** It is not whether assembly happens before or after startup that determines staticness; it is **whether the set of types the system may exhibit at verification time is knowable**. By this criterion, the system divides into three layers:
 
-| 层 | 变化什么 | 验证时刻类型集合 | axiom 态度 |
+| Layer | What changes | Type set at verification time | axiom's stance |
 |---|---|---|---|
-| 配置动态 | 数据、参数、拓扑形状 | 已知（有限模式空间） | 支持（`validate_deep` 主场） |
-| 实例动态 | 实例增删/替换 | 已知（类型空间不变） | 支持（`topology` 三合法用例） |
-| 类型装载 | 引入新实现/新端口 schema | **未知** | 拒绝（adapter 关注点） |
+| Configuration-dynamic | data, parameters, topology shape | knowable (finite pattern space) | supported (`validate_deep` is its home) |
+| Instance-dynamic | instance creation / removal / replacement | knowable (type space unchanged) | supported (three legal uses of `topology`) |
+| Type-loading | new implementations / new port schemas | **unknown** | rejected (an adapter concern) |
 
-**推论**：配置动态是"披着动态外衣的静态"——它是**数据对已知类型空间的投影**，
-而数据是可穷尽分析的值。
+**Corollary.** Configuration-dynamic is "static disguised as dynamic" — it is a **projection of data onto a known type space**, and data is an exhaustively analyzable value.
 
-### 3.2 验证的价值边界
+**Principle (verification criterion).** Staticness is judged by whether the set of types the system may exhibit at verification time is knowable. A configuration-dynamic system is static in this sense; type-loading is not, and is rejected.
 
-**追问**：编译期已固定的数据流向，运行时还要验证来源/去向吗？
+**Rationale.** A knowable type set keeps verification finite and exhaustive; an unknown type set cannot be verified at compile time.
 
-**思考**：不需要。来源/去向由类型系统在编译期固定，运行时验证是多余的。
-**来源/去向错误是业务逻辑错误（开发者责任），不是性能开销的正当理由**——
-axiom 无总线概念，不需要"验证数据是否被标记为某模块需要"。静态路径的
-`StraightMachine` 正是此原则的落实：载荷裸传，零验证。
+**Boundary.** Configuration-dynamic and instance-dynamic layers are supported; type-loading (introducing new implementations or new port schemas) is out of scope and belongs to the adapter concern.
 
----
+### 3.2 The Value Boundary of Verification
 
-## 四、设计范式的元问题
+**Question.** When data flow is already fixed at compile time, should source and destination still be verified at runtime?
 
-### 4.1 命名：固定 N 便捷函数 vs 组合子
+**Reasoning.** No. Source and destination are fixed by the type system at compile time; runtime verification is redundant. **A source / destination error is a business-logic error (developer responsibility), not a legitimate reason for performance overhead.** axiom has no bus concept; there is no need to "verify whether data is marked as required by some module". The static path's `StraightMachine` is the implementation of this principle: the payload is passed bare, with zero verification.
 
-**追问**：`pipeline2`/`fanout2` 这类"单词+数字"标识符是否符合规范？是否应改名？
+**Principle (source / destination is a business error).** The source and destination of a data flow fixed at compile time are not re-verified at runtime. A source / destination error is a business-logic error, and re-verifying it at runtime is unjustified overhead.
 
-**思考**：数字后缀（阶段数/路数）在数据流领域约定俗成（有生态先例），
-`fanout2` = "2-way fan-out" 语义清晰。**不改名**（breaking change 收益低），
-但文档明确其定位：固定 N 便捷函数是组合子（`Chain`/`Diamond`）的**特例别名**，
-新代码优先用组合子。
+**Rationale.** The type system fixes directions at compile time; runtime verification duplicates a compile-time fact.
 
-### 4.2 显式 > 隐式
-
-**原则（设计原则 D3）**：物理决策、初始状态、执行形态都应显式声明，而非隐式
-默认。例：`feedback` 用显式 `initial` 参数（而非 `Default`）；`MachinePhysicalSpec`
-的物理决策显式（lint `default-physical` 反对全默认）；执行形态按任务类型声明。
-
-### 4.3 单一事实源与可重建性
-
-**原则（设计原则 D4）**：系统的一致性锚点是**可校验、可重放**的纯数据（蓝图、
-事件流）；其余一切都是它的派生（投影、持久化、视图）。`Projection` 契约把
-"可观测 ⟺ 可重建"从哲学承诺升级为类型约束。
-
-### 4.4 有限标准做法 vs 开发者自由
-
-物理过程是有限选择集合（§1.2）；结构定义（拓扑/复合）是 axiom 的契约能力；
-超出选择集合的"物理过程自定义"属于 adapter 层——axiom 不提供"无限物理自由"，
-而是**把物理组织成有限的、可验证的选择集合**，与抽象声明解耦。
+**Boundary.** Applies to flow directions fixed at compile time. Where the type system already fixes source and destination, no runtime check is added.
 
 ---
 
-## 五、统一范式：执行形态同构（Execution-Shape Isomorphism）
+## 4. Meta-Problems of Design Paradigms
 
-### 5.1 形式化
+### 4.1 Naming: Fixed-N Convenience Functions vs Combinators
 
-零成本抽象的**判据不是"无额外操作"，而是"抽象生成的执行形态与手写同构"**——
-相同的数据流形态（值如何流过）、相同的控制流形态（循环/调用结构）：
+**Question.** Should the static execution path be exposed as fixed-N
+convenience functions (`pipeline2` / `pipeline3` / `fanout2` / `fanin2`,
+"word + number") or as combinators?
+
+**Reasoning.** The numeric suffix (stage count / arity) is conventional in the
+data-flow domain, but the fixed-N family does not scale: every new arity
+requires a hand-written function, and fan-out/fan-in signatures drift apart as
+endpoint types multiply. The recursive combinators (`Chain` / `Diamond`)
+express the same topologies at arbitrary depth with no per-arity code.
+
+**Decision.** The fixed-N convenience functions were removed in a breaking
+refactor (see [migration-0.2.md](migration-0.2.md)). The static entry points are the
+combinators `pipeline_chain` / `diamond` / `feedback`, built on the `Straight`
+contract (`StraightMachine` / `StraightLink` / `StraightSplit` /
+`StraightMerge`) in `axiom::static_exec`. New code should use the combinators.
+
+### 4.2 Explicit over Implicit
+
+**Principle (explicit over implicit).** Physical decisions, initial states, and execution forms are declared explicitly rather than implicitly defaulted.
+
+**Rationale.** Examples: `feedback` takes an explicit `initial` parameter rather than `Default`; the physical decisions in `MachinePhysicalSpec` are explicit (the `default-physical` lint opposes all-defaults); the execution form is declared by task type.
+
+**Boundary.** Explicitness applies to what the abstraction declares — physical decisions, initial state, and execution form. It does not extend into the runtime's internal implementation choices (concrete carriers, schedulers), which remain the runtime's concern.
+
+### 4.3 Single Source of Truth and Rebuildability
+
+**Principle (single source of truth and rebuildability).** The consistency anchor of a system is **verifiable, replayable pure data** (blueprints, event streams); everything else is a derivation of it (projections, persistence, views). The `Projection` contract upgrades "observable ⟺ rebuildable" from a philosophical promise to a type constraint.
+
+**Rationale.** Projections, persistence, and views are derived; a pure-data anchor keeps the system verifiable and replayable.
+
+**Boundary.** The `Projection` contract enforces "observable ⟺ rebuildable" as a type constraint: every derivation is rebuildable from the pure-data anchor.
+
+### 4.4 Finite Standard Practices vs Developer Freedom
+
+The physical process is a finite choice set (§1.2); structural definitions (topology, composition) are axiom's contract capability. A "custom physical process" beyond the choice set belongs to the adapter layer — axiom does not offer "unbounded physical freedom", but **organizes physics into a finite, verifiable choice set**, decoupled from abstract declarations.
+
+---
+
+## 5. Unified Paradigm: Execution-Shape Isomorphism
+
+### 5.1 Formalization
+
+The criterion for zero-cost abstraction is **not "no extra operations", but "the execution shape generated by the abstraction is isomorphic to the hand-written shape"** — the same data-flow shape (how values flow) and the same control-flow shape (loop / call structure):
 
 ```text
 t(α) = t(h) + ε, ε < 5%  ⟺  dist(Shape(exec(α)), Shape(exec(h))) → 0
 ```
 
-### 5.2 通用判断流程（适用于任何性能差距问题）
+**Principle (execution-shape isomorphism).** Zero cost means the abstraction's execution shape is isomorphic to the hand-written shape, not merely the absence of extra operations.
 
-1. 测差距：抽象 vs 手写。
-2. 分类：差距是**常数因子**（形态内冗余）还是**随规模/层级增长**（形态差）？
-3. 修复：形态内冗余 → 消除抽象内部的标签/检查/包装（补丁）；
-   形态差 → 革新执行模型，使抽象生成与手写同构的形态（范式）。
+**Rationale.** A shape-isomorphic abstraction dissolves into the same data-flow and control-flow structure as hand-written code; a shape-different abstraction carries a structural distance that no patch removes (§2.3).
 
-### 5.3 对 axiom 迭代的指导
+**Boundary.** Isomorphism is judged on the data-flow and control-flow shapes jointly. Streaming is not globally optimal for every task (IO-bound / throughput tasks have their own shapes); it is one standard member of the data-flow shape dimension, chosen by task type (§5.3).
 
-- 静态路径（同步计算管道）的**正确执行形态是流式**（手写形态）——批量中转是
-  实现偏差，革新方向是"线性流式"（State 一次初始化 + 嵌套调用 + 仅 out Vec）。
-  **已实施**：`FlowThrough`（`StaticChain` 线性流式），静态路径 0 allocs/msg，
-  `ε ≈ 1–5%`（bench 实测，见 [`zero-cost-paradigm.md`](zero-cost-paradigm.md)）。
-- 流式不是全局通用最优（IO 密集/吞吐任务有各自的形态），而是数据流形态维度
-  的一个标准成员，按任务类型选择。
+### 5.2 The General Judgment Procedure (applies to any performance-gap problem)
 
-### 5.4 动态路径的下限（2026-08 修订）
+1. Measure the gap: abstraction vs hand-written.
+2. Classify: is the gap a **constant factor** (in-shape redundancy) or does it **grow with scale / depth** (shape difference)?
+3. Fix: in-shape redundancy → eliminate the labels / checks / wrapping inside the abstraction (patch); shape difference → innovate the execution model so the abstraction generates a shape isomorphic to hand-written (paradigm).
 
-**元问题**："动态税不可避免"是真的吗？——**部分真，早期论证错误**：
+### 5.3 Guidance for axiom Iteration
 
-- **早期论证错误**（`foundations.md` 原定理 15.3）：声称每消息"1 次堆分配 +
-  1 次分派 + 1 次字符串比较"且 ~5×。**实测（3 级链，分配计数器）**：改造前
-  **6.0 allocs/msg（每级 2 次）**、动态税 ~400×——字符串比较与每级 2 次
-  装箱都是**实现冗余**（ID 化 + `inject` 免冗余装箱已消除）。
-- **安全 Rust 的不可消除部分曾是"每级 1 次 `Box` + 1 次虚调用"**——值跨
-  异构类型传递需 `Box<dyn Any>`（`forbid(unsafe_code)` 禁止零分配类型
-  转换）；运行时 `TypeId` 相等无法类型化写入（曾证伪，见
-  `foundations.md` §15.3）。
-- **unsafe 破局（§5.5 分层决策后）**：runtime 层封装点 `typed_slot`
-  （`TypeId` 检查 + 位拷贝 `ptr::read`/`copy_nonoverlapping`）达成**同类型
-  级间 0 分配**——融合链实测 **1.0 allocs/msg**（外部输入 1 次）、时间
-  36→27ms。**剩余税 = 动态分派 + 类型擦除机制成本**（虚调用 ~70ns/级），
-  非分配。
+- The static path's execution shape is **linear streaming** (`FlowThrough` on
+  `StaticChain`): all machine states are initialized once into a type-level
+  tuple, values flow element-by-element through nested calls, and a single
+  cleanup runs at the end of the batch — the output `Vec` is the only staging
+  structure. It measures **0 allocs/msg** and $\epsilon \approx 1$–5% vs a
+  handwritten loop (see [zero-cost-paradigm.md](zero-cost-paradigm.md)).
+- Streaming is not globally optimal (IO-bound / throughput tasks have their own shapes); it is one standard member of the data-flow shape dimension, chosen by task type.
 
-**指导**：动态路径的分配税已降至外部输入 1 次（融合链）；剩余税是动态分派
-（虚调用）的机制成本，随**级数**线性增长。深链/热路径仍优先静态路径
-（0 分配 + 0 分派）；动态路径的"任意拓扑"价值与每级虚调用权衡
-（`foundations.md` §15.3 修订版）。
+### 5.4 The Lower Bound of the Dynamic Path
 
-### 5.5 unsafe 策略分层（2026-08 确立）
+**Meta-Problem.** Is "the dynamic tax is unavoidable" true?
 
-**原则**：axiom 按抽象/执行两层划分 unsafe 边界，遵循生态标准模式
-（Rust 标准库、tokio、rayon 等事实标准库均在上层 `forbid(unsafe_code)` /
-核心封装 unsafe 的分层下运行；axiom 的 core/runtime 结构遵循同一模式）。
+**Analysis.** The dynamic path's cost is bounded below by safe Rust's
+type-erasure mechanism and by the abstraction layer's `forbid(unsafe_code)`:
 
-- **core（抽象层）**：`#![forbid(unsafe_code)]`（`src/lib.rs`）。抽象层的
-  类型承诺纯净——来源/去向由类型系统编译期固定，无 unsafe 侵入。任何
-  "提升表达能力"的诉求不得以 unsafe 为代价；若未来确需，须在本文档
-  论证必要性并单独立项。
-- **runtime（执行层）**：允许**封装性 unsafe**。动态路径的性能需求
-  （无锁载体、类型化值传递）在 runtime 层实施，隔离于单一模块
-  （`carrier` 无锁 SPSC 载体、`typed_slot` 类型化值槽），以**文档化安全
-  不变量 + 测试**保证对外安全接口。
+- Passing values across heterogeneous types requires `Box<dyn Any>`; runtime
+  `TypeId` equality cannot be written in a typed way in safe Rust. This sets
+  the safe-Rust lower bound at 1 `Box` + 1 virtual call per level (see
+  [foundations.md §15.3](foundations.md)).
+- The runtime's encapsulated `typed_slot` (`TypeId` check + bit-copy `ptr::read`
+  / `copy_nonoverlapping`) removes allocation between levels of the same type:
+  the fused chain measures **1.0 allocs/msg** (1 for the external input).
+- The static path (`FlowThrough`, linear streaming) measures **0.000 allocs/msg**.
 
-**判断标准**：unsafe 仅允许出现在 runtime 的封装点，满足全部三条——
-(i) 对外提供安全接口（调用方零 `unsafe`）；
-(ii) 安全不变量在模块头文档化（前提条件 + 违反应量）；
-(iii) 不变量由测试覆盖。
+**Conclusion.** The dynamic tax is the mechanism cost of dynamic dispatch +
+type-erasure (a virtual call ~70 ns/level, growing linearly with the number of
+levels) plus the single external-input allocation of a fused chain. It is not a
+per-level allocation tax on pass-through.
 
-**动机**：极致性能的关键路径几乎必然需要 unsafe（生态事实）；"严格"的定义
-是**边界清晰 + 不变量文档化 + 验证充分**，而非零 unsafe。axiom 的承诺是
-**抽象层零 unsafe**（表达力可信），执行层以封装的 unsafe 换取动态路径的
-每级零分配传递（见 §5.4 的破局：`TypeId` 相等后的 `transmute` 是 identity，
-内存安全）。
+**Guidance.** Deep chains / hot paths prefer the static path (0 allocations +
+0 dispatch); the dynamic path's "arbitrary topology" value trades against the
+per-level virtual call (see [foundations.md §15.3](foundations.md)).
+
+### 5.5 The Unsafe Strategy, Layered
+
+**Principle (unsafe layering).** axiom divides the unsafe boundary along the abstraction / execution layers, following the standard ecosystem pattern: the Rust standard library and other de-facto standard libraries run under a layered scheme in which upper layers `forbid(unsafe_code)` and cores encapsulate unsafe; axiom's core / runtime structure follows the same pattern.
+
+- **core (abstraction layer)**: `#![forbid(unsafe_code)]` (`src/lib.rs`). The abstraction layer's type promises stay pure — source and destination are fixed at compile time by the type system, with no unsafe intrusion. Any demand to "increase expressive power" must not come at the cost of unsafe; if it is ever truly needed, its necessity must be argued in this document and tracked as a separate item.
+- **runtime (execution layer)**: **encapsulated unsafe** is allowed. The dynamic path's performance requirements (lock-free carriers, typed value passing) are implemented in the runtime layer, isolated in a single module (`carrier`, the lock-free SPSC carrier; `typed_slot`, the typed value slot), with **documented safety invariants + tests** guaranteeing a safe external interface.
+
+**Judgment criteria.** Unsafe is allowed only at runtime encapsulation points, and only when all three conditions hold:
+(i) the external interface is safe (callers write zero `unsafe`);
+(ii) safety invariants are documented in the module header (preconditions + violation consequences);
+(iii) invariants are covered by tests.
+
+**Motivation.** Extreme-performance critical paths almost necessarily require unsafe (an ecosystem fact); "strict" means **clear boundaries + documented invariants + sufficient verification**, not zero unsafe. axiom's promise is **zero unsafe in the abstraction layer** (trustworthy expressiveness), and encapsulated unsafe in the execution layer in exchange for per-level zero-allocation pass-through on the dynamic path (when `TypeId` equality holds, the bit copy is an identity, hence memory-safe).
 
 ---
 
-## 附录：设计原则索引
+## Appendix: Design Principle Index
 
-| # | 原则 | 位置 |
-|---|---|---|
-| D1 | 物理过程 = 有限执行形态集合（数据流 × 并发 × 资源），部署时选择 | §1.2 |
-| D2 | 性能差距先分类：形态内冗余（补丁）vs 形态差（革新） | §2.3 |
-| D3 | 显式 > 隐式：物理决策/初始状态/执行形态显式声明 | §4.2 |
-| D4 | 单一事实源 + 可重建性契约 | §4.3 |
-| D5 | 验证判据：验证时刻类型集合是否可知 | §3.1 |
-| D6 | 来源/去向是业务错误，不是运行时验证的理由 | §3.2 |
-| D7 | 执行形态同构：零成本 = 抽象执行形态 ≡ 手写形态 | §5.1 |
-| D8 | 调度可验证性：共享槽写者互斥（多写者需串行/声明顺序），部署期发现并发冲突 | 见下 |
-| D9 | unsafe 策略分层：core 零 unsafe（抽象层纯净）；runtime 封装性 unsafe（单点 + 不变量文档 + 测试） | §5.5 |
+The principles in this document, unnumbered:
 
-**D8 调度可验证性**：`validate_deep` 的 `analysis::shared_slot_conflicts`
-检测多个源写入同一 `SharedState`/`Latest` 槽的冲突（并行写顺序不确定）——
-这是调度歧义（scheduling ambiguity）的部署期形态：典型 ECS/调度系统在
-运行期警告，axiom 在部署期发现。冲突可被 `TopologyReport` 报告，多写者需
-显式串行或声明顺序。
+- **Finite set of execution forms** — the physical process is a finite set of standard execution forms (data-flow × concurrency × resource), chosen at deployment time. (§1.2)
+- **Classify performance gaps first** — in-shape redundancy (patch) vs shape difference (execution-model innovation). (§2.3)
+- **Explicit over implicit** — physical decisions / initial state / execution form are declared explicitly. (§4.2)
+- **Single source of truth and rebuildability** — the consistency anchor is verifiable, replayable pure data; everything else is derived; the `Projection` contract upgrades "observable ⟺ rebuildable" to a type constraint. (§4.3)
+- **Verification criterion** — staticness is judged by whether the type set at verification time is knowable. (§3.1)
+- **Source / destination is a business error** — not a reason for runtime verification. (§3.2)
+- **Execution-shape isomorphism** — zero cost = the abstraction's execution shape is isomorphic to the hand-written shape. (§5.1)
+- **Scheduling verifiability** — multiple writers to a shared slot are exclusive (serialized or explicitly ordered); concurrency conflicts surface at deployment time. (below)
+- **Unsafe layering** — core: zero unsafe (abstraction purity); runtime: encapsulated unsafe (single points + documented invariants + tests). (§5.5)
 
-**D9 unsafe 策略分层**：`design-principles.md` §5.5——core（`src/lib.rs`）
-`#![forbid(unsafe_code)]` 保证抽象层类型承诺纯净；runtime 允许**封装性
-unsafe**（`carrier` 无锁载体、`typed_slot` 类型化值槽），全部满足三条件：
-对外安全接口、模块头文档化安全不变量、测试覆盖。判定：任何 unsafe 不得
-侵入 core；执行层的 unsafe 以"抽象层零 unsafe"换取动态路径零分配传递。
+### Scheduling Verifiability
 
-**A2 宏诊断即契约**：`declare_ports!` 的文档以 `compile_fail` doctest 锁定
-错误用法（流类型拼写错误、重复端口名）必须编译失败——宏的诊断质量是契约
-的一部分，不随重构漂移（编译期测试锁定宏展开，与生态中 UI/宏测试同精神）。
+`validate_deep`'s `analysis::shared_slot_conflicts` detects conflicts where multiple sources write the same `SharedState` / `Latest` slot (parallel write order is indeterminate) — the deployment-time form of scheduling ambiguity: typical ECS / scheduler systems warn at run time; axiom discovers it at deployment time. Conflicts can be reported by `TopologyReport`; multiple writers must explicitly serialize or declare an order.
 
-**A3 异步就绪声明**：`Machine::is_ready`（默认 `true`）让需要异步初始化的
-机器声明"我何时就绪"——驱动者（异步 runtime/adapter）轮询 `is_ready`，
-就绪前不驱动（生命周期就绪阶段声明的机器级形态）。
-`axiom-runtime`（同步）不等待；异步 adapter 使用此声明。
+### The Unsafe Strategy, Layered
 
-**A4 受控共享数据**：`SharedResource<T>`（`Arc<RwLock<T>>`）是
-"封装 + 组合"的折中原语——默认机器状态有主（封装），需要跨机器共享的数据
-用 `SharedResource` **显式**承载（组合）。读写经 `RwLock`：多读者并行、写者
-互斥（与 D8 对应）。仅 std 提供；不需要共享的机器保持零成本封装。
+See §5.5 — core (`src/lib.rs`) `#![forbid(unsafe_code)]` keeps the abstraction layer's type promises pure; the runtime allows **encapsulated unsafe** (`carrier`, the lock-free carrier; `typed_slot`, the typed value slot), all satisfying the three conditions: safe external interface, safety invariants documented in the module header, test coverage. Judgment: no unsafe may intrude into core; the execution layer's unsafe trades "zero unsafe in the abstraction layer" for zero-allocation pass-through on the dynamic path.
 
-> **一句话总结**：axiom 的元问题不是"性能怎么优化"，而是"抽象与物理的边界
-> 到底在哪、零成本到底承诺了什么、验证到底该做什么"。统一的答案是：**物理是
-> 有限的选择集合（解耦 + 部署时选），零成本是执行形态同构（非无额外操作），
-> 验证是编译期事实的落实（非运行时重复检查）**。这三条构成 axiom 设计决策的
-> 元准则，指导迭代中每一个"性能差距 / 抽象边界 / 验证成本"类问题的判断。
+### Macro Diagnostics Are Contract
+
+`declare_ports!`'s documentation locks erroneous usages (misspelled flow types, duplicate port names) to compile failure via `compile_fail` doctests — the macro's diagnostic quality is part of the contract and must not drift with refactoring (compile-time tests lock the macro expansion, in the same spirit as UI / macro tests in the ecosystem).
+
+### Async-Readiness Declaration
+
+`Machine::is_ready` (default `true`) lets a machine that needs asynchronous initialization declare when it is ready — the driver (async runtime / adapter) polls `is_ready` and does not drive before readiness (the machine-level form of declaring a lifecycle-ready phase). `axiom-runtime` (synchronous) does not wait; async adapters use this declaration.
+
+### Controlled Shared Data
+
+`SharedResource<T>` (`Arc<RwLock<T>>`) is a middle-ground primitive of "encapsulation + composition": default machine state has a single owner (encapsulation); data that must be shared across machines is carried **explicitly** by `SharedResource` (composition). Reads and writes go through `RwLock`: multiple readers in parallel, writers exclusive (corresponding to Scheduling Verifiability). std-only; machines that need no sharing keep zero-cost encapsulation.
+
+---
+
+## Conclusion
+
+axiom's meta-problems are not "how to optimize performance", but "where exactly the boundary between abstraction and physics lies, what zero cost actually promises, and what verification should actually do". The unified answers: **physics is a finite choice set (decoupled, chosen at deployment time); zero cost is execution-shape isomorphism (not the absence of extra operations); verification is the implementation of compile-time facts (not repeated runtime checks)**. These three form the meta-criteria that guide every judgment about "performance gap / abstraction boundary / verification cost" during iteration.

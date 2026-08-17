@@ -6,8 +6,9 @@ use core::marker::PhantomData;use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
-// 当 `derive` feature 启用时，用 `#[ports]` 宏自动生成端口样板；
-// 否则手写（保持零依赖能力）。
+// When the `derive` feature is enabled, the `#[ports]` macro generates the
+// port boilerplate automatically; otherwise it is written by hand
+// (preserving the zero-dependency capability).
 #[cfg(feature = "derive")]
 #[crate::ports]
 pub struct IdentityPorts<I> {
@@ -119,6 +120,19 @@ impl<I: Send + Sync + Clone + 'static> Machine for Identity<I> {
     }
     fn cleanup(_state: (), _ctx: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
     fn deterministic() -> bool { true }
+}
+
+// ── Straight contract (unified static entry point) ──────────
+//
+// Identity is a natural member of the static path: `I → I`, the raw
+// payload is passed through directly at zero cost.
+
+impl<I: Send + Sync + Clone + 'static> StraightMachine for Identity<I> {
+    type StraightIn = I;
+    type StraightOut = I;
+
+    #[inline]
+    fn process_straight(_state: &mut (), input: I) -> I { input }
 }
 
 

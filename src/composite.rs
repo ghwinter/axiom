@@ -1,49 +1,62 @@
-//! 复合 Machine——子拓扑封装为单一 `machine_type`。
+//! **Maturity: experimental** (an extension; advanced as part of the core, not dropped).
 //!
-//! # 定位（反窄化规则下的归位）
+//! Composite Machines — a sub-topology wrapped as a single `machine_type`.
 //!
-//! 复合 Machine 是**结构定义能力**：一个 `DeploySpec`（子拓扑）+ 端口映射表。
-//! 它属于 axiom core 的结构层，**不是** runtime 的执行能力——因为：
+//! # Placement (homed under the anti-narrowing rule)
 //!
-//! 1. `CompositeSpec` 是纯数据（`DeploySpec` + 两个映射表）；
-//! 2. `expand_composites` 是纯数据变换（`DeploySpec → DeploySpec`）；
-//! 3. 展开过程不依赖任何执行原语（无线程、无 channel、无 reactor）。
+//! A composite Machine is a **structural definition capability**: a
+//! `DynamicTopology` (sub-topology) plus a port-mapping table. It belongs to
+//! the structural layer of axiom core, **not** to the runtime's execution
+//! capabilities — because:
 //!
-//! 把它放在 runtime 会让 core 无法独立表达嵌套拓扑——违反反窄化规则
-//! （`docs/philosophy.md` §"The structural scope constraint"）的"单一功能
-//! 窄化"禁令。本模块将其归位到 core，使 core 能独立定义任意深度的嵌套拓扑。
+//! 1. `CompositeSpec` is pure data (a `DynamicTopology` plus two mapping tables);
+//! 2. `expand_composites` is a pure data transformation (`DynamicTopology → DynamicTopology`);
+//! 3. expansion does not depend on any execution primitive (no threads, no channels, no reactor).
 //!
-//! # 设计
+//! Placing it in the runtime would prevent core from expressing nested
+//! topologies on its own — violating the "single-function narrowing"
+//! prohibition of the anti-narrowing rule (`docs/philosophy.md`
+//! §"The structural scope constraint"). This module homes it in core so that
+//! core can independently define nested topologies of arbitrary depth.
 //!
-//! 一个复合 Machine 是一个 `DeploySpec`（子拓扑）+ 端口映射表。
-//! 注册为 `machine_type` 后，`expand_composites` 遇到该类型的实例时：
+//! # Design
 //!
-//! 1. 展开子机器——名字空间化为 `parent.sub`（避免命名冲突）；
-//! 2. 展开子链接——两端机器名加 `parent.` 前缀；
-//! 3. 重定向外部链接——指向复合实例的链接按端口映射表改指向子机器。
+//! A composite Machine is a `DynamicTopology` (sub-topology) plus a
+//! port-mapping table. Once registered as a `machine_type`,
+//! `expand_composites` processes each instance of that type as follows:
 //!
-//! 嵌套（复合中的子机器也是复合）通过循环展开处理——直到无复合残留。
+//! 1. expand sub-machines — namespaced as `parent.sub` (avoids name collisions);
+//! 2. expand sub-links — both machine names get the `parent.` prefix;
+//! 3. redirect external links — links pointing at the composite instance are
+//!    retargeted to sub-machines according to the port-mapping table.
 //!
-//! # 端口映射
+//! Nesting (a sub-machine that is itself a composite) is handled by looping
+//! the expansion until no composite instance remains.
 //!
-//! - `input_map`：外部输入端口名 → (子机器名, 子端口名)
-//! - `output_map`：外部输出端口名 → (子机器名, 子端口名)
+//! # Port mapping
 //!
-//! 外部链接 `(src, sport) → (comp, in_port)` 中 `in_port` 命中 `input_map` 时，
-//! 改写为 `(src, sport) → (comp.sub_machine, sub_port)`。输出侧同理。
+//! - `input_map`: external input port name → (sub-machine name, sub-port name)
+//! - `output_map`: external output port name → (sub-machine name, sub-port name)
 //!
-//! # 与融合的关系
+//! When the `in_port` of an external link `(src, sport) → (comp, in_port)`
+//! hits `input_map`, it is rewritten as `(src, sport) → (comp.sub_machine,
+//! sub_port)`. The output side works the same way.
 //!
-//! 展开是结构层操作——发生在任何物化、端点校验、融合之前。融合看到的是
-//! 展开后的扁平拓扑，复合的边界已消失。这使得 `FusedPipeline` 可以跨原
-//! 复合边界融合（如果子机器是 `FusedInline` + `Inline` 链接）。
+//! # Relationship with fusion
+//!
+//! Expansion is a structural-layer operation — it happens before any
+//! materialization, endpoint validation, or fusion. Fusion sees the expanded
+//! flat topology, and the composite boundary has disappeared. This allows a
+//! `FusedPipeline` to fuse across the original composite boundary (if the
+//! sub-machines are `FusedInline` with `Inline` links).
 
 #[cfg(not(feature = "std"))]
 use crate::compat::prelude::*;
 #[cfg(not(feature = "std"))]
 use alloc::format;
-use crate::deploy::{DeploySpec, MachineInstance};
+use crate::deploy::{DynamicTopology, MachineInstance};
 use crate::link::LinkSpec;
+use crate::topology::Topology;
 
 use alloc::borrow::Cow;
 use alloc::collections::BTreeMap;
@@ -51,40 +64,50 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 // ════════════════════════════════════════════════════════════════════════════
-// Section 1: CompositeSpec — 纯数据结构
+// Section 1: CompositeSpec — the pure data structure
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 复合 Machine 定义——子拓扑 + 端口映射。
+/// A composite Machine definition — a sub-topology plus port mappings.
 ///
-/// 这是**结构层**对象：它只描述"这个复合类型长什么样"，不包含任何执行
-/// 逻辑。一个 `CompositeSpec` 注册为 `machine_type` 后，
-/// [`expand_composites`] 会把该类型的实例替换为展开后的子拓扑。
+/// This is a **structural-layer** object: it only describes "what this
+/// composite type looks like" and contains no execution logic. Once a
+/// `CompositeSpec` is registered as a `machine_type`, [`expand_composites`]
+/// replaces instances of that type with the expanded sub-topology.
 ///
-/// # 验证
+/// # Validation
 ///
-/// 调用 [`validate`](Self::validate) 检查端口映射完整性：
-/// - `input_map` / `output_map` 引用的子机器必须在 `spec.machines` 中；
-/// - 引用的子端口理想情况下应存在于该子机器的 `PortSchema`（需要
-///   runtime 提供 schema，core 层只检查机器名存在性）。
+/// Call [`validate`](Self::validate) to check the integrity of the port
+/// mappings:
+/// - the sub-machines referenced by `input_map` / `output_map` must be in `spec.machines`;
+/// - ideally the referenced sub-ports should exist in that sub-machine's
+///   `PortSchema` (this requires the runtime to provide schemas; the core
+///   layer only checks that the machine names exist).
 ///
-/// # 序列化
+/// # Serialization
 ///
-/// 在 `serialize` feature 下，`CompositeSpec` 可 round-trip 通过 Serde，
-/// 与 `DeploySpec` 一致——支持从 TOML/JSON 配置文件加载嵌套拓扑。
+/// Under the `serialize` feature, `CompositeSpec` round-trips through Serde,
+/// consistent with `DynamicTopology` — supporting nested topologies loaded
+/// from TOML/JSON configuration files.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub struct CompositeSpec {
-    /// 子拓扑（机器 + 链接 + funcs + settings）。
-    pub spec: DeploySpec,
-    /// 外部输入端口 → (子机器名, 子端口名)。
+    /// The sub-topology (machines + links + funcs + settings).
+    pub spec: DynamicTopology,
+    /// External input port → (sub-machine name, sub-port name).
     pub input_map: BTreeMap<String, (String, String)>,
-    /// 外部输出端口 → (子机器名, 子端口名)。
+    /// External output port → (sub-machine name, sub-port name).
     pub output_map: BTreeMap<String, (String, String)>,
 }
 
+// Blueprint concept: `CompositeSpec` is `Topology`'s **subgraph-reuse
+// mechanism** — a composite definition is itself a topology (its internal
+// `DynamicTopology` is the runtime projection). See [`Topology`].
+impl Topology for CompositeSpec {}
+
 impl CompositeSpec {
-    /// 创建复合定义——子拓扑 + 空端口映射（后续用 `with_input`/`with_output` 填充）。
-    pub fn new(spec: DeploySpec) -> Self {
+    /// Create a composite definition — a sub-topology plus empty port mappings
+    /// (fill them in later with `with_input`/`with_output`).
+    pub fn new(spec: DynamicTopology) -> Self {
         Self {
             spec,
             input_map: BTreeMap::new(),
@@ -92,7 +115,7 @@ impl CompositeSpec {
         }
     }
 
-    /// 声明一个外部输入端口的映射：`ext_port` → `(sub_machine, sub_port)`。
+    /// Declare a mapping for an external input port: `ext_port` → `(sub_machine, sub_port)`.
     pub fn with_input(mut self, ext_port: &str, sub_machine: &str, sub_port: &str) -> Self {
         self.input_map.insert(
             ext_port.to_string(),
@@ -101,7 +124,7 @@ impl CompositeSpec {
         self
     }
 
-    /// 声明一个外部输出端口的映射：`ext_port` → `(sub_machine, sub_port)`。
+    /// Declare a mapping for an external output port: `ext_port` → `(sub_machine, sub_port)`.
     pub fn with_output(mut self, ext_port: &str, sub_machine: &str, sub_port: &str) -> Self {
         self.output_map.insert(
             ext_port.to_string(),
@@ -110,29 +133,32 @@ impl CompositeSpec {
         self
     }
 
-    /// 验证端口映射的**机器名存在性**。
+    /// Validate the **machine-name existence** of the port mappings.
     ///
-    /// 这是 core 层能做的完整检查——`input_map` / `output_map` 引用的
-    /// `sub_machine` 必须在 `spec.machines` 中存在。端口名存在性需要
-    /// `PortSchema`（由 runtime 提供），不在 core 层检查。
+    /// This is the complete check the core layer can perform — the
+    /// `sub_machine` referenced by `input_map` / `output_map` must exist in
+    /// `spec.machines`. Port-name existence requires `PortSchema` (provided
+    /// by the runtime) and is not checked at the core layer.
     ///
-    /// # 错误
+    /// # Errors
     ///
-    /// - [`CompositeError::DanglingInputMapping`]：`input_map` 引用的子机器不存在；
-    /// - [`CompositeError::DanglingOutputMapping`]：`output_map` 引用的子机器不存在；
-    /// - [`CompositeError::DuplicatePortMapping`]：同一外部端口名同时出现在
-    ///   `input_map` 和 `output_map` 中（一个端口不能既是输入又是输出）。
+    /// - [`CompositeError::DanglingInputMapping`]: the sub-machine referenced by `input_map` does not exist;
+    /// - [`CompositeError::DanglingOutputMapping`]: the sub-machine referenced by `output_map` does not exist;
+    /// - [`CompositeError::DuplicatePortMapping`]: the same external port name
+    ///   appears in both `input_map` and `output_map` (a port cannot be both
+    ///   input and output).
     ///
-    /// # 不检查
+    /// # Not checked
     ///
-    /// - 子端口名存在性（需要 `PortSchema`）；
-    /// - 子拓扑内部的链接正确性（由 `DeploySpec::validate_deep` 负责）；
-    /// - 复合自引用（由 `expand_composites` 的深度上限保护）。
+    /// - sub-port name existence (requires `PortSchema`);
+    /// - the correctness of links inside the sub-topology (handled by
+    ///   `DynamicTopology::validate_deep`);
+    /// - composite self-reference (guarded by `expand_composites`'s depth limit).
     pub fn validate(&self) -> Result<(), CompositeError> {
         let sub_machine_names: crate::compat::HashSet<&str> =
             self.spec.machines.iter().map(|m| m.name.as_ref()).collect();
 
-        // 1. input_map 引用的子机器必须存在。
+        // 1. The sub-machines referenced by input_map must exist.
         for (ext_port, (sub_m, _sub_p)) in &self.input_map {
             if !sub_machine_names.contains(sub_m.as_str()) {
                 return Err(CompositeError::DanglingInputMapping {
@@ -142,7 +168,7 @@ impl CompositeSpec {
             }
         }
 
-        // 2. output_map 引用的子机器必须存在。
+        // 2. The sub-machines referenced by output_map must exist.
         for (ext_port, (sub_m, _sub_p)) in &self.output_map {
             if !sub_machine_names.contains(sub_m.as_str()) {
                 return Err(CompositeError::DanglingOutputMapping {
@@ -152,7 +178,7 @@ impl CompositeSpec {
             }
         }
 
-        // 3. 同一外部端口名不能同时出现在 input_map 和 output_map 中。
+        // 3. The same external port name must not appear in both input_map and output_map.
         for ext_port in self.input_map.keys() {
             if self.output_map.contains_key(ext_port) {
                 return Err(CompositeError::DuplicatePortMapping {
@@ -166,56 +192,67 @@ impl CompositeSpec {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Section 2: expand_composites — 纯数据变换
+// Section 2: expand_composites — the pure data transformation
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 递归展开复合 Machine——把所有 `machine_type` 匹配已注册复合的实例
-/// 替换为子拓扑（名字空间化），并重定向外部链接。
+/// Recursively expand composite Machines — replace every instance whose
+/// `machine_type` matches a registered composite with its sub-topology
+/// (namespaced) and redirect external links.
 ///
-/// 这是**纯数据变换**：`DeploySpec → DeploySpec`。不依赖任何执行原语。
+/// This is a **pure data transformation**: `DynamicTopology → DynamicTopology`.
+/// It does not depend on any execution primitive.
 ///
-/// 循环展开直到无复合残留（处理任意深度嵌套）。返回 `Err` 当嵌套深度
-/// 超过 64（几乎肯定是复合自引用导致的配置错误）。
+/// The expansion loops until no composite instance remains (handling nesting
+/// of arbitrary depth). Returns `Err` when the nesting depth exceeds 64
+/// (almost certainly a configuration error caused by composite self-reference).
 ///
-/// # 参数
+/// # Arguments
 ///
-/// - `machines`：待展开的机器列表（通常来自 `DeploySpec::machines`）；
-/// - `links`：待展开的链接列表（通常来自 `DeploySpec::links`）；
-/// - `composites`：`machine_type → CompositeSpec` 注册表。
+/// - `machines`: the list of machines to expand (usually from `DynamicTopology::machines`);
+/// - `links`: the list of links to expand (usually from `DynamicTopology::links`);
+/// - `composites`: the `machine_type → CompositeSpec` registry.
 ///
-/// # 返回
+/// # Returns
 ///
-/// - `Ok((machines, links))`：展开后的扁平拓扑，无复合实例残留；
-/// - `Err(CompositeError::TooDeep)`：嵌套深度超过 64，几乎肯定是复合
-///   自引用（子拓扑中包含自身类型的实例）。
+/// - `Ok((machines, links))`: the expanded flat topology, with no composite instances remaining;
+/// - `Err(CompositeError::TooDeep)`: nesting depth exceeded 64, almost
+///   certainly a composite self-reference (the sub-topology contains an
+///   instance of its own type).
 ///
-/// # 算法
+/// # Algorithm
 ///
-/// 每轮迭代：
-/// 1. 扫描 `machines`，命中复合类型的实例展开为子机器（名字空间化）；
-/// 2. 扫描 `links`，命中复合实例端点的链接按端口映射重定向；
-/// 3. 若本轮无展开发生，返回当前结果；否则继续下一轮。
+/// Each iteration:
+/// 1. scan `machines`, expanding instances whose type matches a composite into
+///    sub-machines (namespaced);
+/// 2. scan `links`, redirecting links whose endpoints hit a composite instance
+///    according to the port mappings;
+/// 3. if no expansion happened this round, return the current result;
+///    otherwise continue to the next round.
 ///
-/// 复杂度：每轮 O(N+M)，N=机器数，M=链接数。最坏情况 O(D·(N+M))，D=深度。
+/// Complexity: O(N+M) per round, where N = number of machines and M = number
+/// of links. Worst case O(D·(N+M)), where D = depth.
 pub fn expand_composites(
     mut machines: Vec<MachineInstance>,
     mut links: Vec<LinkSpec>,
     composites: &BTreeMap<String, CompositeSpec>,
 ) -> Result<(Vec<MachineInstance>, Vec<LinkSpec>), CompositeError> {
-    // 安全阀：防止恶意无限递归（复合自引用导致无限展开）。
-    // 正常嵌套深度 < 10；超过 64 几乎肯定是配置错误。
+    // Safety valve: prevents runaway infinite recursion (a composite
+    // self-reference would otherwise expand forever).
+    // Normal nesting depth is < 10; exceeding 64 is almost certainly a
+    // configuration error.
     const MAX_DEPTH: usize = 64;
     for _depth in 0..MAX_DEPTH {
         let mut next_machines: Vec<MachineInstance> = Vec::new();
         let mut next_links: Vec<LinkSpec> = Vec::new();
-        // 本轮展开的复合实例名 → (input_map, output_map) 快照。
+        // Snapshot of this round's expanded composite instance names →
+        // (input_map, output_map).
         let mut port_maps: BTreeMap<
             String,
             (&BTreeMap<String, (String, String)>, &BTreeMap<String, (String, String)>),
         > = BTreeMap::new();
         let mut found_composite = false;
 
-        // ── 展开机器 ──
+        // ── Expand machines ──
         for m in &machines {
             if let Some(comp) = composites.get(m.machine_type.as_ref()) {
                 found_composite = true;
@@ -227,7 +264,7 @@ pub fn expand_composites(
                     expanded.name = Cow::Owned(format!("{}.{}", prefix, sub_m.name));
                     next_machines.push(expanded);
                 }
-                // 子拓扑的链接——名字空间化两端。
+                // The sub-topology's links — namespace both endpoints.
                 for sub_l in &comp.spec.links {
                     next_links.push(LinkSpec {
                         out: (
@@ -246,14 +283,14 @@ pub fn expand_composites(
             }
         }
 
-        // ── 重定向外部链接 ──
+        // ── Redirect external links ──
         for l in &links {
             let src_machine = l.out.0.as_ref();
             let src_port = l.out.1.as_ref();
             let dst_machine = l.into.0.as_ref();
             let dst_port = l.into.1.as_ref();
 
-            // 源端是复合实例 → 按 output_map 重定向。
+            // The source endpoint is a composite instance → redirect via output_map.
             let new_out = if let Some((_, output_map)) = port_maps.get(src_machine) {
                 if let Some((sub_m, sub_p)) = output_map.get(src_port) {
                     (
@@ -267,7 +304,7 @@ pub fn expand_composites(
                 (l.out.0.clone(), l.out.1.clone())
             };
 
-            // 目标端是复合实例 → 按 input_map 重定向。
+            // The destination endpoint is a composite instance → redirect via input_map.
             let new_into = if let Some((input_map, _)) = port_maps.get(dst_machine) {
                 if let Some((sub_m, sub_p)) = input_map.get(dst_port) {
                     (
@@ -292,11 +329,12 @@ pub fn expand_composites(
         links = next_links;
 
         if !found_composite {
-            // 所有复合已展开完毕——正常退出。
+            // All composites have been expanded — exit normally.
             return Ok((machines, links));
         }
-        // 仍含复合实例但已用尽深度预算——配置错误（很可能复合自引用）。
-        // 循环结束后落入下面的 Err。
+        // Still contains composite instances but the depth budget is
+        // exhausted — a configuration error (most likely a composite
+        // self-reference). The loop falls through to the Err below.
     }
 
     Err(CompositeError::TooDeep {
@@ -309,42 +347,44 @@ pub fn expand_composites(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Section 3: 错误类型
+// Section 3: Error types
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 复合 Machine 定义或展开过程中的错误。
+/// An error from a composite Machine definition or its expansion.
 ///
-/// 这是 core 层错误——`CompositeSpec::validate` 和 `expand_composites`
-/// 都返回这个类型。runtime 的 `RuntimeError::CompositeTooDeep` 是它的
-/// 执行层镜像（runtime 在物化时把 `CompositeError` 转为 `RuntimeError`）。
+/// This is a core-layer error — both `CompositeSpec::validate` and
+/// `expand_composites` return this type. The runtime's
+/// `RuntimeError::CompositeTooDeep` is its execution-layer mirror (the runtime
+/// converts `CompositeError` into `RuntimeError` during materialization).
 #[derive(Debug)]
 pub enum CompositeError {
-    /// `input_map` 引用的子机器在 `spec.machines` 中不存在。
+    /// The sub-machine referenced by `input_map` does not exist in `spec.machines`.
     DanglingInputMapping {
-        /// 外部输入端口名。
+        /// The external input port name.
         ext_port: String,
-        /// 引用的子机器名（不存在）。
+        /// The referenced sub-machine name (does not exist).
         sub_machine: String,
     },
-    /// `output_map` 引用的子机器在 `spec.machines` 中不存在。
+    /// The sub-machine referenced by `output_map` does not exist in `spec.machines`.
     DanglingOutputMapping {
-        /// 外部输出端口名。
+        /// The external output port name.
         ext_port: String,
-        /// 引用的子机器名（不存在）。
+        /// The referenced sub-machine name (does not exist).
         sub_machine: String,
     },
-    /// 同一外部端口名同时出现在 `input_map` 和 `output_map` 中。
+    /// The same external port name appears in both `input_map` and `output_map`.
     ///
-    /// 一个端口不能既是输入又是输出——这是方向冲突。
+    /// A port cannot be both input and output — this is a direction conflict.
     DuplicatePortMapping {
-        /// 冲突的外部端口名。
+        /// The conflicting external port name.
         ext_port: String,
     },
-    /// 复合 Machine 嵌套深度超过上限（可能为复合自引用导致无限展开）。
+    /// Composite Machine nesting depth exceeded the limit (possibly an
+    /// infinite expansion caused by composite self-reference).
     TooDeep {
-        /// 达到的深度上限。
+        /// The depth limit that was reached.
         depth: usize,
-        /// 诊断提示。
+        /// A diagnostic hint.
         hint: String,
     },
 }
@@ -385,11 +425,11 @@ impl std::error::Error for CompositeError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::deploy::{DeploySpec, MachineInstance};
+    use crate::deploy::{DynamicTopology, MachineInstance};
     use crate::link::{LinkKind, LinkSpec};
     use crate::resource::MachinePhysicalSpec;
 
-    // ── 测试辅助 ───────────────────────────────────────────────────────
+    // ── Test helpers ─────────────────────────────────────────────────────
 
     fn machine(name: &'static str) -> MachineInstance {
         MachineInstance::new(name, "test", MachinePhysicalSpec::default())
@@ -399,9 +439,9 @@ mod tests {
         LinkSpec::new((a, pa), (b, pb), LinkKind::Inline)
     }
 
-    /// 构造一个简单的复合：子拓扑 `inner → inner2`，外部端口 `in`/`out`。
+    /// Build a simple composite: sub-topology `inner → inner2`, external ports `in`/`out`.
     fn simple_composite() -> CompositeSpec {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("inner"))
             .with_machine(machine("inner2"))
             .with_link(inline("inner", "y", "inner2", "x"));
@@ -411,7 +451,7 @@ mod tests {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // validate() — 端口映射完整性
+    // validate() — port-mapping integrity
     // ══════════════════════════════════════════════════════════════════
 
     #[test]
@@ -422,16 +462,17 @@ mod tests {
 
     #[test]
     fn validate_ok_empty_port_maps() {
-        // 空端口映射也合法——复合可能只有内部链接，无外部端口。
-        let spec = DeploySpec::new().with_machine(machine("inner"));
+        // Empty port mappings are also valid — a composite may only have
+        // internal links and no external ports.
+        let spec = DynamicTopology::new().with_machine(machine("inner"));
         let comp = CompositeSpec::new(spec);
         assert!(comp.validate().is_ok());
     }
 
     #[test]
     fn validate_rejects_dangling_input_mapping() {
-        // input_map 引用的子机器 "nonexistent" 不在 spec.machines 中。
-        let spec = DeploySpec::new().with_machine(machine("inner"));
+        // The sub-machine "nonexistent" referenced by input_map is not in spec.machines.
+        let spec = DynamicTopology::new().with_machine(machine("inner"));
         let comp = CompositeSpec::new(spec).with_input("in", "nonexistent", "x");
         let err = comp.validate().unwrap_err();
         match err {
@@ -445,8 +486,8 @@ mod tests {
 
     #[test]
     fn validate_rejects_dangling_output_mapping() {
-        // output_map 引用的子机器 "ghost" 不在 spec.machines 中。
-        let spec = DeploySpec::new().with_machine(machine("inner"));
+        // The sub-machine "ghost" referenced by output_map is not in spec.machines.
+        let spec = DynamicTopology::new().with_machine(machine("inner"));
         let comp = CompositeSpec::new(spec).with_output("out", "ghost", "y");
         let err = comp.validate().unwrap_err();
         match err {
@@ -460,8 +501,8 @@ mod tests {
 
     #[test]
     fn validate_rejects_duplicate_port_mapping() {
-        // 同一外部端口 "x" 同时出现在 input_map 和 output_map 中。
-        let spec = DeploySpec::new()
+        // The same external port "x" appears in both input_map and output_map.
+        let spec = DynamicTopology::new()
             .with_machine(machine("inner"))
             .with_machine(machine("inner2"));
         let comp = CompositeSpec::new(spec)
@@ -478,8 +519,8 @@ mod tests {
 
     #[test]
     fn validate_ok_multiple_inputs_outputs() {
-        // 多输入多输出——全部引用存在的子机器。
-        let spec = DeploySpec::new()
+        // Multiple inputs and outputs — all reference existing sub-machines.
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"));
@@ -492,12 +533,12 @@ mod tests {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // expand_composites() — 基本展开
+    // expand_composites() — basic expansion
     // ══════════════════════════════════════════════════════════════════
 
     #[test]
     fn expand_no_composites_returns_unchanged() {
-        // 无复合实例——返回原始机器/链接（克隆）。
+        // No composite instances — return the original machines/links (cloned).
         let machines = vec![machine("a"), machine("b")];
         let links = vec![inline("a", "y", "b", "x")];
         let composites = BTreeMap::new();
@@ -510,7 +551,7 @@ mod tests {
 
     #[test]
     fn expand_single_composite_replaces_instance() {
-        // 一个复合实例 "root" → 展开为 root.inner + root.inner2。
+        // One composite instance "root" → expands to root.inner + root.inner2.
         let mut composites = BTreeMap::new();
         composites.insert("comp".to_string(), simple_composite());
 
@@ -528,7 +569,7 @@ mod tests {
 
     #[test]
     fn expand_redirects_external_input_link() {
-        // 外部链接 (ext, y) → (root, in) 命中 input_map → 重定向到 (root.inner, x)。
+        // The external link (ext, y) → (root, in) hits input_map → redirect to (root.inner, x).
         let mut composites = BTreeMap::new();
         composites.insert("comp".to_string(), simple_composite());
 
@@ -540,7 +581,7 @@ mod tests {
         let (out_m, out_l) = expand_composites(machines, links, &composites).expect("expand");
 
         assert_eq!(out_m.len(), 3, "ext + 2 sub-machines");
-        // 外部链接应被重定向到 root.inner.x
+        // The external link should be redirected to root.inner.x
         let redirected = out_l
             .iter()
             .find(|l| l.out.0.as_ref() == "ext" && l.out.1.as_ref() == "y")
@@ -551,7 +592,7 @@ mod tests {
 
     #[test]
     fn expand_redirects_external_output_link() {
-        // 外部链接 (root, out) → (ext, x) 命中 output_map → 重定向到 (root.inner2, y)。
+        // The external link (root, out) → (ext, x) hits output_map → redirect to (root.inner2, y).
         let mut composites = BTreeMap::new();
         composites.insert("comp".to_string(), simple_composite());
 
@@ -573,8 +614,8 @@ mod tests {
 
     #[test]
     fn expand_unmapped_external_port_passes_through() {
-        // 外部端口 "unknown" 不在 input_map/output_map 中 → 链接保持原样
-        // （指向 root.unknown，后续 validate_deep 会报 DanglingRef）。
+        // The external port "unknown" is not in input_map/output_map → the link stays as-is
+        // (pointing at root.unknown; validate_deep will report a DanglingRef later).
         let mut composites = BTreeMap::new();
         composites.insert("comp".to_string(), simple_composite());
 
@@ -585,7 +626,7 @@ mod tests {
         let links = vec![inline("ext", "y", "root", "unknown")];
         let (_out_m, out_l) = expand_composites(machines, links, &composites).expect("expand");
 
-        // 未映射的端口保持原样——后续 validate_deep 会捕获。
+        // Unmapped ports stay as-is — validate_deep will catch them later.
         let unredirected = out_l
             .iter()
             .find(|l| l.out.0.as_ref() == "ext")
@@ -595,14 +636,14 @@ mod tests {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // expand_composites() — 嵌套与深度
+    // expand_composites() — nesting and depth
     // ══════════════════════════════════════════════════════════════════
 
     #[test]
     fn expand_nested_composite_two_levels() {
-        // 外层复合 "outer" 包含一个内层复合 "inner" 实例。
-        // 展开后：root.outer.inner.sub1, root.outer.inner.sub2
-        let inner_spec = DeploySpec::new()
+        // The outer composite "outer" contains an inner composite "inner" instance.
+        // After expansion: root.outer.inner.sub1, root.outer.inner.sub2
+        let inner_spec = DynamicTopology::new()
             .with_machine(machine("sub1"))
             .with_machine(machine("sub2"))
             .with_link(inline("sub1", "y", "sub2", "x"));
@@ -610,7 +651,7 @@ mod tests {
             .with_input("in", "sub1", "x")
             .with_output("out", "sub2", "y");
 
-        let outer_spec = DeploySpec::new()
+        let outer_spec = DynamicTopology::new()
             .with_machine(MachineInstance::new("inner_inst", "inner_type", MachinePhysicalSpec::default()));
         let outer_comp = CompositeSpec::new(outer_spec)
             .with_input("in", "inner_inst", "in")
@@ -623,7 +664,7 @@ mod tests {
         let machines = vec![MachineInstance::new("root", "outer_type", MachinePhysicalSpec::default())];
         let (out_m, _out_l) = expand_composites(machines, vec![], &composites).expect("expand");
 
-        // 两轮展开：outer → inner_inst.inner_type → sub1/sub2
+        // Two rounds of expansion: outer → inner_inst.inner_type → sub1/sub2
         assert_eq!(out_m.len(), 2);
         assert_eq!(out_m[0].name.as_ref(), "root.inner_inst.sub1");
         assert_eq!(out_m[1].name.as_ref(), "root.inner_inst.sub2");
@@ -631,8 +672,9 @@ mod tests {
 
     #[test]
     fn expand_self_referential_composite_reports_too_deep() {
-        // 复合 "loop" 的子拓扑包含自身类型的实例 → 无限展开 → TooDeep。
-        let loop_spec = DeploySpec::new().with_machine(MachineInstance::new(
+        // The composite "loop" has a sub-topology containing an instance of its own type
+        // → infinite expansion → TooDeep.
+        let loop_spec = DynamicTopology::new().with_machine(MachineInstance::new(
             "inner",
             "loop",
             MachinePhysicalSpec::default(),
@@ -656,7 +698,7 @@ mod tests {
 
     #[test]
     fn expand_multiple_composites_in_parallel() {
-        // 两个独立的复合实例同时展开——名字空间互不冲突。
+        // Two independent composite instances expand simultaneously — namespaces don't collide.
         let mut composites = BTreeMap::new();
         composites.insert("comp".to_string(), simple_composite());
 
@@ -667,18 +709,18 @@ mod tests {
         let (out_m, out_l) = expand_composites(machines, vec![], &composites).expect("expand");
 
         assert_eq!(out_m.len(), 4, "2 composites × 2 sub-machines each");
-        // 两个复合实例的子机器名字空间不同。
+        // The sub-machine namespaces of the two composite instances differ.
         let names: Vec<&str> = out_m.iter().map(|m| m.name.as_ref()).collect();
         assert!(names.contains(&"a.inner"));
         assert!(names.contains(&"a.inner2"));
         assert!(names.contains(&"b.inner"));
         assert!(names.contains(&"b.inner2"));
-        // 每个复合各 1 条内部链接。
+        // Each composite has 1 internal link.
         assert_eq!(out_l.len(), 2);
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // expand_composites() — 边界情况
+    // expand_composites() — edge cases
     // ══════════════════════════════════════════════════════════════════
 
     #[test]
@@ -691,7 +733,7 @@ mod tests {
 
     #[test]
     fn expand_unregistered_composite_type_passes_through() {
-        // machine_type "unknown_comp" 未注册——实例原样保留。
+        // The machine_type "unknown_comp" is not registered — the instance is kept as-is.
         let machines = vec![MachineInstance::new(
             "x",
             "unknown_comp",
@@ -706,12 +748,12 @@ mod tests {
 
     #[test]
     fn expand_preserves_machine_physical_spec() {
-        // 展开后的子机器应保留原始 sub-machine 的 physical spec。
+        // The expanded sub-machines should preserve the original sub-machine's physical spec.
         use crate::resource::ExecutionHint;
         let mut inner_physical = MachinePhysicalSpec::default();
         inner_physical.execution = ExecutionHint::CpuBound;
         let inner = MachineInstance::new("inner", "test", inner_physical);
-        let spec = DeploySpec::new().with_machine(inner);
+        let spec = DynamicTopology::new().with_machine(inner);
         let comp = CompositeSpec::new(spec);
 
         let mut composites = BTreeMap::new();
@@ -729,7 +771,7 @@ mod tests {
 
     #[test]
     fn expand_preserves_link_kind() {
-        // 展开后的链接应保留原始 LinkKind（包括 BoundedBuf 的参数）。
+        // The expanded links should preserve the original LinkKind (including BoundedBuf's parameters).
         use crate::link::{ReadPolicy, WritePolicy};
         let bounded = LinkSpec::new(
             ("inner", "y"),
@@ -740,7 +782,7 @@ mod tests {
                 read_policy: ReadPolicy::NonBlocking,
             },
         );
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("inner"))
             .with_machine(machine("inner2"))
             .with_link(bounded);
@@ -774,7 +816,7 @@ mod tests {
 
     #[test]
     fn builder_with_input_chains() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"));
         let comp = CompositeSpec::new(spec)
@@ -787,7 +829,7 @@ mod tests {
 
     #[test]
     fn builder_with_output_chains() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"));
         let comp = CompositeSpec::new(spec)
@@ -800,7 +842,7 @@ mod tests {
 
     #[test]
     fn builder_with_input_and_output() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"));
         let comp = CompositeSpec::new(spec)
@@ -812,7 +854,7 @@ mod tests {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // 错误显示
+    // Error Display
     // ══════════════════════════════════════════════════════════════════
 
     #[test]

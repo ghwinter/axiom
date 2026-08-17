@@ -1,3 +1,5 @@
+/// **Maturity: stable** (the stable core, main subject of the current refactor).
+///
 /// Pure-function computation primitive.
 ///
 /// # Physics

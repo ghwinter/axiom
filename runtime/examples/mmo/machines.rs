@@ -1,16 +1,16 @@
-//! # MMO 核心子图 — 机器集
+//! # MMO core subgraph — machine set
 //!
-//! 蓝图 `blueprint.rs` 中 7 个模块的 Machine 实现：
+//! Machine implementations for the 7 modules in the `blueprint.rs` blueprint:
 //!
-//! | 模块 | 职责 | 输入 | 输出 | 状态 |
+//! | Module | Responsibility | Input | Output | State |
 //! |---|---|---|---|---|
-//! | `ConnGateway` | 物理读 socket | `io` (IoEvent) | `raw` (conn_id, bytes) | 共享连接表 |
-//! | `ProtocolParser` | 行协议解析（LOGIN/MOVE/SAY/LOGOUT） | `raw` | `msg` (ClientMsg) | 每连接缓冲 |
-//! | `SessionManager` | 会话生命周期 + 心跳超时 | `msg` + `tick`(时钟) | `world`(WorldEvt) + `view`(错误) | 会话表 + now |
-//! | `WorldShard` | 世界状态（玩家位置/在线），事件溯源 | `evt` + `replay` | `world`(WorldUpdate) + `log` | 在线玩家 |
-//! | `PerPlayerView` | 视野投影（世界事件 → N 玩家视图） | `world` + `notice` | `view` (conn_id, bytes) | — |
-//! | `BroadcastWriter` | 物理写回 | `view` | — | 共享连接表 |
-//! | `EventLog` | 世界事件日志（追加，可回放） | `log` | — | 文件句柄 |
+//! | `ConnGateway` | Physical socket read | `io` (IoEvent) | `raw` (conn_id, bytes) | shared connection table |
+//! | `ProtocolParser` | Line protocol parsing (LOGIN/MOVE/SAY/LOGOUT) | `raw` | `msg` (ClientMsg) | per-connection buffer |
+//! | `SessionManager` | Session lifecycle + heartbeat timeout | `msg` + `tick`(clock) | `world`(WorldEvt) + `view`(error) | session table + now |
+//! | `WorldShard` | World state (player position/online), event sourcing | `evt` + `replay` | `world`(WorldUpdate) + `log` | online players |
+//! | `PerPlayerView` | View projection (world event → N player views) | `world` + `notice` | `view` (conn_id, bytes) | — |
+//! | `BroadcastWriter` | Physical write-back | `view` | — | shared connection table |
+//! | `EventLog` | World event log (append, replayable) | `log` | — | file handle |
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -23,7 +23,7 @@ use axiom::port::{ConfigSchema, MachineContext};
 use axiom_runtime::IoEvent;
 
 // ════════════════════════════════════════════════════════════════════════
-// 共享物理资源：连接表（同 redis_like 模式）
+// Shared physical resource: connection table (same pattern as redis_like)
 // ════════════════════════════════════════════════════════════════════════
 
 pub type SharedTable = Arc<Mutex<ConnTable>>;
@@ -40,15 +40,15 @@ pub struct ConnTable {
     pub conns: HashMap<usize, TcpStream>,
 }
 
-/// 连接原始字节：`(conn_id, bytes)`；空 bytes = EOF/关闭。
+/// Raw connection bytes: `(conn_id, bytes)`; empty bytes = EOF/close.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RawBytes(pub usize, pub Vec<u8>);
 
 // ════════════════════════════════════════════════════════════════════════
-// 数据类型（协议 / 世界语义）
+// Data types (protocol / world semantics)
 // ════════════════════════════════════════════════════════════════════════
 
-/// 玩家输入消息（行协议：LOGIN name / MOVE x y / SAY text / LOGOUT）。
+/// Player input message (line protocol: LOGIN name / MOVE x y / SAY text / LOGOUT).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
     Login(String),
@@ -63,7 +63,7 @@ pub struct ClientMsg {
     pub msg: Msg,
 }
 
-/// 世界事件（会话层 → 世界层；Join/Leave 带 conn_id 供投影路由）。
+/// World event (session layer → world layer; Join/Leave carry conn_id for projection routing).
 #[derive(Debug, Clone, PartialEq)]
 pub enum WorldEvt {
     Join(usize, String),
@@ -72,7 +72,7 @@ pub enum WorldEvt {
     Leave(usize, String),
 }
 
-/// 世界更新：在线玩家快照 + 本事件。
+/// World update: online player snapshot + the current event.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorldUpdate {
     pub players: Vec<(usize, String, f32, f32)>, // (conn_id, name, x, y)
@@ -80,7 +80,7 @@ pub struct WorldUpdate {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 1：ConnGateway — 物理读（复用 redis_like ConnReader 模式）
+// Module 1: ConnGateway — physical read (reuses the redis_like ConnReader pattern)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -142,7 +142,7 @@ impl Machine for ConnGateway {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 2：ProtocolParser — 行协议解析（增量）
+// Module 2: ProtocolParser — line protocol parsing (incremental)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -184,7 +184,7 @@ impl Machine for ProtocolParser {
         }
         let buf = state.entry(conn_id).or_default();
         buf.extend_from_slice(&bytes);
-        // 找第一条完整行（\n 结尾）
+        // find the first complete line (ends with \n)
         let Some(nl) = buf.iter().position(|&b| b == b'\n') else {
             return SingleOutput::Idle;
         };
@@ -192,7 +192,7 @@ impl Machine for ProtocolParser {
         buf.drain(..nl + 1);
         match parse_line(&line) {
             Some(msg) => SingleOutput::Yield(ProtocolParserOutput::msg(ClientMsg { conn_id, msg })),
-            None => SingleOutput::Idle, // 无法解析的行：丢弃
+            None => SingleOutput::Idle, // unparseable line: discard it
         }
     }
     fn cleanup(_: HashMap<usize, Vec<u8>>, _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
@@ -218,7 +218,7 @@ fn parse_line(line: &[u8]) -> Option<Msg> {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 3：SessionManager — 会话生命周期 + 心跳超时
+// Module 3: SessionManager — session lifecycle + heartbeat timeout
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -226,7 +226,7 @@ declare_ports! {
     pub struct SessionMgrPorts {
         input type SessionMgrInput {
             msg  [Data] => ClientMsg,
-            tick [Data] => u64, // 时钟：毫秒时间戳（main 每 100ms 注入）
+            tick [Data] => u64, // clock: millisecond timestamp (injected by main every 100ms)
         }
         output type SessionMgrOutput {
             world [Data] => Option<WorldEvt>,
@@ -247,7 +247,7 @@ pub struct SessState {
     pub now: u64,
 }
 
-/// 心跳超时阈值（毫秒；测试友好：10s）。
+/// Heartbeat timeout threshold (milliseconds; test-friendly: 10s).
 pub const HEARTBEAT_TIMEOUT_MS: u64 = 10_000;
 
 pub struct SessionManager;
@@ -279,7 +279,7 @@ impl Machine for SessionManager {
                 let mut out = Vec::with_capacity(2);
                 match msg {
                     Msg::Login(name) => {
-                        // 已登录则先踢出旧会话（同名顶号）
+                        // if already logged in, kick the old session first (same-name takeover)
                         if let Some(old) = state.sessions.remove(&conn_id) {
                             out.push(SessionMgrOutput::world(Some(WorldEvt::Leave(
                                 conn_id, old.name,
@@ -329,7 +329,7 @@ impl Machine for SessionManager {
             }
             SessionMgrInput::tick(ts) => {
                 state.now = ts;
-                // 心跳超时：一次性踢出所有超时会话（多条 Leave）
+                // heartbeat timeout: kick all timed-out sessions at once (multiple Leaves)
                 let stale: Vec<(usize, String)> = state
                     .sessions
                     .iter()
@@ -351,7 +351,7 @@ impl Machine for SessionManager {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 4：WorldShard — 世界状态（玩家位置/在线），事件溯源
+// Module 4: WorldShard — world state (player position/online), event sourcing
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -359,12 +359,12 @@ declare_ports! {
     pub struct WorldShardPorts {
         input type WorldShardInput {
             evt    [Data] => Option<WorldEvt>,
-            replay [Data] => String, // 事件日志行（重启恢复）
+            replay [Data] => String, // event log line (restore on restart)
         }
         output type WorldShardOutput {
             world   [Data]    => WorldUpdate,
             log     [Data]    => Option<String>,
-            observe [Observe] => String, // 世界快照文本（无下游 → 终端输出，供断言）
+            observe [Observe] => String, // world snapshot text (no downstream → terminal output, for assertions)
         }
     }
 }
@@ -409,7 +409,7 @@ impl Machine for WorldShard {
                 ])
             }
             WorldShardInput::replay(line) => {
-                // 事件溯源重放：解析日志行 → 应用到世界状态（不重复记日志）
+                // event-sourcing replay: parse the log line → apply to world state (without re-logging)
                 if let Some(evt) = parse_log_line(&line) {
                     let _ = apply_event(state, &evt);
                 }
@@ -425,7 +425,7 @@ impl Machine for WorldShard {
     fn cleanup(_: Self::State, _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
 }
 
-/// 应用世界事件，返回事件日志行（None = 无可记录事件）。
+/// Apply a world event and return the event log line (None = no recordable event).
 fn apply_event(
     state: &mut (HashMap<usize, String>, HashMap<String, (f32, f32)>),
     evt: &WorldEvt,
@@ -460,8 +460,8 @@ fn apply_event(
     }
 }
 
-/// 观察文本：`event: ... | players=[(conn_id, name, x, y), ...]`
-/// （供确定性断言：事件 + 世界快照）。
+/// Observation text: `event: ... | players=[(conn_id, name, x, y), ...]`
+/// (for deterministic assertions: event + world snapshot).
 fn observe_text(update: &WorldUpdate) -> String {
     let evt_text = match &update.evt {
         Some(WorldEvt::Join(_, n)) => format!("{n} joined"),
@@ -516,7 +516,7 @@ fn parse_log_line(line: &str) -> Option<WorldEvt> {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 5：PerPlayerView — 视野投影（世界事件 → N 玩家视图）
+// Module 5: PerPlayerView — view projection (world event → N player views)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -552,7 +552,7 @@ impl Machine for PerPlayerView {
     ) -> MultiOutput<PerPlayerViewOutput> {
         match input {
             PerPlayerViewInput::world(update) => {
-                // 投影：每个在线玩家都收到一份世界视图文本
+                // projection: every online player receives a copy of the world view text
                 let online: Vec<String> = update
                     .players
                     .iter()
@@ -585,7 +585,7 @@ impl Machine for PerPlayerView {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 6：BroadcastWriter — 物理写回（复用 redis_like ConnWriter 模式）
+// Module 6: BroadcastWriter — physical write-back (reuses the redis_like ConnWriter pattern)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -595,7 +595,7 @@ declare_ports! {
             view [Data] => (usize, Vec<u8>),
         }
         output type BroadcastWriterOutput {
-            // 纯汇：无输出端口
+            // pure sink: no output port
         }
     }
 }
@@ -631,7 +631,7 @@ impl Machine for BroadcastWriter {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 7：EventLog — 世界事件日志（事件溯源，可回放重建）
+// Module 7: EventLog — world event log (event sourcing, replayable to rebuild)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -641,7 +641,7 @@ declare_ports! {
             log [Data] => Option<String>,
         }
         output type EventLogOutput {
-            // 纯汇：无输出端口
+            // pure sink: no output port
         }
     }
 }

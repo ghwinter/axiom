@@ -1,51 +1,52 @@
-//! # MMO 核心子图 — 系统蓝图
+//! # MMO core subgraph — system blueprint
 //!
-//! 单世界分区（shard）的多线程协同子图：连接网关 → 输入协议 →
-//! 会话生命周期 → 世界状态 → 玩家视野投影 → 广播写回，外加
-//! **事件溯源日志**（世界事件流，可回放重建）与 **时钟事件**
-//! （心跳/超时踢人）。
+//! A multi-machine collaboration subgraph for a single world shard: connection gateway →
+//! input protocol → session lifecycle → world state → per-player view projection → broadcast
+//! write-back, plus **event-sourcing logging** (world event stream, replayable to rebuild) and
+//! **clock events** (heartbeat / timeout kicking).
 //!
-//! ## 蓝图（抽象层）
+//! ## The blueprint (abstraction layer)
 //!
 //! ```text
-//!  IoReactor                     ┌──────────── 世界层（单实例状态机 = 串行世界序）───────────┐
-//!  (epoll/kqueue/WSA)            │                                                           │
-//!  连接 READABLE ──► ConnGateway ──► ProtocolParser ──► SessionManager ──► WorldShard ──► PerPlayerView ──► BroadcastWriter
-//!  事件          │  (物理读)   │  (输入协议)  │  (会话生命周期+超时)  │  (玩家位置)   (视野投影)    │  (物理写回)
-//!                │             │              │        │             │      │                  │
-//!                │             │              │        └─ tick(时钟) │      └─► EventLog（事件溯源日志）
-//!                │             │              │                       │
-//!                │             │              └── 未登录错误提示 ─────► PerPlayerView.notice
-//!                └─────────────┴──────────────┴───────────────────────┴──────────────────────────┘
+//!  IoReactor                     ┌──────────── world layer (single-instance state machine = serial world order) ───────────┐
+//!  (epoll/kqueue/WSA)            │                                                                                       │
+//!  conn READABLE ──► ConnGateway ──► ProtocolParser ──► SessionManager ──► WorldShard ──► PerPlayerView ──► BroadcastWriter
+//!  event          │  (phys read) │  (input proto)  │  (session lifecycle+timeout)  │  (player pos)   (view proj)    │  (phys write)
+//!                 │              │                 │        │             │      │                  │
+//!                 │              │                 │        └─ tick(clock) │      └─► EventLog (event-sourcing log)
+//!                 │              │                 │                       │
+//!                 │              │                 └── not-logged-in error hint ─► PerPlayerView.notice
+//!                 └──────────────┴─────────────────┴───────────────────────┴──────────────────────────┘
 //! ```
 //!
-//! ## 与 redis_like 的复杂度增量
+//! ## Complexity increment over redis_like
 //!
-//! 1. **显式会话生命周期**：`Login → Playing → Logout` + 心跳超时踢人
-//!    （时钟事件驱动）——连接不再是隐式的 State 键，而是状态机。
-//! 2. **世界投影**：世界事件 → N 玩家可见视图（`PerPlayerView` 按
-//!    玩家过滤/格式化）——fan-out 是投影而非数据复制。
-//! 3. **事件溯源**：日志记录**世界事件流**（Join/Move/Say/Leave），
-//!    重启后从日志重建世界——比命令日志更细粒度，是游戏服务器
-//!    审计/防作弊的核心需求。
-//! 4. **时钟**：心跳/超时是周期事件（main 每 tick 注入时间戳）。
+//! 1. **Explicit session lifecycle**: `Login → Playing → Logout` + heartbeat timeout kicking
+//!    (driven by clock events) — a connection is no longer an implicit State key but a state machine.
+//! 2. **World projection**: world events → a visible view for each of the N players
+//!    (`PerPlayerView` filters/formats per player) — the fan-out is projection, not data copying.
+//! 3. **Event sourcing**: the log records the **world event stream** (Join/Move/Say/Leave);
+//!    on restart the world is rebuilt from the log — more fine-grained than a command log, and a
+//!    core requirement for game-server audit/anti-cheat.
+//! 4. **Clock**: heartbeat/timeout are periodic events (main injects a timestamp every tick).
 //!
-//! ## 边界声明（诚实）
+//! ## Boundary statements (honest)
 //!
-//! - 单分区：跨 shard 通信（消息总线）是 Phase 2。
-//! - 世界序：WorldShard 单实例串行（Sequential 直接 move），
-//!   顺序由单状态机保证；多 shard 需显式时间戳设计。
-//! - 广播物理成本：N 玩家 = N 份视图文本物理写回，性能账单在
-//!   `BroadcastWriter` 可见（bench 测量）。
+//! - Single shard: cross-shard communication (message bus) is Phase 2.
+//! - World order: WorldShard is a single serial instance (Sequential direct move);
+//!   ordering is guaranteed by the single state machine; multiple shards need an explicit
+//!   timestamp design.
+//! - Broadcast physical cost: N players = N copies of the view text written back physically;
+//!   the performance bill is visible at `BroadcastWriter` (measured by the bench).
 
-use axiom::deploy::{DeploySpec, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance};
 use axiom::link::{LinkKind, LinkSpec, ReadPolicy, WritePolicy};
 use axiom::resource::MachinePhysicalSpec;
 
-/// MMO 核心子图的结构蓝图（DeploySpec）。
-pub fn blueprint() -> DeploySpec {
-    DeploySpec::new()
-        // ── 模块（7 个，全单实例）─────────────────────────────────────
+/// Structural blueprint of the MMO core subgraph (DynamicTopology).
+pub fn blueprint() -> DynamicTopology {
+    DynamicTopology::new()
+        // ── machines (7, all single-instance) ─────────────────────────────────
         .with_machine(MachineInstance::new(
             "conn_gateway",
             "conn_gateway",
@@ -81,8 +82,8 @@ pub fn blueprint() -> DeploySpec {
             "event_log",
             MachinePhysicalSpec::default(),
         ))
-        // ── 数据流（7 条抽象线）───────────────────────────────────────
-        // 连接字节 → 输入消息 → 世界事件 → 世界更新 → 视野 → 写回
+        // ── data flow (7 abstract links) ─────────────────────────────────────
+        // connection bytes → input message → world event → world update → view → write-back
         .with_link(LinkSpec::new(
             ("conn_gateway", "raw"),
             ("protocol_parser", "raw"),
@@ -101,7 +102,7 @@ pub fn blueprint() -> DeploySpec {
                 read_policy: ReadPolicy::Blocking,
             },
         ))
-        // 会话 → 世界（登录/移动/登出）
+        // session → world (login/move/logout)
         .with_link(LinkSpec::new(
             ("session_mgr", "world"),
             ("world_shard", "evt"),
@@ -111,7 +112,7 @@ pub fn blueprint() -> DeploySpec {
                 read_policy: ReadPolicy::Blocking,
             },
         ))
-        // 会话 → 玩家（未登录错误提示）
+        // session → player (not-logged-in error hints)
         .with_link(LinkSpec::new(
             ("session_mgr", "view"),
             ("per_player_view", "notice"),
@@ -121,7 +122,7 @@ pub fn blueprint() -> DeploySpec {
                 read_policy: ReadPolicy::Blocking,
             },
         ))
-        // 世界 → 视野投影
+        // world → view projection
         .with_link(LinkSpec::new(
             ("world_shard", "world"),
             ("per_player_view", "world"),
@@ -131,7 +132,7 @@ pub fn blueprint() -> DeploySpec {
                 read_policy: ReadPolicy::Blocking,
             },
         ))
-        // 视野 → 广播写回
+        // view → broadcast write-back
         .with_link(LinkSpec::new(
             ("per_player_view", "view"),
             ("broadcast_writer", "view"),
@@ -141,7 +142,7 @@ pub fn blueprint() -> DeploySpec {
                 read_policy: ReadPolicy::Blocking,
             },
         ))
-        // 世界事件 → 事件溯源日志
+        // world event → event-sourcing log
         .with_link(LinkSpec::new(
             ("world_shard", "log"),
             ("event_log", "log"),

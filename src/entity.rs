@@ -1,3 +1,5 @@
+/// **Maturity: experimental** (an extension; advanced as part of the core, not dropped).
+///
 /// Entity — Layer 0: a persistent thing with state and physical requirements.
 ///
 /// # What this is

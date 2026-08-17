@@ -1,16 +1,16 @@
-//! # MMO 核心子图 — 装配与驱动
+//! # MMO core subgraph — assembly and driving
 //!
-//! 三种运行模式：
+//! Three run modes:
 //!
 //! ```text
-//! cargo run --manifest-path runtime/Cargo.toml --example mmo             # TCP 服务器（默认）
-//! cargo run --manifest-path runtime/Cargo.toml --example mmo -- --replay # 事件溯源确定性验证
-//! cargo run --manifest-path runtime/Cargo.toml --example mmo -- --bench  # N 玩家广播吞吐
+//! cargo run --manifest-path runtime/Cargo.toml --example mmo             # TCP server (default)
+//! cargo run --manifest-path runtime/Cargo.toml --example mmo -- --replay # event-sourcing determinism check
+//! cargo run --manifest-path runtime/Cargo.toml --example mmo -- --bench  # N-player broadcast throughput
 //! ```
 //!
-//! 客户端协议（行，`\n` 结尾）：`LOGIN name` / `MOVE x y` / `SAY text` /
-//! `LOGOUT`。广播视图发给所有在线玩家，格式：
-//! `event: ... | online: [name@(x,y), ...]`。
+//! Client protocol (line-based, `\n`-terminated): `LOGIN name` / `MOVE x y` / `SAY text` /
+//! `LOGOUT`. The broadcast view is sent to all online players in the format:
+//! `event: ... | online: [name@(x,y), ...]`.
 
 mod blueprint;
 mod machines;
@@ -26,7 +26,7 @@ use axiom_runtime::{
 
 use machines::*;
 
-// ── 分配计数（bench 用）────────────────────────────────────────────────
+// ── Allocation counting (for bench mode) ────────────────────────────────
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
 
 struct CountingAllocator;
@@ -58,7 +58,7 @@ fn raw_of<T: std::os::windows::io::AsRawSocket>(t: &T) -> RawIo {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 装配：register + materialize（7 机器 + 7 链接，见 blueprint.rs）
+// Assembly: register + materialize (7 machines + 7 links, see blueprint.rs)
 // ════════════════════════════════════════════════════════════════════════
 
 fn build_runtime(cfg: RuntimeConfig) -> Runtime {
@@ -74,7 +74,7 @@ fn build_runtime(cfg: RuntimeConfig) -> Runtime {
     rt
 }
 
-/// 注入一行协议输入到 protocol_parser，返回终端观察（world_shard.observe）。
+/// Injects one protocol line into protocol_parser and returns the terminal observations (world_shard.observe).
 fn send_line(rt: &mut Runtime, conn_id: usize, line: &str) -> Vec<String> {
     let mut bytes = line.as_bytes().to_vec();
     bytes.push(b'\n');
@@ -97,7 +97,7 @@ fn send_line(rt: &mut Runtime, conn_id: usize, line: &str) -> Vec<String> {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模式 1：TCP 服务器（真实事件循环 + 时钟注入）
+// Mode 1: TCP server (real event loop + clock injection)
 // ════════════════════════════════════════════════════════════════════════
 
 const LISTENER_TOKEN: IoToken = IoToken(0);
@@ -122,7 +122,7 @@ fn server() {
     let mut last_tick: u64 = 0;
 
     loop {
-        // 1. accept 新连接
+        // 1. accept new connections
         if let Ok(events) = listener_reactor.poll(Some(Duration::from_millis(20))) {
             for ev in events {
                 if ev.token == LISTENER_TOKEN {
@@ -151,7 +151,7 @@ fn server() {
             }
         }
 
-        // 2. 时钟注入（心跳/超时）：每 100ms 一个 tick
+        // 2. Clock injection (heartbeat/timeout): one tick every 100ms
         let now_ms = started.elapsed().as_millis() as u64;
         let mut inputs: Vec<(String, String, Box<dyn std::any::Any + Send>)> = Vec::new();
         if now_ms - last_tick >= 100 {
@@ -159,7 +159,7 @@ fn server() {
             last_tick = now_ms;
         }
 
-        // 3. 连接事件 + 时钟 → 全图 tick
+        // 3. connection events + clock → whole-graph tick
         let _results = rt
             .run_io(&mut io_reactor, inputs, Some(Duration::ZERO))
             .expect("run_io");
@@ -167,7 +167,7 @@ fn server() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模式 2：事件溯源确定性验证（同输入 → 同世界终态 + 日志；重启重放重建）
+// Mode 2: event-sourcing determinism check (same input → same final world + log; restart + replay rebuilds it)
 // ════════════════════════════════════════════════════════════════════════
 
 fn replay() {
@@ -175,9 +175,9 @@ fn replay() {
 
     let mut rt = build_runtime(RuntimeConfig::sequential());
 
-    // 1. 确定性场景：alice/bob 登录 → alice 移动 → 聊天 → bob 登出 → 心跳超时踢 alice
+    // 1. Deterministic scenario: alice/bob log in → alice moves → chat → bob logs out → heartbeat timeout kicks alice
     let mut observations: Vec<String> = Vec::new();
-    // 注意：alice=conn 1，bob=conn 2（复用同一连接会触发"顶号"踢出旧会话）
+    // Note: alice=conn 1, bob=conn 2 (reusing the same connection would trigger a "kick old session" on re-login)
     for (conn, line) in [
         (1usize, "LOGIN alice"),
         (2usize, "LOGIN bob"),
@@ -187,7 +187,7 @@ fn replay() {
     ] {
         observations.extend(send_line(&mut rt, conn, line));
     }
-    // alice 心跳超时（tick 到 10s 之后）
+    // alice heartbeat timeout (tick past 10s)
     let out = rt
         .tick(vec![(
             "session_mgr".to_string(),
@@ -203,8 +203,8 @@ fn replay() {
         }
     }
 
-    // 2. 断言世界事件序列（确定性）
-    // observe 文本格式：`event: <evt> | players=[...]` —— 取事件前缀
+    // 2. Assert the world event sequence (deterministic)
+    // observe text format: `event: <evt> | players=[...]` — take the event prefix
     let evts: Vec<String> = observations
         .iter()
         .map(|s| {
@@ -225,18 +225,18 @@ fn replay() {
             "alice moved to (1.5,2.5)",
             "alice says: hello world",
             "bob left",
-            "alice left", // 心跳超时踢出
+            "alice left", // kicked by heartbeat timeout
         ],
         "world event stream must be deterministic: {evts:?}"
     );
-    // 世界终态：无在线玩家
+    // World final state: no online players
     assert!(
         observations.last().unwrap().contains("players=[]"),
         "final world must be empty: {:?}",
         observations.last()
     );
 
-    // 3. 事件日志内容 = 事件流
+    // 3. Event log content = event stream
     let log = std::fs::read_to_string("world_events.log").expect("read event log");
     assert_eq!(
         log.lines().collect::<Vec<_>>(),
@@ -251,7 +251,7 @@ fn replay() {
         "event log = world event stream (event sourcing)"
     );
 
-    // 4. 重启：从日志重放重建世界（新 runtime，注入 replay 行）
+    // 4. Restart: rebuild the world by replaying the log (new runtime, inject replay lines)
     let mut rt2 = build_runtime(RuntimeConfig::sequential());
     let mut restored: Vec<String> = Vec::new();
     for line in log.lines() {
@@ -270,7 +270,7 @@ fn replay() {
             }
         }
     }
-    // 重放后世界终态 = 原终态（空）；重放中间态正确重建（alice+bob 在场）
+    // after replay, the world's final state = original final state (empty); replay correctly rebuilds the mid-state (alice + bob present)
     assert!(
         restored.last().unwrap().contains("players=[]"),
         "replayed world must match original final state: {:?}",
@@ -284,20 +284,20 @@ fn replay() {
     );
 
     println!("=== replay OK ===");
-    println!("6 个世界事件按序复现；事件日志 = 事件流；重启重放重建世界（中间态+终态一致）");
+    println!("6 world events replayed in order; event log = event stream; restart + replay rebuilds the world (mid-state + final state consistent)");
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模式 3：基准（N 玩家在线，世界 tick + 广播吞吐）
+// Mode 3: benchmark (N players online, world tick + broadcast throughput)
 // ════════════════════════════════════════════════════════════════════════
 
 fn bench() {
-    const N: usize = 100; // 在线玩家
-    const ITERS: usize = 10_000; // 世界事件数
+    const N: usize = 100; // online players
+    const ITERS: usize = 10_000; // number of world events
 
     let mut rt = build_runtime(RuntimeConfig::sequential());
 
-    // 1. N 玩家登录（世界快照含 N 人）
+    // 1. N players log in (world snapshot contains N people)
     for i in 1..=N {
         send_line(&mut rt, i, &format!("LOGIN player{i}"));
     }
@@ -306,12 +306,12 @@ fn bench() {
             .last()
             .unwrap()
             .contains("(1, \"player1\""),
-        "N 玩家就绪"
+        "N players ready"
     );
-    println!("=== mmo bench (Sequential, 世界层单实例 + N 视图投影) ===");
+    println!("=== mmo bench (Sequential, single world-layer instance + N view projections) ===");
     println!("online players: {N}");
 
-    // 2. MOVE 事件广播：世界更新 → N 视图（投影 + 写回无 socket）
+    // 2. MOVE event broadcast: world update → N views (projection + write-back without sockets)
     ALLOCS.store(0, Ordering::Relaxed);
     let t0 = Instant::now();
     for i in 0..ITERS {
@@ -321,7 +321,7 @@ fn bench() {
     let allocs = ALLOCS.load(Ordering::Relaxed);
 
     println!(
-        "MOVE 广播: {:.0} world-tick/s（每次 tick 投影 {N} 个玩家视图）, {:.1} allocs/tick",
+        "MOVE broadcast: {:.0} world-tick/s (each tick projects {N} player views), {:.1} allocs/tick",
         ITERS as f64 / dt.as_secs_f64(),
         allocs as f64 / ITERS as f64
     );

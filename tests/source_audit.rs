@@ -1,19 +1,22 @@
-//! 源码维度 lint：扫描 crate 源码，检查 `Machine::name()` 唯一性。
+//! Source-level lint: scans the crate source to verify that `Machine::name()` is unique.
 //!
-//! 这是"源码维度 lint"——`lint.rs` 检查 `DeploySpec` 蓝图实例，本测试
-//! 检查**源码中的声明一致性**：机器名是拓扑引用的标识（`LinkSpec` 端点、
-//! `machine_type`），两个 `Machine` 实现返回相同的 `name()` 会破坏蓝图
-//! 引用。此测试在测试期（std 环境）扫描 `src/` 全部 `.rs`，只收集
-//! `impl Machine for ...` 块内的 `name()`，断言名字唯一。
+//! This is the "source-dimension lint" — `lint.rs` checks `DynamicTopology` blueprint
+//! instances, whereas this test checks **declaration consistency in the source**: the
+//! machine name is the identifier topology references use (`LinkSpec` endpoints,
+//! `machine_type`), so two `Machine` implementations returning the same `name()` would
+//! break those blueprint references. During testing (std environment) this test scans
+//! every `.rs` file under `src/`, collecting only the `name()` inside
+//! `impl Machine for ...` blocks, and asserts that names are unique.
 //!
-//! 说明：`Func` 组合子（如 `FuncScratchPipeline`）的多个 `impl` 共享
-//! 一个家族名是合法的（"pipeline" 2 步/3 步），故**不**纳入扫描范围。
+//! Note: multiple `impl`s of a `Func` combinator (e.g. `FuncScratchPipeline`) may
+//! legitimately share a family name ("pipeline" 2-step / 3-step), so they are **not**
+//! included in the scan.
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-/// 从一行源码提取 `fn name() -> &'static str { "..." }` 的字面量。
+/// Extract the `fn name() -> &'static str { "..." }` literal from a single source line.
 fn machine_name_in_line(line: &str) -> Option<String> {
     let needle = "fn name() -> &'static str";
     let pos = line.find(needle)?;
@@ -24,19 +27,19 @@ fn machine_name_in_line(line: &str) -> Option<String> {
     Some(after[..q2].to_string())
 }
 
-/// 扫描单文件，收集 `impl Machine for` 块内的 `name()` 字面量。
+/// Scan a single file, collecting `name()` literals inside `impl Machine for` blocks.
 fn scan_file(content: &str, path: &Path, names: &mut HashMap<String, String>) {
     let mut in_machine_impl = false;
     let mut depth: i32 = 0;
 
     for (i, line) in content.lines().enumerate() {
-        // 1. 进入 Machine impl 块（" Machine for" 排除 HybridMachine）。
+        // 1. Enter a Machine impl block (" Machine for" excludes HybridMachine).
         if !in_machine_impl && line.contains(" Machine for") {
             in_machine_impl = true;
             depth = 0;
         }
 
-        // 2. 在 Machine impl 块内收集 name()。
+        // 2. Collect name() inside the Machine impl block.
         if in_machine_impl {
             if let Some(name) = machine_name_in_line(line) {
                 let loc = format!("{}:{}", path.display(), i + 1);
@@ -46,18 +49,18 @@ fn scan_file(content: &str, path: &Path, names: &mut HashMap<String, String>) {
             }
         }
 
-        // 3. 更新大括号深度。
+        // 3. Update brace depth.
         depth += line.chars().filter(|&c| c == '{').count() as i32;
         depth -= line.chars().filter(|&c| c == '}').count() as i32;
 
-        // 4. 深度归零即退出 Machine impl 块。
+        // 4. Leave the Machine impl block once depth returns to zero.
         if in_machine_impl && depth <= 0 {
             in_machine_impl = false;
         }
     }
 }
 
-/// 递归扫描目录，收集所有 Machine `name()` 到 `names`（值 = 位置）。
+/// Recursively scan a directory, collecting all Machine `name()`s into `names` (value = location).
 fn scan_dir(dir: &Path, names: &mut HashMap<String, String>) {
     let entries = fs::read_dir(dir).unwrap_or_else(|e| panic!("read_dir {}: {e}", dir.display()));
     for entry in entries {
@@ -77,7 +80,8 @@ fn machine_names_are_unique() {
     let mut names: HashMap<String, String> = HashMap::new();
     let src = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src"));
     scan_dir(src, &mut names);
-    // 下界守卫：至少应扫描到若干机器名，防止扫描逻辑失效导致空扫描误过。
+    // Lower-bound guard: at least some machine names must be scanned, so a broken
+    // scan cannot silently pass with zero results.
     assert!(
         names.len() >= 8,
         "expected >= 8 machine names, got {}",

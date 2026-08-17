@@ -1,23 +1,23 @@
-//! Proves that a `DeploySpec` declared in a config file (JSON here; TOML would
+//! Proves that a `DynamicTopology` declared in a config file (JSON here; TOML would
 //! work the same way with the `toml` crate) round-trips through Serde under the
 //! `serialize` feature.
 //!
 //! This is the payoff of the `Cow<'static, str>` migration: every deploy-time
-//! type — `MachineInstance`, `FuncBinding`, `LinkSpec`, `DeploySpec`,
+//! type — `MachineInstance`, `FuncBinding`, `LinkSpec`, `DynamicTopology`,
 //! `MachinePhysicalSpec`, `ExecutionHint`, `ThreadPoolSpec` — accepts both
 //! `&'static str` literals (code-defined topologies) and owned `String`s
 //! (config-defined topologies), so a declarative topology can be loaded
-//! straight into a `DeploySpec` and handed to a runtime adapter.
+//! straight into a `DynamicTopology` and handed to a runtime adapter.
 
 #![cfg(feature = "serialize")]
 
-use axiom::deploy::{DeploySpec, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance};
 use axiom::link::{LinkKind, LinkSpec, ReadPolicy, WritePolicy};
 use axiom::resource::{ExecutionHint, MachinePhysicalSpec};
 
 /// A realistic topology: two machines connected by a bounded buffer, declared
 /// as JSON (the way a config file would express it), deserialized into a
-/// `DeploySpec`, validated, and checked field-by-field.
+/// `DynamicTopology`, validated, and checked field-by-field.
 #[test]
 fn deploy_spec_roundtrip_from_json() {
     let json = r#"{
@@ -66,7 +66,7 @@ fn deploy_spec_roundtrip_from_json() {
         "settings": { "cpu_threads": 2, "io_threads": 2 }
     }"#;
 
-    let spec: DeploySpec = serde_json::from_str(json).expect("deserialize DeploySpec");
+    let spec: DynamicTopology = serde_json::from_str(json).expect("deserialize DynamicTopology");
 
     // Structural validation passes (names unique, endpoints exist, no cycles).
     spec.validate().expect("validate");
@@ -107,9 +107,9 @@ fn deploy_spec_roundtrip_from_json() {
     assert_eq!(spec.settings.io_threads, 2);
 
     // Round-trip back to JSON and reparse — the spec is stable across cycles.
-    let reserialized = serde_json::to_string(&spec).expect("serialize DeploySpec");
-    let spec2: DeploySpec =
-        serde_json::from_str(&reserialized).expect("re-deserialize DeploySpec");
+    let reserialized = serde_json::to_string(&spec).expect("serialize DynamicTopology");
+    let spec2: DynamicTopology =
+        serde_json::from_str(&reserialized).expect("re-deserialize DynamicTopology");
     assert_eq!(spec.machines.len(), spec2.machines.len());
     assert_eq!(spec2.machines[0].name, "source");
 }
@@ -119,7 +119,7 @@ fn deploy_spec_roundtrip_from_json() {
 /// This confirms the two construction paths interoperate.
 #[test]
 fn deploy_spec_code_built_serializes() {
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new(
             "a",
             "t",
@@ -137,7 +137,7 @@ fn deploy_spec_code_built_serializes() {
         ));
 
     let json = serde_json::to_string(&spec).expect("serialize");
-    let parsed: DeploySpec = serde_json::from_str(&json).expect("deserialize");
+    let parsed: DynamicTopology = serde_json::from_str(&json).expect("deserialize");
 
     assert_eq!(parsed.machines.len(), 2);
     assert_eq!(parsed.links.len(), 1);

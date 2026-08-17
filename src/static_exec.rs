@@ -1,223 +1,100 @@
-//! 静态执行路径的类型契约——编译期已知的拓扑，零成本。
+//! **Maturity: stable** (the stable core, main subject of the current refactor).
 //!
-//! # 定位（反窄化规则下的归位）
+//! Type contracts for the static execution path — compile-time-known topology,
+//! zero cost.
 //!
-//! 本模块是**结构层 + 类型层契约**：它定义静态执行路径所需的契约——
-//! [`StraightMachine`]（单端口裸载荷直传）与 [`Chain`]/[`Diamond`] 组合子
-//! （递归表达串并联 DAG）。旧契约 [`Link`]/[`Split`]/[`Merge`]（枚举端口
-//! 转换）保留给 `axiom-runtime` 的固定 N 便捷函数（`pipelineN`/`fanout2`/
-//! `fanin2`）与动态路径内省；**新代码优先用组合子 + Straight 契约**。
+//! # Positioning (homed under the anti-narrowing rule)
 //!
-//! # 零成本（P0：消除端口标签税）
+//! This module is a **structural-layer + type-layer contract**: it defines the
+//! contracts needed by the static execution path — [`StraightMachine`]
+//! (single-port raw-payload pass-through) and the [`Chain`]/[`Diamond`]
+//! combinators (recursively expressing series-parallel DAGs) — and serves as
+//! the **compile-time projection** of the blueprint `Topology`,
+//! [`StaticTopology`], as its only implementation surface (via blanket impl).
 //!
-//! 静态路径用裸载荷执行：`process_straight(state, i) -> o` 无端口枚举、
-//! 无 `match`、无 `MachineContext`、无 `ProcessOutput` 分派。来源/去向由
-//! 类型系统在编译期固定——物理执行零验证（来源/去向错误是业务逻辑错误，
-//! 不是性能开销的正当理由）。对比动态路径（`Box<dyn Any>` 类型擦除，
-//! 每跳堆分配 + downcast，~5x）。
+//! # The single static entry point (S1 unification)
 //!
-//! `StraightIn`/`StraightOut` 是**纯数据载荷**（P3：不要求 `HasPortInfo`/
-//! 运行时内省）——单端口机器的端口标签从物理层剥离，抽象层（端口/拓扑/
-//! 验证/可观测）保留在 `Machine` 契约中。
+//! The **only entry point** of the static execution path is: the
+//! `Chain`/`Diamond` combinators + the `Straight` contract
+//! (`StraightMachine`/`StraightLink`/`StraightSplit`/`StraightMerge`).
+//! Combinators compose recursively to express series-parallel DAGs and
+//! feedback loops; `run_parallel` runs multiple independent streams in
+//! parallel. The old enum-port contracts (`Link`/`Split`/`Merge` and the
+//! fixed-N functions `pipelineN`/`fanoutN`) have been removed in a breaking
+//! refactor — new code always uses the combinators + Straight contract:
 //!
-//! # 拓扑覆盖
-//!
-//! | 拓扑 | 契约 | 执行函数（runtime）/ 组合子（core） |
+//! | Topology | Contract | Combinator |
 //! |------|-------|---------------------|
-//! | 线性 A→B→C | `StraightLink` | `Chain` + `pipeline_chain` |
-//! | 任意深度线性链 | `StraightLink` | `Chain` + `pipeline_chain` |
-//! | Fan-out A→(B,C) | `StraightSplit` | `Diamond`（臂可任意链） |
+//! | Linear A→B→C | `StraightLink` | `Chain` + `pipeline_chain` |
+//! | Arbitrary-depth linear chain | `StraightLink` | `Chain` + `pipeline_chain` |
+//! | Fan-out A→(B,C) | `StraightSplit` | `Diamond` (arms may be any chain) |
 //! | Fan-in (A,B)→C | `StraightMerge` | `Diamond` |
-//! | 菱形 A→(B,C)→D | `StraightSplit` + `StraightMerge` | `Diamond` |
-//! | 串并联 DAG | Straight 契约递归 | `Chain` + `Diamond` 嵌套 |
+//! | Diamond A→(B,C)→D | `StraightSplit` + `StraightMerge` | `Diamond` |
+//! | Series-parallel DAG | Straight contract recursion | `Chain` + `Diamond` nesting |
 //!
-//! （旧枚举契约 `Link`/`Split`/`Merge` + `pipeline2`/`pipeline3`/`fanout2`/
-//! `fanin2` 保留——见 `axiom-runtime::static_path` 的"固定 N 便捷函数"。）
+//! # Zero cost (P0: eliminating the port-label tax)
 //!
-//! # 表达力边界（串并联 DAG，而非任意 DAG）
+//! The static path executes with raw payloads: `process_straight(state, i) -> o`
+//! has no port enum, no `match`, no `MachineContext`, no `ProcessOutput`
+//! dispatch. Sources/destinations are fixed by the type system at compile
+//! time — zero validation at physical execution (a source/destination error is
+//! a business-logic error, not a justification for performance overhead).
+//! Compare with the dynamic path (`Box<dyn Any>` type erasure, heap
+//! allocation + downcast per hop, ~5x).
 //!
-//! `Chain`（串行）与 `Diamond`（分叉-汇合）构成一个递归代数，其生成
-//! 的语言恰是**串并联 DAG**（series-parallel graphs）——串行组合与并行
-//! 组合递归封闭。任何串并联拓扑（流水线、map-reduce、菱形网络、多级
-//! 分叉-汇合树）都可用这两者的嵌套表达，且全单态化。
+//! `StraightIn`/`StraightOut` are **pure data payloads** (P3: no
+//! `HasPortInfo`/runtime introspection required) — the port labels of
+//! single-port machines are stripped from the physical layer, while the
+//! abstraction layer (ports/topology/validation/observability) stays in the
+//! `Machine` contract.
 //!
-//! 真正的**任意 DAG**（含非串并联的交叉边，如 K4 的传递归约）无法用
-//! 这个代数表达：稳定 Rust 不能用 const 泛型描述"任意边表"并同时保持
-//! 端口类型安全——边表 `(usize, usize)` 是值级信息，端点的端口类型是
-//! 类型级信息，二者之间的映射需要 GAT / `generic_const_exprs`。这是类型
-//! 系统的边界，不是实现缺陷；非串并联拓扑走动态路径（`Runtime`），与
-//! 动态税同理（数学上不可避免）。
+//! # Expressiveness boundary (series-parallel DAGs, not arbitrary DAGs)
 //!
-//! # 安全性
+//! `Chain` (serial) and `Diamond` (fork-join) form a recursive algebra whose
+//! generated language is exactly the **series-parallel graphs** — serial
+//! composition and parallel composition are recursively closed. Any
+//! series-parallel topology (pipelines, map-reduce, diamond networks,
+//! multi-level fork-join trees) can be expressed as a nesting of the two,
+//! fully monomorphized.
 //!
-//! 静态路径仅接受 `FusedInline` 机器（`SingleOutput` 或 `TupleOutput`）。
-//! `MultiOutput`（含 `YieldMulti`，运行时输出数量）在类型层被拒绝——
-//! 静态路径处理编译期已知的输出数量，不能处理运行时决定的 fan-out。
+//! A true **arbitrary DAG** (with non-series-parallel crossing edges, such as
+//! the transitive reduction of K4) cannot be expressed in this algebra: stable
+//! Rust cannot describe an "arbitrary edge table" with const generics while
+//! keeping port type safety — an edge table `(usize, usize)` is value-level
+//! information, while endpoint port types are type-level information; the
+//! mapping between them needs GAT / `generic_const_exprs`. This is a boundary
+//! of the type system, not an implementation flaw; non-series-parallel
+//! topologies go through the dynamic path (`Runtime`), for the same reason as
+//! the dynamic tax (mathematically unavoidable).
+//!
+//! # Safety
+//!
+//! The static path only accepts `FusedInline` machines (`SingleOutput` or
+//! `TupleOutput`). `MultiOutput` (which contains `YieldMulti`, a runtime output
+//! count) is rejected at the type level — the static path handles
+//! compile-time-known output counts and cannot handle runtime-decided fan-out.
 
 use crate::machine::Machine;
+use crate::topology::StaticTopology;
 
 use alloc::string::{String, ToString};
 
 // ════════════════════════════════════════════════════════════════════════════
-// Section 1: Link — 线性类型转换契约
+// Section 4: Error types
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 编译期已知的类型转换：`Src::Output → Option<Dst::Input>`。
-///
-/// 这是动态路径 `Wire { payload: Box<dyn Any> }` + `from_port_name` 的静态
-/// 对应物。用户提供一个普通函数，将一个具体的输出端口枚举转换为下游的
-/// 输入端口枚举。单态化并内联后，等价于手写的 match + rewrap。
-///
-/// 返回 `None` 表示"此输出不前往 Dst"（例如多端口机器中只有一个端口
-/// 连接到 Dst）。静态路径丢弃 `None` 输出。
-///
-/// # 为什么在 core 而非 adapter
-///
-/// `Link` 是**类型层契约**：它描述两个具体端口枚举类型如何在类型层
-/// 关联。原实现（axiom-tokio）注释说"If Link proves generally useful it
-/// may be promoted to core later"——现在执行：它是静态路径的核心契约，
-/// 归位到 core 使任何 runtime adapter 都可复用。
-///
-/// # 零成本
-///
-/// `extract` 是普通关联函数（无 `&self`），单态化后无 vtable、无间接调用。
-/// 在 `--release` + `#[inline]` 下，编译器将其内联到调用点，stage 边界
-/// 消融为纯计算。
-///
-/// # 示例
-///
-/// ```
-/// use axiom::machine::Machine;
-/// use axiom::static_exec::Link;
-///
-/// // 手动实现：将 DoublerOutput::y(n) 转为 TriplerInput::x(n)
-/// struct DoublerToTripler;
-/// impl<Src: Machine, Dst: Machine> Link<Src, Dst> for DoublerToTripler
-/// where Src::Output: Into<Dst::Input>
-/// {
-///     fn extract(out: Src::Output) -> Option<Dst::Input> {
-///         Some(out.into())
-///     }
-/// }
-/// ```
-pub trait Link<Src: Machine, Dst: Machine>: Send + 'static {
-    /// 将 `Src::Output` 转换为 `Option<Dst::Input>`。
-    ///
-    /// 返回 `None` 表示此输出不前往 Dst（被丢弃）。
-    fn extract(out: Src::Output) -> Option<Dst::Input>;
-}
-
-/// 恒等链接——当 `Src::Output` 可 `Into<Dst::Input>` 时的默认实现。
-///
-/// 适用于两个机器的端口类型相同（或可通过 `From`/`Into` 转换）的情况。
-/// 这是最常见的链接方式：上游输出端口类型 == 下游输入端口类型。
-pub struct IdLink;
-
-impl<Src: Machine, Dst: Machine> Link<Src, Dst> for IdLink
-where
-    Src::Output: Into<Dst::Input>,
-{
-    #[inline]
-    fn extract(out: Src::Output) -> Option<Dst::Input> {
-        Some(out.into())
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// Section 2: Split — Fan-out 契约
-// ════════════════════════════════════════════════════════════════════════════
-
-/// Fan-out 契约：将一个输出拆分为两个下游输入。
-///
-/// 静态路径的 fan-out **不是**通过 `MultiOutput`（运行时数量）实现的——
-/// 那是动态路径。静态 fan-out 通过 `Split` 在编译期将一个输出值拆分为
-/// 两个（或通过链式拆分为 N 个），每个送入不同的下游机器。
-///
-/// # 为什么需要 Split 而非直接 Clone
-///
-/// 直接 `Clone` 是最简单的 fan-out（`CloneSplit`），但并非所有 fan-out
-/// 都是等量复制：
-/// - **等量复制**：Tee 语义，`CloneSplit` 适用
-/// - **路由拆分**：按内容分发到不同下游（如偶数→A，奇数→B），需自定义 `Split`
-/// - **解构拆分**：输出是元组 `(A, B)`，拆分为 `A` 和 `B` 分别送下游
-///
-/// `Split` trait 统一这三种情况，编译期单态化。
-///
-/// # N-way fan-out
-///
-/// `Split` 是 2-way（最常见）。N-way fan-out 通过链式 `Split` 实现：
-/// `A → Split → (B, remainder) → Split → (C, remainder) → ...`
-pub trait Split<T> {
-    /// 拆分后的左侧输出类型（送往第一个下游）。
-    type Left;
-    /// 拆分后的右侧输出类型（送往第二个下游）。
-    type Right;
-
-    /// 将 `input` 拆分为 `(Left, Right)`。
-    fn split(input: T) -> (Self::Left, Self::Right);
-}
-
-/// 等量复制拆分——通过 `Clone` 复制两份。
-///
-/// 适用于 Tee 语义：同一输出送入多个下游，每个下游收到完整副本。
-/// 这是最常见的 fan-out 方式。
-pub struct CloneSplit;
-
-impl<T: Clone> Split<T> for CloneSplit {
-    type Left = T;
-    type Right = T;
-
-    #[inline]
-    fn split(input: T) -> (T, T) {
-        (input.clone(), input.clone())
-    }
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// Section 3: Merge — Fan-in 契约
-// ════════════════════════════════════════════════════════════════════════════
-
-/// Fan-in 契约：将两个上游输出合并为一个下游输入。
-///
-/// 静态路径的 fan-in 将两条流汇聚到一台机器。与动态路径不同，静态
-/// fan-in 在编译期就知道两个上游的类型，合并函数被单态化。
-///
-/// # 合并语义
-///
-/// `Merge` 不是简单的 `zip`——合并方式取决于具体场景：
-/// - **交错合并**：按顺序交替（如 round-robin）
-/// - **聚合合并**：两值合成一个（如 `a + b`）
-/// - **选择合并**：按优先级选一个（如 `a.or(b)`）
-///
-/// `Merge` trait 让用户定义具体语义，编译期单态化。
-///
-/// # N-way fan-in
-///
-/// `Merge` 是 2-way。N-way fan-in 通过链式 `Merge` 实现：
-/// `(A, B) → Merge → AB, C → Merge → ABC, ...`
-pub trait Merge<A, B> {
-    /// 合并后的输出类型（送往下游输入）。
-    type Output;
-
-    /// 将 `a` 和 `b` 合并为一个值。
-    fn merge(a: A, b: B) -> Self::Output;
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// Section 4: 错误类型
-// ════════════════════════════════════════════════════════════════════════════
-
-/// 静态执行路径的错误。
+/// An error from the static execution path.
 #[derive(Debug)]
 pub enum StaticExecError {
-    /// 机器 `init()` 失败。
+    /// A machine's `init()` failed.
     InitFailed { machine: &'static str, reason: String },
-    /// 机器 `cleanup()` 失败。
+    /// A machine's `cleanup()` failed.
     CleanupFailed { machine: &'static str, reason: String },
-    /// 机器在执行中途返回 `Done`，提前终止。
+    /// A machine returned `Done` mid-execution, terminating early.
     ///
-    /// 这不是错误——但对于期望处理所有输入的批量执行，`Done` 意味着
-    /// 机器无法继续消费剩余输入。调用者可选择忽略或处理。
+    /// This is not an error — but for batch execution that expects to process
+    /// every input, `Done` means the machine cannot keep consuming the
+    /// remaining inputs. The caller may choose to ignore or handle it.
     MachineDone { machine: &'static str, processed: usize },
 }
 
@@ -245,49 +122,58 @@ impl core::fmt::Display for StaticExecError {
 impl std::error::Error for StaticExecError {}
 
 // ════════════════════════════════════════════════════════════════════════════
-// Section 4.4: Straight — 裸载荷直传契约（消除端口标签税）
+// Section 4.4: Straight — raw-payload pass-through contract (eliminating the port-label tax)
 // ════════════════════════════════════════════════════════════════════════════
 //
-// 静态路径的零成本修复（P0）：编译期类型已固定"数据从哪来、到哪去"——
-// 来源/去向的验证是业务逻辑错误（开发者责任），不是物理执行的开销。本
-// 契约让单端口机器以**裸载荷**直传：无端口枚举、无 match、无标签检查。
-// 多端口机器与动态路径保留枚举/内省（拓扑运行时才已知，标签必要）。
+// The static path's zero-cost fix (P0): the compile-time types already fix
+// "where the data comes from and where it goes" — source/destination
+// validation is a business-logic error (the developer's responsibility), not
+// a physical-execution cost. This contract lets single-port machines pass raw
+// payloads directly: no port enum, no match, no label check. Multi-port
+// machines and the dynamic path keep enums/introspection (topology is only
+// known at runtime there; labels are necessary).
 
-/// 单端口机器的免标签直传契约。
+/// The label-free pass-through contract for single-port machines.
 ///
-/// 静态路径（`Chain`/`Diamond`/`feedback`）要求机器实现此契约，用裸载荷
-/// 执行：`process_straight(state, input) -> output` 无枚举包装/解包、无
-/// `MachineContext`、无 `ProcessOutput` match。载荷类型 [`StraightIn`]/
-/// [`StraightOut`] 是纯数据（不要求 `HasPortInfo`）——数据去向由类型系统
-/// 在编译期固定，运行时零验证。
+/// The static path (`Chain`/`Diamond`/`feedback`) requires machines to
+/// implement this contract and execute with raw payloads:
+/// `process_straight(state, input) -> output` — no enum wrapping/unwrapping,
+/// no `MachineContext`, no `ProcessOutput` match. The payload types
+/// [`StraightIn`]/[`StraightOut`] are pure data (no `HasPortInfo` required) —
+/// the data's destination is fixed by the type system at compile time, with
+/// zero validation at runtime.
 ///
-/// 与 `Machine` 的关系：`Machine` 的端口/拓扑/验证/可观测契约保留在抽象
-/// 层（`process_straight` 之外）；`process_straight` 是物理层的直传通道。
-/// 多端口机器（fan-out/多输入）走动态路径（`Runtime`），其标签是必要的。
+/// Relationship to `Machine`: `Machine`'s port/topology/validation/
+/// observability contracts stay at the abstraction layer (outside
+/// `process_straight`); `process_straight` is the physical-layer pass-through
+/// channel. Multi-port machines (fan-out/multi-input) go through the dynamic
+/// path (`Runtime`), where labels are necessary.
 pub trait StraightMachine: Machine {
-    /// 单输入端口的载荷类型（去标签，纯数据）。
+    /// The payload type of the single input port (de-labeled, pure data).
     type StraightIn: Send + 'static;
-    /// 单输出端口的载荷类型（去标签，纯数据）。
+    /// The payload type of the single output port (de-labeled, pure data).
     type StraightOut: Send + 'static;
 
-    /// 裸载荷 process：无枚举包装/解包、无 ctx、无标签检查。
+    /// Raw-payload process: no enum wrapping/unwrapping, no ctx, no label
+    /// check.
     ///
-    /// 实现必须 `#[inline]`——这是跨 crate 融合（`StaticChain` 单态化）
-    /// 的前提。
+    /// Implementations MUST be `#[inline]` — this is the precondition for
+    /// cross-crate fusion (`StaticChain` monomorphization).
     fn process_straight(state: &mut Self::State, input: Self::StraightIn) -> Self::StraightOut;
 }
 
-/// 裸载荷链接：`fn(StraightOut) -> StraightIn`。
+/// Raw-payload link: `fn(StraightOut) -> StraightIn`.
 ///
-/// 编译期类型已固定"S 的输出必前往 D 的输入"，无枚举 match、无
-/// `Option` 检查（对比 [`Link`] 的 `extract -> Option`）。
+/// The compile-time types already fix "S's output must go to D's input" — no
+/// enum match, no `Option` check (the old `Link::extract -> Option` was
+/// removed in a breaking refactor).
 pub trait StraightLink<S: StraightMachine, D: StraightMachine> {
-    /// 将 `S::StraightOut` 转换为 `D::StraightIn`。
+    /// Convert `S::StraightOut` into `D::StraightIn`.
     fn convert(out: S::StraightOut) -> D::StraightIn;
 }
 
-/// 恒等裸链接——当 `S::StraightOut` 可 `Into<D::StraightIn>` 时（通常
-/// 两台机器载荷类型相同）。
+/// Identity raw link — used when `S::StraightOut: Into<D::StraightIn>`
+/// (usually when the two machines have the same payload type).
 pub struct StraightId;
 
 impl<S: StraightMachine, D: StraightMachine> StraightLink<S, D> for StraightId
@@ -300,20 +186,21 @@ where
     }
 }
 
-/// 裸载荷分叉：`fn(T) -> (Left, Right)`。
+/// Raw-payload split: `fn(T) -> (Left, Right)`.
 ///
-/// 无枚举标签——按内容路由/复制是业务逻辑（分发），不是验证。
+/// No enum labels — routing/copying by content is business logic (dispatch),
+/// not validation.
 pub trait StraightSplit<T> {
-    /// 左侧载荷类型（送往第一个下游）。
+    /// The left payload type (sent to the first downstream).
     type Left;
-    /// 右侧载荷类型（送往第二个下游）。
+    /// The right payload type (sent to the second downstream).
     type Right;
 
-    /// 将 `input` 拆分为 `(Left, Right)`。
+    /// Split `input` into `(Left, Right)`.
     fn split(input: T) -> (Self::Left, Self::Right);
 }
 
-/// 复制分叉（Tee 语义）：同一载荷复制两份。
+/// Copy split (Tee semantics): duplicates the same payload into two copies.
 pub struct StraightClone;
 
 impl<T: Clone> StraightSplit<T> for StraightClone {
@@ -326,47 +213,54 @@ impl<T: Clone> StraightSplit<T> for StraightClone {
     }
 }
 
-/// 裸载荷汇合：`fn(A, B) -> Output`。
+/// Raw-payload merge: `fn(A, B) -> Output`.
 pub trait StraightMerge<A, B> {
-    /// 合并后的载荷类型。
+    /// The merged payload type.
     type Output;
 
-    /// 将 `a` 和 `b` 合并为一个载荷。
+    /// Merge `a` and `b` into a single payload.
     fn merge(a: A, b: B) -> Self::Output;
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Section 4.5: Chain — 编译期任意深度线性链
+// Section 4.5: Chain — compile-time linear chain of arbitrary depth
 // ════════════════════════════════════════════════════════════════════════════
 
 use crate::port::MachineContext;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
-/// 编译期线性链组合子：`Chain<A, B>` 表达 `A → B`，可嵌套任意深度。
+/// Compile-time linear-chain combinator: `Chain<A, B>` expresses `A → B` and
+/// can be nested to arbitrary depth.
 ///
-/// `Chain<A, Chain<B, C>>` 即 3 阶段流水线。链的深度由类型嵌套决定，
-/// 由 [`StaticChain`] 在编译期递归展开——无需为每个 N 手写 `pipelineN`。
+/// `Chain<A, Chain<B, C>>` is a 3-stage pipeline. The chain's depth is decided
+/// by the type nesting and is expanded recursively at compile time by
+/// [`StaticChain`] — no need to hand-write a `pipelineN` for each N.
 ///
-/// # 为什么不是 const 泛型 DAG
+/// # Why not a const-generic DAG
 ///
-/// 稳定 Rust 无法用 const 泛型表达"任意边表"并保持端口类型安全：边表
-/// `(usize, usize)` 是值级信息，而端点的端口类型是类型级信息——两者之间
-/// 的映射需要 GAT / `generic_const_exprs`。`Chain` 用递归嵌套类型达到同一
-/// 目标（任意深度链），fan-out/fan-in 由 `Split`/`Merge` 组合，构成任意
-/// DAG 的编译期表达。
+/// Stable Rust cannot express an "arbitrary edge table" with const generics
+/// while keeping port type safety: an edge table `(usize, usize)` is
+/// value-level information, while endpoint port types are type-level
+/// information — the mapping between them needs GAT /
+/// `generic_const_exprs`. `Chain` reaches the same goal (arbitrary-depth
+/// chains) with recursive nested types; fan-out/fan-in is composed with
+/// `StraightSplit`/`StraightMerge`, forming a compile-time expression of
+/// arbitrary DAGs.
 ///
-/// # 零成本
+/// # Zero cost
 ///
-/// `StaticChain::run_all` 全单态化：每级 `process` 与 `Link::extract` 都是
-/// 具体函数，`--release` + `#[inline]` 下融合为单一循环。无 `Box<dyn Any>`、
-/// 无 trait dispatch。与 `pipeline2`/`pipeline3` 相同的保证，深度任意。
+/// `StaticChain::run_all` is fully monomorphized: every stage's
+/// `process_straight` and `StraightLink::convert` are concrete functions,
+/// fused into a single loop under `--release` + `#[inline]`. No
+/// `Box<dyn Any>`, no trait dispatch, arbitrary depth.
 pub struct Chain<Head, Tail, L> {
     _marker: PhantomData<(Head, Tail, L)>,
 }
 
 impl<Head, Tail, L> Chain<Head, Tail, L> {
-    /// 构造一个链类型值（纯类型标记，无运行时表示）。
+    /// Construct a chain type value (a pure type marker with no runtime
+    /// representation).
     pub fn new() -> Self {
         Self {
             _marker: PhantomData,
@@ -380,54 +274,70 @@ impl<Head, Tail, L> Default for Chain<Head, Tail, L> {
     }
 }
 
-/// 编译期线性链的递归执行契约。
+/// The recursive execution contract for compile-time linear chains.
 ///
-/// - 单机器 `M: StraightMachine` 自动实现（基例）。
-/// - `Chain<Head, Tail>` 实现为"跑 Head → `StraightLink::convert` 转换 →
-///   递归 `Tail::run_all`"（递归步），编译期展开到任意深度。
+/// - A single machine `M: StraightMachine` implements it automatically (base
+///   case).
+/// - `Chain<Head, Tail>` is implemented as "run Head →
+///   `StraightLink::convert` conversion → recursively `Tail::run_all`"
+///   (recursive step), expanded at compile time to arbitrary depth.
 ///
-/// 流式执行契约（P0 范式革新：执行形态同构）。
+/// Streaming execution contract (P0 paradigm shift: execution-shape
+/// isomorphism).
 ///
-/// 持有整条链所有机器 State 的组合（类型元组，编译期展开），逐元素流过——
-/// 单 for 循环 + 嵌套调用 + 仅 out `Vec`，与手写循环的执行形态同构（消除
-/// 批量中转的形态差，`ε → 0`）。这回答了"更好的实现是什么"：静态路径从
-/// "递归批量中转"革新为"线性流式状态机"。
+/// Holds the combination of all machines' State on the chain (a type tuple,
+/// expanded at compile time), streaming element by element through — a single
+/// for loop + nested calls + only the out `Vec`, isomorphic to the execution
+/// shape of a hand-written loop (eliminating the shape difference of batch
+/// transits, `ε → 0`). This answers "what is the better implementation": the
+/// static path evolves from "recursive batch transit" to a "linear streaming
+/// state machine".
 pub trait FlowThrough: Sized {
-    /// 链首机器类型（递归步需要：`StraightLink<Prev, Self::Head>`）。
+    /// The head machine type (needed by the recursive step:
+    /// `StraightLink<Prev, Self::Head>`).
     ///
-    /// `process_one` 的输入类型即 `<Self::Head as StraightMachine>::StraightIn`
-    /// ——来源/去向由类型系统在编译期固定，物理执行零验证（P0）。
+    /// `process_one`'s input type is
+    /// `<Self::Head as StraightMachine>::StraightIn` — sources/destinations
+    /// are fixed by the type system at compile time, with zero validation at
+    /// physical execution (P0).
     type Head: StraightMachine;
-    /// 逐元素输出类型（尾机器载荷）。
+    /// The per-element output type (the tail machine's payload).
     type Out;
-    /// 整条链所有机器 State 的组合（类型元组）。
+    /// The combination of all machines' State on the chain (a type tuple).
     type States;
 
-    /// 初始化所有机器 State（一次，供整批流式使用）。
+    /// Initialize all machines' State (once, for use by the whole batch
+    /// streaming).
     fn new_states() -> Result<Self::States, StaticExecError>;
-    /// 逐元素处理：一个输入流过整条链，产出一个输出。
+    /// Process one element: one input flows through the whole chain, producing
+    /// one output.
     fn process_one(
         states: &mut Self::States,
         input: <Self::Head as StraightMachine>::StraightIn,
     ) -> Self::Out;
-    /// 清理所有机器 State（批结束时一次）。
+    /// Clean up all machines' State (once, at the end of the batch).
     fn cleanup(states: Self::States) -> Result<(), StaticExecError>;
 }
 
-/// 编译期线性链的递归执行契约。
+/// The recursive execution contract for compile-time linear chains.
 ///
-/// - 单机器 `M: StraightMachine` 自动实现（基例）。
-/// - `Chain<Head, Tail>` 实现为"跑 Head → `StraightLink::convert` 转换 →
-///   递归 `Tail::process_one`"（递归步），编译期展开到任意深度。
+/// - A single machine `M: StraightMachine` implements it automatically (base
+///   case).
+/// - `Chain<Head, Tail>` is implemented as "run Head →
+///   `StraightLink::convert` conversion → recursively `Tail::process_one`"
+///   (recursive step), expanded at compile time to arbitrary depth.
 ///
-/// `run_all` 消费全部输入并返回最终输出，**内部流式执行**（`FlowThrough`）：
-/// 所有机器 State 一次初始化，逐元素流过整条链——无中间 `Vec` 中转，
-/// 执行形态与手写循环同构。
+/// `run_all` consumes all inputs and returns the final outputs, **streaming
+/// internally** (`FlowThrough`): all machines' State initialized once, then
+/// elements flow through the whole chain one by one — no intermediate `Vec`
+/// transit; the execution shape is isomorphic to a hand-written loop.
 pub trait StaticChain: FlowThrough {
-    /// 一次性执行整个链。输入类型即链首机器裸输入。
+    /// Execute the entire chain in one shot. The input type is the head
+    /// machine's raw input.
     ///
-    /// 默认实现为**流式**：`new_states` 一次初始化全部 State → 逐元素
-    /// `process_one` → 批末 `cleanup`。仅 out `Vec` 分配（`with_capacity`）。
+    /// The default implementation is **streaming**: `new_states` initializes
+    /// all State once → `process_one` per element → `cleanup` at batch end.
+    /// Only the out `Vec` is allocated (`with_capacity`).
     fn run_all(
         inputs: Vec<<Self::Head as StraightMachine>::StraightIn>,
     ) -> Result<Vec<Self::Out>, StaticExecError> {
@@ -441,7 +351,20 @@ pub trait StaticChain: FlowThrough {
     }
 }
 
-// 基例：单机器（任何 StraightMachine 机器都是一条单级链）。
+// ── StaticTopology blueprint projection (T1) ─────────────────────────────────
+//
+// Every type implementing `StaticChain` (a `StraightMachine` single machine,
+// the `Chain`/`Diamond`/`Composite` combinators) is the **compile-time
+// projection** [`StaticTopology`] of the blueprint `Topology`: the shape is
+// fully known at compile time, the execution form is monomorphized by the type
+// system, and there is no runtime topology object. This blanket impl makes the
+// whole static execution path (this module's combinators + the Straight
+// contract) serve as the only implementation surface of `StaticTopology`,
+// usable by generic constraints that require `T: StaticTopology`.
+impl<T: StaticChain> StaticTopology for T {}
+
+// Base case: a single machine (any StraightMachine machine is a one-stage
+// chain).
 impl<M> FlowThrough for M
 where
     M: StraightMachine,
@@ -471,7 +394,7 @@ where
 
 impl<M> StaticChain for M where M: StraightMachine {}
 
-// 递归步：Head → Tail。
+// Recursive step: Head → Tail.
 impl<Head, Tail, L> FlowThrough for Chain<Head, Tail, L>
 where
     Head: StraightMachine,
@@ -495,7 +418,8 @@ where
         (head_state, tail_states): &mut Self::States,
         input: Head::StraightIn,
     ) -> Self::Out {
-        // 流式：值直接流过 Head → Link → Tail，无中间 Vec。
+        // Streaming: values flow directly through Head → Link → Tail, with no
+        // intermediate Vec.
         let head_out = Head::process_straight(head_state, input);
         let tail_in = L::convert(head_out);
         Tail::process_one(tail_states, tail_in)
@@ -519,57 +443,64 @@ where
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Section 4.6: Diamond — 编译期菱形组合子（分叉 → 两路 → 汇合）
+// Section 4.6: Diamond — compile-time diamond combinator (fork → two arms → join)
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 编译期菱形组合子：`A → Split → (Left, Right) → Merge → Down`。
+/// Compile-time diamond combinator: `A → Split → (Left, Right) → Merge → Down`.
 ///
-/// 这是静态路径从"线性 + 独立分叉/汇合"迈向"任意 DAG"的核心积木：一个
-/// 上游 `A` 经 [`Split`] 分叉为两条**任意深度的链**（[`StaticChain`]），
-/// 再经 [`Merge`] zip 配对汇合为一条下游链。左右臂与下游都可是单机器
-/// （`FusedInline` 自动实现 `StaticChain`），也可是任意嵌套的 [`Chain`]。
+/// This is the core building block that moves the static path from "linear +
+/// independent fork/join" toward "arbitrary DAGs": an upstream `A` forks via
+/// [`StraightSplit`] into two **arbitrary-depth chains** ([`StaticChain`]),
+/// then joins via [`StraightMerge`] zip-pairing into one downstream chain.
+/// The left/right arms and the downstream may be single machines (`FusedInline`
+/// automatically implements `StaticChain`) or arbitrarily nested [`Chain`]s.
 ///
-/// 菱形是 fan-out + fan-in 的最小完整组合。此前这一形状需要用户手动
-/// 衔接 `fanout2`（产出 `Vec<Output>`）与 `fanin2`（接受 `Vec<Input>`），
-/// 两端的类型不匹配使衔接成为摩擦点；`Diamond` 在编译期把上游 + 两臂 +
-/// 下游的拓扑一次展开，消除了中间衔接的类型摩擦。
+/// The diamond is the minimal complete composition of fan-out + fan-in.
+/// `Diamond` expands the upstream + two arms + downstream topology at compile
+/// time in one shot, eliminating the type friction of the intermediate
+/// connections between fork and join.
 ///
-/// # 组合性
+/// # Composability
 ///
-/// `Diamond` 实现 [`StaticChain`]，因此与单机器同级：可作为 [`Chain`]
-/// 的一节嵌入任意深度的链——
+/// `Diamond` implements [`StaticChain`], so it is at the same level as a
+/// single machine: it can be embedded as a section of an arbitrarily deep
+/// chain —
 ///
 /// ```text
-/// Chain<X, Diamond<A, Left, Right, Down, S, LB, LC, M>, LX>   // X → 菱形
-/// Chain<Diamond<A, Left, Right, Down, S, LB, LC, M>, Y, LD>   // 菱形 → Y
+/// Chain<X, Diamond<A, Left, Right, Down, S, LB, LC, M>, LX>   // X → diamond
+/// Chain<Diamond<A, Left, Right, Down, S, LB, LC, M>, Y, LD>   // diamond → Y
 /// ```
 ///
-/// 而菱形的臂本身又可以是 `Chain`（甚至是另一个 `Diamond`），因此
-/// "分叉 → 两路链 → 汇合 → 下游链"可以递归嵌套，逼近任意 DAG。
+/// And a diamond's arms can themselves be `Chain`s (even another `Diamond`),
+/// so "fork → two chains → join → downstream chain" can nest recursively,
+/// approaching arbitrary DAGs.
 ///
-/// # 零成本
+/// # Zero cost
 ///
-/// `run_all` 全单态化：`A::process_straight`、臂内各机器
-/// `process_straight`、`S::split`、`LB/LC::convert`、`M::merge` 都是具体
-/// 裸函数，`--release` + `#[inline]` 下融合为单一循环。无 `Box<dyn Any>`、
-/// 无 trait dispatch、无端口枚举标签（P0）。
+/// `run_all` is fully monomorphized: `A::process_straight`, each arm machine's
+/// `process_straight`, `S::split`, `LB/LC::convert`, `M::merge` are all
+/// concrete raw functions, fused into a single loop under `--release` +
+/// `#[inline]`. No `Box<dyn Any>`, no trait dispatch, no port enum labels (P0).
 ///
-/// # 类型参数
+/// # Type parameters
 ///
-/// - `A` 上游（单机器 `StraightMachine`），`Left`/`Right` 两条臂
-///   （`StaticChain`），`Down` 下游（`StaticChain`）
-/// - `S: StraightSplit<A::StraightOut, Left = A::StraightOut, Right = A::StraightOut>`：
-///   分叉（裸载荷，无枚举标签）
-/// - `LB: StraightLink<A, Left::Head>`、`LC: StraightLink<A, Right::Head>`：
-///   分叉后的裸载荷转换（目标分别是两臂的首机器）
-/// - `M: StraightMerge<Left::Output, Right::Output, Output = Down::Head::StraightIn>`：
-///   汇合（两臂尾裸输出 zip 配对，合并为下游首机器裸输入）
+/// - `A` upstream (a single-machine `StraightMachine`), `Left`/`Right` the two
+///   arms (`StaticChain`), `Down` downstream (`StaticChain`)
+/// - `S: StraightSplit<A::StraightOut, Left = A::StraightOut, Right = A::StraightOut>`:
+///   the fork (raw payload, no enum labels)
+/// - `LB: StraightLink<A, Left::Head>`、`LC: StraightLink<A, Right::Head>`:
+///   raw-payload conversions after the fork (targets are the two arms' head
+///   machines respectively)
+/// - `M: StraightMerge<Left::Output, Right::Output, Output = Down::Head::StraightIn>`:
+///   the join (zip-pairs the two arms' tail raw outputs, merging into the
+///   downstream head machine's raw input)
 pub struct Diamond<A, Left, Right, Down, S, LB, LC, M> {
     _marker: PhantomData<(A, Left, Right, Down, S, LB, LC, M)>,
 }
 
 impl<A, Left, Right, Down, S, LB, LC, M> Diamond<A, Left, Right, Down, S, LB, LC, M> {
-    /// 构造一个菱形类型值（纯类型标记，无运行时表示）。
+    /// Construct a diamond type value (a pure type marker with no runtime
+    /// representation).
     pub fn new() -> Self {
         Self {
             _marker: PhantomData,
@@ -614,7 +545,8 @@ where
         (a_state, left_states, right_states, down_states): &mut Self::States,
         input: A::StraightIn,
     ) -> Self::Out {
-        // 流式：一个输入流过 A → Split → 双臂 → Merge → Down，无中间 Vec。
+        // Streaming: one input flows through A → Split → both arms → Merge →
+        // Down, with no intermediate Vec.
         let a_out = A::process_straight(a_state, input);
         let (left, right) = S::split(a_out);
         let left_out = Left::process_one(left_states, LB::convert(left));
@@ -651,25 +583,30 @@ where
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Section 4.7: Composite — 类型化复合节点（层次化抽象）
+// Section 4.7: Composite — typed composite node (hierarchical abstraction)
 // ════════════════════════════════════════════════════════════════════════════
 
-/// 类型化复合节点：把子拓扑封装为单节点（命名 / 层次化 / 复用）。
+/// Typed composite node: wraps a sub-topology into a single node (naming /
+/// hierarchy / reuse).
 ///
-/// `Composite<Inner>` 透明转发 `Inner: FlowThrough` 的 `Head`/`Out`/`States`
-/// 与 `new_states`/`process_one`/`cleanup`——外部视它为**单进单出节点**，
-/// 可嵌套进 [`Chain`]/[`Diamond`]/其他 [`Composite`]。执行与直接展开
-/// `Inner` **完全等价**（转发即内联，零额外成本）。
+/// `Composite<Inner>` transparently forwards `Inner: FlowThrough`'s
+/// `Head`/`Out`/`States` and `new_states`/`process_one`/`cleanup` — to the
+/// outside it looks like a **single-in/single-out node**, and can be nested
+/// into [`Chain`]/[`Diamond`]/other [`Composite`]s. Execution is **fully
+/// equivalent** to directly expanding `Inner` (forwarding is inlining, zero
+/// extra cost).
 ///
-/// 价值：
-/// - **抽象**：命名子系统（`type Pipeline = Composite<Chain<...>>`）、
-///   隐藏内部结构、防止误用；
-/// - **层次化**：顶层串并联树的节点可以是复合（`structural-model.md`
-///   定义 4.2 的静态形态）；
-/// - **复用**：同一复合类型多处使用（如多路并行中的共享子系统）。
+/// Value:
+/// - **Abstraction**: name subsystems (`type Pipeline = Composite<Chain<...>>`),
+///   hide internal structure, prevent misuse;
+/// - **Hierarchy**: the nodes of a top-level series-parallel tree can be
+///   composites (the static form of `structural-model.md` Definition 4.2);
+/// - **Reuse**: the same composite type used in multiple places (e.g. a shared
+///   subsystem in multi-way parallelism).
 ///
-/// 注意：复合提供**抽象**，不扩展图类（`FlowThrough` 是单进单出代数；
-/// 多进多出子拓扑需 `run_parallel` 或动态路径）。
+/// Note: composites provide **abstraction**, not an extension of the graph
+/// class (`FlowThrough` is a single-in/single-out algebra; multi-in/multi-out
+/// sub-topologies need `run_parallel` or the dynamic path).
 pub struct Composite<Inner>(core::marker::PhantomData<Inner>);
 
 impl<Inner> FlowThrough for Composite<Inner>
@@ -700,15 +637,19 @@ where
 {
 }
 
-/// 独立并行执行两个 [`FlowThrough`] 链（多流静态表达的第一块）。
+/// Independently execute two [`FlowThrough`] chains in parallel (the first
+/// building block of multi-stream static expression).
 ///
-/// 两条链各自单进单出、**独立输入输出**（互不干扰的状态元组）——同步
-/// 批处理模型下顺序执行与并行执行结果一致（无共享状态），语义等价。
-/// 这是"多流"的起点：`run_parallel::<Composite<A>, Composite<B>>(...)`
-/// 并行两个命名的独立子系统。
+/// Each chain is single-in/single-out with **independent inputs and outputs**
+/// (non-interfering state tuples) — under the synchronous batch model,
+/// sequential execution and parallel execution give the same results (no
+/// shared state), so they are semantically equivalent. This is the starting
+/// point of "multi-stream": `run_parallel::<Composite<A>, Composite<B>>(...)`
+/// runs two named independent subsystems in parallel.
 ///
-/// 每个流独立 `new_states`/`process_one`/`cleanup`，仅 out `Vec` 分配
-/// （`with_capacity`）——与 [`FlowThrough`] 相同的零成本形态。
+/// Each stream independently calls `new_states`/`process_one`/`cleanup`, with
+/// only the out `Vec` allocated (`with_capacity`) — the same zero-cost shape
+/// as [`FlowThrough`].
 pub fn run_parallel<A: FlowThrough, B: FlowThrough>(
     a_inputs: Vec<<A::Head as StraightMachine>::StraightIn>,
     b_inputs: Vec<<B::Head as StraightMachine>::StraightIn>,
@@ -731,7 +672,7 @@ pub fn run_parallel<A: FlowThrough, B: FlowThrough>(
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// Section 5: 单元测试
+// Section 5: Unit tests
 // ════════════════════════════════════════════════════════════════════════════
 
 #[cfg(test)]
@@ -741,7 +682,7 @@ mod tests {
     use crate::machine::{CleanupError, InitError, Machine, SingleOutput};
     use crate::port::MachineContext;
 
-    // ── 测试机器（Machine 枚举契约 + StraightMachine 裸载荷契约）────────
+    // ── Test machines (Machine enum contract + StraightMachine raw-payload contract) ─
 
     declare_ports! {
         #[derive(Debug, Clone, PartialEq)]
@@ -857,7 +798,7 @@ mod tests {
         fn process_straight(_: &mut (), n: i32) -> i32 { n * 3 }
     }
 
-    // ── 裸载荷汇合（StraightMerge）──────────────────────────────────────
+    // ── Raw-payload merge (StraightMerge) ─────────────────────────────────
 
     struct Sum;
     impl StraightMerge<i32, i32> for Sum {
@@ -866,11 +807,11 @@ mod tests {
         fn merge(a: i32, b: i32) -> i32 { a + b }
     }
 
-    // ══ Straight 契约单元测试 ═══════════════════════════════════════════
+    // ══ Straight contract unit tests ══════════════════════════════════════
 
     #[test]
     fn straight_machine_single() {
-        // 单机器直传：裸载荷，无枚举。
+        // Single-machine pass-through: raw payload, no enum.
         let outputs = Doubler::run_all(vec![1, 2, 3]).expect("doubler");
         assert_eq!(outputs, vec![2, 4, 6]);
     }
@@ -883,7 +824,8 @@ mod tests {
 
     #[test]
     fn straight_id_convert() {
-        // StraightId：载荷类型相同（i32 Into i32）时恒等转换。
+        // StraightId: identity conversion when the payload types are the same
+        // (i32 Into i32).
         let x: i32 = <StraightId as StraightLink<Doubler, Adder>>::convert(7);
         assert_eq!(x, 7);
     }
@@ -900,12 +842,12 @@ mod tests {
         assert_eq!(Sum::merge(3, 4), 7);
     }
 
-    // ══ StaticChain：Chain 测试 ═════════════════════════════════════════
+    // ══ StaticChain: Chain tests ═════════════════════════════════════════
 
     #[test]
     fn chain_three_stage_recursive() {
-        // Doubler → Adder → Tripler（3 级递归链，StraightId 链接）
-        // 输入 [1]: D(2) → A(2) → T(6)
+        // Doubler → Adder → Tripler (a 3-level recursive chain, StraightId links)
+        // input [1]: D(2) → A(2) → T(6)
         type Chain3 = Chain<Doubler, Chain<Adder, Tripler, StraightId>, StraightId>;
         let outputs = Chain3::run_all(vec![1]).expect("chain3");
         assert_eq!(outputs, vec![6]);
@@ -913,8 +855,8 @@ mod tests {
 
     #[test]
     fn chain_recursive_multi_input() {
-        // Doubler → Adder（Adder 跨输入累加）
-        // 输入 [1,2,3]: D(2,4,6) → A(2,6,12)
+        // Doubler → Adder (Adder accumulates across inputs)
+        // inputs [1,2,3]: D(2,4,6) → A(2,6,12)
         type Chain2 = Chain<Doubler, Adder, StraightId>;
         let outputs = Chain2::run_all(vec![1, 2, 3]).expect("chain2");
         assert_eq!(outputs, vec![2, 6, 12]);
@@ -927,7 +869,7 @@ mod tests {
         assert!(outputs.is_empty());
     }
 
-    // ══ Diamond 测试 ════════════════════════════════════════════════════
+    // ══ Diamond tests ════════════════════════════════════════════════════
 
     type DiamondShape = Diamond<
         Doubler,
@@ -943,7 +885,7 @@ mod tests {
     #[test]
     fn diamond_runs_split_then_merge() {
         // Doubler → StraightClone → (Adder, Tripler) → Sum → Adder
-        // 输入 [1, 2]: D(2,4) → split(2,2),(4,4) → A(2,6), T(6,12) → Sum(8,18) → A(8,26)
+        // inputs [1, 2]: D(2,4) → split(2,2),(4,4) → A(2,6), T(6,12) → Sum(8,18) → A(8,26)
         let outputs = DiamondShape::run_all(vec![1, 2]).expect("diamond");
         assert_eq!(outputs, vec![8, 26]);
     }
@@ -956,17 +898,19 @@ mod tests {
 
     #[test]
     fn diamond_embeds_as_chain_tail() {
-        // Diamond 实现 StaticChain，可作为 Chain 的 Tail 嵌入。
-        // Chain<Doubler, DiamondShape, StraightId>：外层 Doubler → 菱形
+        // Diamond implements StaticChain, so it can be embedded as a Chain's
+        // Tail.
+        // Chain<Doubler, DiamondShape, StraightId>: outer Doubler → diamond
         type ChainWithDiamond = Chain<Doubler, DiamondShape, StraightId>;
-        // 输入 [1]: 外层 D(2) → 菱形 D(4) → split(4,4) → A(4), T(12) → Sum(16) → A(16)
+        // input [1]: outer D(2) → diamond D(4) → split(4,4) → A(4), T(12) → Sum(16) → A(16)
         let outputs = ChainWithDiamond::run_all(vec![1]).expect("chain+diamond");
         assert_eq!(outputs, vec![16]);
     }
 
     #[test]
     fn diamond_arms_are_chains() {
-        // 菱形两臂是任意深度链（各 2 级）：左臂 Adder→Doubler，右臂 Tripler→Doubler。
+        // The diamond's two arms are arbitrary-depth chains (2 stages each):
+        // left arm Adder→Doubler, right arm Tripler→Doubler.
         type LeftArm = Chain<Adder, Doubler, StraightId>;
         type RightArm = Chain<Tripler, Doubler, StraightId>;
         type DChainArms = Diamond<
@@ -979,19 +923,20 @@ mod tests {
             StraightId,
             Sum,
         >;
-        // 输入 [1]: D(2) → split(2,2)
-        //   左臂 A→D: 2 → A(2) → D(4)
-        //   右臂 T→D: 2 → T(6) → D(12)
-        //   Sum(16) → 下游 A(16)
+        // input [1]: D(2) → split(2,2)
+        //   left arm A→D: 2 → A(2) → D(4)
+        //   right arm T→D: 2 → T(6) → D(12)
+        //   Sum(16) → downstream A(16)
         let outputs = DChainArms::run_all(vec![1]).expect("diamond chain arms");
         assert_eq!(outputs, vec![16]);
     }
 
-    // ══ Composite 测试（Section 4.7）════════════════════════════════════
+    // ══ Composite tests (Section 4.7) ════════════════════════════════════
 
     #[test]
     fn composite_matches_direct_chain() {
-        // Composite<Chain3> 与直接 Chain3 结果一致（透明转发，零额外成本）。
+        // Composite<Chain3> gives the same result as direct Chain3
+        // (transparent forwarding, zero extra cost).
         type Direct = Chain<Doubler, Chain<Adder, Tripler, StraightId>, StraightId>;
         type Wrapped = Composite<Chain<Doubler, Chain<Adder, Tripler, StraightId>, StraightId>>;
         let d = Direct::run_all(vec![1, 2]).expect("direct");
@@ -1002,18 +947,19 @@ mod tests {
 
     #[test]
     fn composite_embeds_in_chain() {
-        // Chain<Doubler, Composite<Chain<Adder, Tripler>>, StraightId>：
-        // 复合作为链的 Tail（层次化：顶层串并联树的节点是复合）。
+        // Chain<Doubler, Composite<Chain<Adder, Tripler>>, StraightId>:
+        // a composite as the chain's Tail (hierarchy: the nodes of a top-level
+        // series-parallel tree are composites).
         type Sub = Composite<Chain<Adder, Tripler, StraightId>>;
         type Top = Chain<Doubler, Sub, StraightId>;
-        // 输入 [1]: D(2) → A(2) → T(6)
+        // input [1]: D(2) → A(2) → T(6)
         let outputs = Top::run_all(vec![1]).expect("chain with composite tail");
         assert_eq!(outputs, vec![6]);
     }
 
     #[test]
     fn composite_embeds_in_diamond_arm() {
-        // Diamond 的臂是 Composite（左右臂各包一条链）。
+        // A diamond's arms are Composites (each arm wraps a chain).
         type LeftArm = Composite<Chain<Adder, Tripler, StraightId>>;
         type RightArm = Composite<Chain<Tripler, Doubler, StraightId>>;
         type D = Diamond<
@@ -1026,42 +972,44 @@ mod tests {
             StraightId,
             Sum,
         >;
-        // 输入 [1]: D(2) → split(2,2)
-        //   左臂 A→T: 2 → A(2) → T(6)
-        //   右臂 T→D: 2 → T(6) → D(12)
-        //   Sum(18) → 下游 A(18)
+        // input [1]: D(2) → split(2,2)
+        //   left arm A→T: 2 → A(2) → T(6)
+        //   right arm T→D: 2 → T(6) → D(12)
+        //   Sum(18) → downstream A(18)
         let outputs = D::run_all(vec![1]).expect("diamond with composite arms");
         assert_eq!(outputs, vec![18]);
     }
 
-    // ══ Parallel 测试（Section 4.7）════════════════════════════════════
+    // ══ Parallel tests (Section 4.7) ═════════════════════════════════════
 
     #[test]
     fn parallel_runs_two_independent_chains() {
-        // 两条独立链：A 链 Doubler→Adder；B 链 Tripler。
-        // 独立输入输出，结果与各自单独运行一致。
+        // Two independent chains: A chain Doubler→Adder; B chain Tripler.
+        // Independent inputs and outputs; results match running each alone.
         type A = Chain<Doubler, Adder, StraightId>;
         type B = Tripler;
         let (a_out, b_out) = run_parallel::<A, B>(vec![1, 2, 3], vec![10]).expect("parallel");
-        // A: D(2,4,6) → A 累加(2,6,12)；B: T(30)
+        // A: D(2,4,6) → A accumulates(2,6,12); B: T(30)
         assert_eq!(a_out, vec![2, 6, 12]);
         assert_eq!(b_out, vec![30]);
     }
 
     #[test]
     fn parallel_with_composite_subsystems() {
-        // 并行两个命名的复合子系统（多流 + 层次化的组合）。
+        // Run two named composite subsystems in parallel (multi-stream +
+        // hierarchy combined).
         type SubA = Composite<Chain<Doubler, Tripler, StraightId>>;
         type SubB = Composite<Chain<Adder, Doubler, StraightId>>;
         let (a_out, b_out) = run_parallel::<SubA, SubB>(vec![2], vec![3]).expect("parallel composite");
-        // SubA: D(4) → T(12)；SubB: A(3) → D(6)
+        // SubA: D(4) → T(12); SubB: A(3) → D(6)
         assert_eq!(a_out, vec![12]);
         assert_eq!(b_out, vec![6]);
     }
 
     #[test]
     fn diamond_arm_is_diamond() {
-        // 菱形套菱形：外层的左臂本身是一个完整菱形——递归完备性。
+        // A diamond inside a diamond: the outer left arm is itself a complete
+        // diamond — recursive completeness.
         type InnerDiamond = Diamond<
             Doubler,
             Adder,
@@ -1082,49 +1030,12 @@ mod tests {
             StraightId,
             Sum,
         >;
-        // 输入 [1]: 外层 D(2) → split(2,2)
-        //   左臂 InnerDiamond(2): D(4) → split(4,4) → A(4), T(12) → Sum(16) → A(16)
-        //   右臂 Tripler(2): 6
-        //   Sum(16+6=22) → 下游 A(22)
+        // input [1]: outer D(2) → split(2,2)
+        //   left arm InnerDiamond(2): D(4) → split(4,4) → A(4), T(12) → Sum(16) → A(16)
+        //   right arm Tripler(2): 6
+        //   Sum(16+6=22) → downstream A(22)
         let outputs = OuterDiamond::run_all(vec![1]).expect("diamond in diamond");
         assert_eq!(outputs, vec![22]);
-    }
-
-    // ══ 旧契约测试（Link/Split/Merge——保留给动态路径便捷函数）══════════
-
-    #[test]
-    fn link_extract_converts_output_to_input() {
-        // 旧 Link：多端口机器的枚举转换（动态路径便捷函数用）。
-        struct OldDToA;
-        impl Link<Doubler, Adder> for OldDToA {
-            fn extract(out: DoublerOutput) -> Option<AdderInput> {
-                match out {
-                    DoublerOutput::y(n) => Some(AdderInput::x(n)),
-                }
-            }
-        }
-        let out = DoublerOutput::y(42);
-        let input = OldDToA::extract(out).expect("should convert");
-        match input {
-            AdderInput::x(n) => assert_eq!(n, 42),
-        }
-    }
-
-    #[test]
-    fn clone_split_duplicates_value() {
-        let (a, b) = CloneSplit::split(42i32);
-        assert_eq!(a, 42);
-        assert_eq!(b, 42);
-    }
-
-    #[test]
-    fn merge_combines_two_values() {
-        struct SumMerge;
-        impl Merge<i32, i32> for SumMerge {
-            type Output = i32;
-            fn merge(a: i32, b: i32) -> i32 { a + b }
-        }
-        assert_eq!(SumMerge::merge(3, 4), 7);
     }
 
     #[test]

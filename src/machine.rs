@@ -1,3 +1,5 @@
+/// **Maturity: stable** (the stable core, main subject of the current refactor).
+///
 /// Machine — Layer 2: a stateful, ported, computable Entity.
 ///
 /// # Architecture
@@ -65,14 +67,15 @@ pub trait Machine: Send + Sync + 'static {
     /// generate a PortSet, or use `SinglePorts<T>` for single-port machines.
     type Ports: PortSet<Input = Self::Input, Output = Self::Output>;
 
-    /// 机器的输出类型——`SingleOutput` 或 `MultiOutput`。
+    /// The machine's output type — `SingleOutput` or `MultiOutput`.
     ///
-    /// - 1:1 机器设 `type ProcessOutput = SingleOutput<Self::Output>`
-    /// - fan-out 机器设 `type ProcessOutput = MultiOutput<Self::Output>`
+    /// - 1:1 machines set `type ProcessOutput = SingleOutput<Self::Output>`
+    /// - fan-out machines set `type ProcessOutput = MultiOutput<Self::Output>`
     ///
-    /// 此关联类型是 `FusedInline` 安全性的类型基础：
-    /// `FusedInline` 要求 `ProcessOutput = SingleOutput<Self::Output>`，
-    /// 而 `SingleOutput` 类型层不含 `YieldMulti`，编译器完备阻止 fan-out 误用。
+    /// This associated type is the type-level basis of `FusedInline` safety:
+    /// `FusedInline` requires `ProcessOutput = SingleOutput<Self::Output>`,
+    /// and `SingleOutput` has no `YieldMulti` at the type level, so the
+    /// compiler completely blocks accidental fan-out misuse.
     type ProcessOutput: MachineOutput<Self::Output>;
 
     /// Human-readable name.
@@ -124,9 +127,9 @@ pub trait Machine: Send + Sync + 'static {
 
     /// Process one unit of work.
     ///
-    /// Returns `Self::ProcessOutput`（`SingleOutput` 或 `MultiOutput`）:
+    /// Returns `Self::ProcessOutput` (`SingleOutput` or `MultiOutput`):
     /// - `Yield(out)` — produce one output value on one port
-    /// - `YieldMulti(outs)` — produce multiple output values (仅 `MultiOutput`)
+    /// - `YieldMulti(outs)` — produce multiple output values (`MultiOutput` only)
     /// - `Idle` — no output this tick
     /// - `Done` — machine finished, transition to Stopping
     ///
@@ -245,43 +248,47 @@ pub trait Moore: Machine {}
 
 // ── Output types: SingleOutput / MultiOutput / MachineOutput ─────────────────
 //
-// 1:1 机器返回 `SingleOutput<O>`，fan-out 机器返回 `MultiOutput<O>`。
-// `SingleOutput` 类型层不含 `YieldMulti`——这是 `FusedInline` 安全性的
-// 类型基础：编译器完备地阻止 fan-out 机器进入融合流水线，无需 unsafe。
+// 1:1 machines return `SingleOutput<O>`; fan-out machines return `MultiOutput<O>`.
+// `SingleOutput` has no `YieldMulti` at the type level — this is the type-level
+// basis of `FusedInline` safety: the compiler completely prevents fan-out
+// machines from entering a fused pipeline, without any `unsafe`.
 //
-// `ProcessOutput<O>` 保留为统一类型，供通用 runtime 通过
-// `MachineOutput::into_process_output()` 转换后使用。
+// `ProcessOutput<O>` is kept as the unified type, used by generic runtimes
+// after conversion via `MachineOutput::into_process_output()`.
 
-/// 1:1 机器的输出类型。
+/// The output type of 1:1 machines.
 ///
-/// 仅含 `Yield`/`Idle`/`Done`——**类型层不含 `YieldMulti`**。
-/// 这是 `FusedInline` 安全性的类型基础：一个返回 `SingleOutput` 的机器
-/// 在类型层就不可能构造 `YieldMulti`，无需 `unsafe` 承诺。
+/// Contains only `Yield`/`Idle`/`Done` — **no `YieldMulti` at the type level**.
+/// This is the type-level basis of `FusedInline` safety: a machine returning
+/// `SingleOutput` cannot construct `YieldMulti` at the type level, requiring
+/// no `unsafe` promise.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SingleOutput<O> {
-    /// 单个输出值。
+    /// A single output value.
     Yield(O),
-    /// 无输出；机器等待或空闲。
+    /// No output; the machine waits or is idle.
     Idle,
-    /// 机器已完成，应转换到 Stopping。
+    /// The machine has finished; it should transition to Stopping.
     Done,
 }
 
-/// 1:N 机器的输出类型（fan-out）。
+/// The output type of 1:N (fan-out) machines.
 ///
-/// 含 `YieldMulti`，用于 Tee 等 fan-out 机器。
-/// 返回此类型的机器**不能**实现 `FusedInline`（编译期拒绝）。
+/// Contains `YieldMulti`, used by fan-out machines such as Tee.
+/// A machine returning this type **cannot** implement `FusedInline`
+/// (rejected at compile time).
 #[derive(Debug, Clone, PartialEq)]
 pub enum MultiOutput<O> {
-    /// 单个输出值（fan-out 机器也可能仅产出一个）。
+    /// A single output value (a fan-out machine may also produce just one).
     Yield(O),
-    /// 多个输出值，各在其端口上（fan-out）。
+    /// Multiple output values, one per port (fan-out).
     ///
-    /// runtime 按顺序投递每个值。向量内顺序保留用于确定性投递。
+    /// The runtime delivers each value in order. In-vector order is preserved
+    /// for deterministic delivery.
     YieldMulti(Vec<O>),
-    /// 无输出；机器等待或空闲。
+    /// No output; the machine waits or is idle.
     Idle,
-    /// 机器已完成，应转换到 Stopping。
+    /// The machine has finished; it should transition to Stopping.
     Done,
 }
 
@@ -294,27 +301,31 @@ mod output_private {
     impl<O> SealedOutput for super::TupleOutput<O> {}
 }
 
-/// 机器输出的统一 trait（sealed）。
+/// The unified trait for machine output (sealed).
 ///
-/// 外部无法引入新的输出类型——只能使用 `SingleOutput` 或 `MultiOutput`。
-/// 1:1 机器设 `type ProcessOutput = SingleOutput<Self::Output>`，
-/// fan-out 机器设 `type ProcessOutput = MultiOutput<Self::Output>`。
+/// External code cannot introduce new output types — only `SingleOutput` or
+/// `MultiOutput` may be used. 1:1 machines set
+/// `type ProcessOutput = SingleOutput<Self::Output>`, and fan-out machines set
+/// `type ProcessOutput = MultiOutput<Self::Output>`.
 ///
-/// 通用 runtime 通过 `into_process_output()` 转换为统一的 `ProcessOutput<O>`
-/// 后处理；FusedInline pipeline 消费者直接接收 `SingleOutput`，不转换。
+/// Generic runtimes convert to the unified `ProcessOutput<O>` via
+/// `into_process_output()` for processing; FusedInline pipeline consumers
+/// receive `SingleOutput` directly, without conversion.
 pub trait MachineOutput<O>: output_private::SealedOutput {
-    /// 转换为统一的 `ProcessOutput<O>`（供通用 runtime 使用）。
+    /// Convert to the unified `ProcessOutput<O>` (for generic runtimes).
     ///
-    /// 这是一次 variant tag 重映射，LLVM 优化为 noop。
+    /// This is a variant-tag remap, optimized by LLVM into a noop.
     fn into_process_output(self) -> ProcessOutput<O>;
 
-    /// 收集所有输出到向量。`Idle`/`Done` 产生空向量；
-    /// `Done` 通过第二个元素标记终止。
+    /// Collect all outputs into a vector. `Idle`/`Done` produce an empty
+    /// vector; `Done` marks termination via the second element.
     ///
-    /// **注意**：此便捷方法每次分配 `Vec`——是**非热路径** API。runtime
-    /// 适配器应直接 match `ProcessOutput`（或 `Self::ProcessOutput`）逐项
-    /// 投递，避免在每条消息上付 Vec 分配税（E12 已验证 `YieldMulti` 路径
-    /// 的 Vec 仅在扇出时分配；此方法把同样的分配带到每个 `Yield`）。
+    /// **Note**: this convenience method allocates a `Vec` each call — it is a
+    /// **non-hot-path** API. Runtime adapters should directly match
+    /// `ProcessOutput` (or `Self::ProcessOutput`) item by item and deliver
+    /// each value, avoiding the Vec allocation tax on every message (E12 has
+    /// verified that on the `YieldMulti` path the Vec is allocated only on
+    /// fan-out; this method brings the same allocation to every `Yield`).
     fn into_outputs(self) -> (Vec<O>, bool);
 }
 
@@ -360,26 +371,30 @@ impl<O> MachineOutput<O> for MultiOutput<O> {
 
 // ── TupleOutput: fixed multi-port output (1:1:1, no data fan-out) ────────────
 
-/// 固定双端口输出类型：每次 `process` 恰好产出**两个**值，各在一个端口上。
+/// A fixed dual-port output type: each `process` produces exactly **two**
+/// values, one on each port.
 ///
-/// 这是“多端口 1:1:1”机器（如数据端口 + 观察端口各产出一个）的输出类型。
-/// 与 `MultiOutput`（含 `YieldMulti`，真 fan-out 1:N）不同，`TupleOutput`
-/// 在类型层**不含数量不确定性**——恰好两个值，无数据扇出，因此可以安全
-/// 进入 `FusedInline` 融合流水线（融合器无需运行时决策即可完整处理）。
+/// This is the output type of "multi-port 1:1:1" machines (e.g. a data port
+/// plus an observe port, each producing one value). Unlike `MultiOutput`
+/// (which contains `YieldMulti`, true 1:N fan-out), `TupleOutput` has **no
+/// count uncertainty at the type level** — exactly two values, no data
+/// fan-out, so it can safely enter a `FusedInline` fusion pipeline (the
+/// fuser can process it completely without any runtime decision).
 ///
-/// # 与 `MultiOutput` 的代数区别
+/// # Algebraic difference from `MultiOutput`
 ///
-/// - `MultiOutput::YieldMulti(Vec<O>)`：输出数量是运行时的 → 数据扇出，
-///   进融合流水线会丢数据 → 被 `FusedInline` 拒绝（编译期）。
-/// - `TupleOutput::Yield(O, O)`：输出数量固定为 2，每个值走其 variant
-///   声明的端口 → 无数据扇出 → 可安全融合。
+/// - `MultiOutput::YieldMulti(Vec<O>)`: output count is runtime-determined →
+///   data fan-out → entering a fusion pipeline would lose data → rejected by
+///   `FusedInline` (at compile time).
+/// - `TupleOutput::Yield(O, O)`: output count is fixed at 2, each value goes
+///   to the port declared by its variant → no data fan-out → can fuse safely.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TupleOutput<O> {
-    /// 恰好两个输出值（各走其 variant 对应的端口）。
+    /// Exactly two output values (each going to its variant's port).
     Yield(O, O),
-    /// 无输出；机器等待或空闲。
+    /// No output; the machine waits or is idle.
     Idle,
-    /// 机器已完成，应转换到 Stopping。
+    /// The machine has finished; it should transition to Stopping.
     Done,
 }
 
@@ -404,26 +419,27 @@ impl<O> MachineOutput<O> for TupleOutput<O> {
 
 // ── ProcessOutput (unified, for runtime) ─────────────────────────────────────
 
-/// 统一输出类型（runtime 内部使用）。
+/// Unified output type (used internally by the runtime).
 ///
-/// 机器不再直接返回此类型——它们返回 `SingleOutput` 或 `MultiOutput`。
-/// runtime 通过 `MachineOutput::into_process_output()` 转换。
+/// Machines no longer return this type directly — they return `SingleOutput`
+/// or `MultiOutput`. The runtime converts via
+/// `MachineOutput::into_process_output()`.
 ///
-/// 保留 `YieldMulti` variant 以便统一 match 处理。
+/// The `YieldMulti` variant is kept for unified match handling.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProcessOutput<O> {
-    /// 单个输出值。
+    /// A single output value.
     Yield(O),
-    /// 多个输出值（fan-out）。
+    /// Multiple output values (fan-out).
     YieldMulti(Vec<O>),
-    /// 无输出。
+    /// No output.
     Idle,
-    /// 机器已完成。
+    /// The machine has finished.
     Done,
 }
 
 impl<O> ProcessOutput<O> {
-    /// 收集所有输出到向量。
+    /// Collect all outputs into a vector.
     pub fn into_outputs(self) -> (Vec<O>, bool) {
         match self {
             ProcessOutput::Yield(o) => (vec![o], false),
@@ -441,26 +457,29 @@ impl<O> ProcessOutput<O> {
 ///
 /// # Compile-time safety (no `unsafe`)
 ///
-/// `FusedInline` 要求 `Machine::ProcessOutput: FusedCompatible`，即输出类型
-/// 为 `SingleOutput`（恰好一个输出）或 `TupleOutput`（恰好两个输出）。
-/// 两者的共同点是**输出数量在类型层确定，不含 `YieldMulti`**——编译器
-/// 在类型层完备地阻止 fan-out（1:N）机器实现此 trait，无需 `unsafe`，
-/// 无逃生口，无运行时检查。
+/// `FusedInline` requires `Machine::ProcessOutput: FusedCompatible`, i.e. the
+/// output type is `SingleOutput` (exactly one output) or `TupleOutput`
+/// (exactly two outputs). What both share is that **the output count is fixed
+/// at the type level and contains no `YieldMulti`** — the compiler completely
+/// prevents fan-out (1:N) machines from implementing this trait, without
+/// `unsafe`, no escape hatch, no runtime checks.
 ///
 /// ```ignore
-/// // Tee 返回 MultiOutput，因此无法实现 FusedInline：
+/// // Tee returns MultiOutput, so it cannot implement FusedInline:
 /// impl FusedInline for Tee {}  // E0277: trait bound not satisfied
 /// ```
 ///
 /// # Contract
 ///
-/// 实现此 trait 是一项承诺：
-/// 1. `process` 返回 `SingleOutput` 或 `TupleOutput`（类型保证——输出数量
-///    固定，不含 `YieldMulti`）
-/// 2. `process` 标记 `#[inline]` 或 `#[inline(always)]`（仍需人工保证）
+/// Implementing this trait is a promise:
+/// 1. `process` returns `SingleOutput` or `TupleOutput` (type-guaranteed —
+///    the output count is fixed and contains no `YieldMulti`)
+/// 2. `process` is marked `#[inline]` or `#[inline(always)]`
+///    (still a manual guarantee)
 ///
-/// 第 1 项由类型系统完备验证；第 2 项是文档约定（`#[inline]` 是建议非保证，
-/// 无法用类型表达，但跨 crate 内联在 `-O` 下通常发生）。
+/// Item 1 is fully verified by the type system; item 2 is a documented
+/// convention (`#[inline]` is a suggestion, not a guarantee — it cannot be
+/// expressed in types, but cross-crate inlining usually happens under `-O`).
 ///
 /// # Why this exists
 ///
@@ -476,29 +495,29 @@ impl<O> ProcessOutput<O> {
 /// compiler enforces that only fixed-output-count Machines enter the fused
 /// pipeline path.
 ///
-/// # Positioning: forward-declared contract
+/// # Positioning: type-contract layer
 ///
-/// This trait has **no consumer in axiom core** today. It is a forward
-/// declaration of the type-contract that a future fused-pipeline mechanism
-/// will require:
-///
-/// ```ignore
-/// fn pipeline3<A: FusedInline, B: FusedInline, C: FusedInline>(...) { ... }
-/// ```
+/// This trait is the **type-contract layer** of axiom's 0-cost abstraction:
+/// the compiler enforces that only fixed-output-count Machines enter the fused
+/// pipeline path. Its concrete consumers live in the runtime static path
+/// (`static_path::run_machine` / `Chain` / `Diamond`), which is monomorphized
+/// per concrete `FusedInline` machine:
 pub trait FusedInline: Machine
 where
     Self::ProcessOutput: FusedCompatible,
 {
 }
 
-/// 可安全进入 `FusedInline` 融合流水线的输出类型（sealed）。
+/// Output types that can safely enter a `FusedInline` fusion pipeline (sealed).
 ///
-/// 仅由 `SingleOutput`（恰好一个输出）与 `TupleOutput`（恰好两个输出）
-/// 实现——两者在类型层都**不含 `YieldMulti`**，输出数量固定，融合器
-/// 无需运行时决策即可完整处理每个输出。`MultiOutput`（含 `YieldMulti`，
-/// 运行时的输出数量）被排除。
+/// Implemented only by `SingleOutput` (exactly one output) and `TupleOutput`
+/// (exactly two outputs) — both have **no `YieldMulti` at the type level**, the
+/// output count is fixed, and the fuser can process every output completely
+/// without runtime decisions. `MultiOutput` (which contains `YieldMulti`, a
+/// runtime output count) is excluded.
 ///
-/// 外部无法绕过——`SealedFused` 是 private trait，无 `unsafe`，编译器完备。
+/// External code cannot bypass this — `SealedFused` is a private trait, with
+/// no `unsafe`; the compiler handles it completely.
 pub trait FusedCompatible: fused_compat_private::SealedFused {}
 
 mod fused_compat_private {

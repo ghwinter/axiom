@@ -9,8 +9,9 @@ use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
-// 当 `derive` feature 启用时，用 `#[ports]` 宏自动生成端口样板；
-// 否则手写（保持零依赖能力）。
+// When the `derive` feature is enabled, the `#[ports]` macro generates the
+// port boilerplate automatically; otherwise it is written by hand
+// (preserving the zero-dependency capability).
 #[cfg(feature = "derive")]
 #[crate::ports]
 pub struct TeePorts<I> {

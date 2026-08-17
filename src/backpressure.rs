@@ -1,3 +1,5 @@
+//! **Maturity: experimental** (an extension; advanced as part of the core, not dropped).
+//!
 //! Backpressure policies — pluggable flow control for link sends.
 //!
 //! When a machine produces an output faster than its downstream can consume,
@@ -21,7 +23,7 @@
 //!
 //! [`WritePolicy`] is the **declarative** form:
 //! a simple enum (`Blocking` / `Dropping` / `Overwriting`) chosen per-link
-//! in the `DeploySpec`. It covers the three stateless policies.
+//! in the `DynamicTopology`. It covers the three stateless policies.
 //! [`BackpressurePolicy`] is the **extensible** form: a trait with state,
 //! needed for [`CreditPolicy`] (credit-based flow control). A runtime may
 //! accept either; [`WritePolicy`] converts to the stateless trait impls via
@@ -205,6 +207,18 @@ pub trait BackpressurePolicy: Send + Sync {
     /// default.
     fn credits(&self) -> u64 { u64::MAX }
 
+    /// The action this policy **demands** when its trigger fires (channel
+    /// full, or credits exhausted for credit-based policies).
+    ///
+    /// This is the policy↔carrier correspondence contract (S3-3): a runtime
+    /// may only wire a policy onto a carrier that can execute
+    /// `required_action()` — `Block` needs a blocking send, `Drop` a
+    /// try-send failure path, `Overwrite` an evict-oldest carrier,
+    /// `Defer` a re-scheduling runtime with `on_consumed` replenish. A
+    /// mismatch would silently violate the declared semantics. See
+    /// [`crate::runtime_contract::BackpressureActionSupport`].
+    fn required_action(&self) -> BackpressureAction;
+
     /// Human-readable policy name (diagnostics). Default: `"backpressure"`.
     fn name(&self) -> &'static str { "backpressure" }
 }
@@ -230,6 +244,7 @@ impl BackpressurePolicy for BlockPolicy {
     fn decide(&self, ctx: BackpressureCtx) -> BackpressureAction {
         if ctx.is_full() { BackpressureAction::Block } else { BackpressureAction::Proceed }
     }
+    fn required_action(&self) -> BackpressureAction { BackpressureAction::Block }
     fn name(&self) -> &'static str { "block" }
 }
 
@@ -249,6 +264,7 @@ impl BackpressurePolicy for DropPolicy {
     fn decide(&self, ctx: BackpressureCtx) -> BackpressureAction {
         if ctx.is_full() { BackpressureAction::Drop } else { BackpressureAction::Proceed }
     }
+    fn required_action(&self) -> BackpressureAction { BackpressureAction::Drop }
     fn name(&self) -> &'static str { "drop" }
 }
 
@@ -276,6 +292,7 @@ impl BackpressurePolicy for OverwritePolicy {
     fn decide(&self, ctx: BackpressureCtx) -> BackpressureAction {
         if ctx.is_full() { BackpressureAction::Overwrite } else { BackpressureAction::Proceed }
     }
+    fn required_action(&self) -> BackpressureAction { BackpressureAction::Overwrite }
     fn name(&self) -> &'static str { "overwrite" }
 }
 
@@ -346,6 +363,8 @@ impl BackpressurePolicy for CreditPolicy {
     fn credits(&self) -> u64 {
         self.credits.load(Ordering::Relaxed)
     }
+
+    fn required_action(&self) -> BackpressureAction { BackpressureAction::Defer }
 
     fn on_sent(&self) {
         // Decrement credits (saturating at 0). Relaxed is fine: a rare
@@ -613,7 +632,7 @@ mod tests {
         assert_eq!(p.decide(full()), BackpressureAction::Overwrite);
     }
 
-    // ── stateless policy 默认方法 ───────────────────────────────────────────
+    // ── stateless policy default methods ─────────────────────────────────
 
     #[test]
     fn stateless_policy_credits_unlimited() {
@@ -627,7 +646,7 @@ mod tests {
         let p = BlockPolicy::new();
         p.on_sent();
         p.on_consumed();
-        // 无 panic 即通过；decide 仍按 is_full 行为不变
+        // Passing with no panic is sufficient; decide still behaves by is_full
         assert_eq!(p.decide(not_full()), BackpressureAction::Proceed);
         assert_eq!(p.decide(full()), BackpressureAction::Block);
     }

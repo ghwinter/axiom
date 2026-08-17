@@ -1,48 +1,53 @@
-//! # 网络收包路径 — 系统蓝图
+//! # Network receive path — system blueprint
 //!
-//! 内核网络栈的收包数据路径（NIC → 以太网 → IP → TCP → 应用交付），
-//! 用 pcap 文件重放作为确定性数据源（类似内核 pktgen / 网络测试框架）。
+//! The receive data path of a kernel network stack (NIC → Ethernet → IP → TCP → application
+//! delivery), using pcap file replay as a deterministic data source (similar to kernel
+//! pktgen / network testing frameworks).
 //!
-//! ## 蓝图（抽象层）
+//! ## The blueprint (abstraction layer)
 //!
 //! ```text
-//!                ┌────────────── 收包数据路径（静态拓扑）──────────────┐
-//!                │                                                     │
-//!  pcap 文件 ────► PcapReader ──► EthParser ──► IpParser ──► TcpParser ──► AppDeliver ──► report（流统计）
-//!  (重放源)      │ (物理读)   │ (以太帧)   │ (IP 头)    │ (TCP 载荷) │ (流聚合)   │
+//!                ┌────────────── receive data path (static topology) ──────────────┐
+//!                │                                                      │
+//!  pcap file ────► PcapReader ──► EthParser ──► IpParser ──► TcpParser ──► AppDeliver ──► report (stream stats)
+//!  (replay src)  │ (phys read)  │ (Eth frame)  │ (IP hdr)   │ (TCP payload) │ (stream agg)   │
 //!                │   │            │             │            │            │              │
-//!                │   └─ next 事件（main 注入，逐包驱动）        │            │              │
-//!                │                                            │            └─ stats ──► PktStats（观测）
-//!                │                                            │           (Observe 流,     (独立线程,
-//!                └────────────────────────────────────────────┴────────────  Dropping 载体)  低速统计)
+//!                │   └─ next event (injected by main, one packet at a time)  │            │
+//!                │                                            │            └─ stats ──► PktStats (observe)
+//!                │                                            │           (Observe stream,     (separate thread,
+//!                └────────────────────────────────────────────┴────────────  Dropping carrier)  low-rate stats)
 //! ```
 //!
-//! ## 设计要点
+//! ## Design highlights
 //!
-//! 1. **确定性重放**：pcap 是真实抓包格式——同一文件重放两次，处理
-//!    结果必须逐包一致（确定性验证的核心手段，与内核网络测试同思路）。
-//! 2. **模块 = 协议层**：以太/IP/TCP 各一层一个模块，剥头后只把
-//!    payload 传递下游——内核协议栈的分层抽象在蓝图中直接可见。
-//! 3. **观测即数据**：`AppDeliver.stats` 是 Observe 流，`PktStats`
-//!    低速聚合（Dropping 载体，观测不影响主路径——与 redis_like 同模式）。
-//! 4. **只解析不校验**：简化版不做 TCP 重排/校验和（真实内核的
-//!    reassembly 是后续增量）；当前路径覆盖"逐包解析 + 流聚合"。
+//! 1. **Deterministic replay**: pcap is a real capture format — replaying the same file twice
+//!    must yield per-packet identical results (the core means of determinism verification,
+//!    same approach as kernel network testing).
+//! 2. **Module = protocol layer**: Ethernet/IP/TCP each have one module per layer; after
+//!    stripping the header, only the payload is passed downstream — the layering abstraction
+//!    of the kernel protocol stack is directly visible in the blueprint.
+//! 3. **Observation as data**: `AppDeliver.stats` is an Observe stream; `PktStats` aggregates
+//!    at low rate (Dropping carrier — observation does not affect the main path, same pattern
+//!    as redis_like).
+//! 4. **Parse-only, no validation**: this simplified version does no TCP reordering/checksum
+//!    (real-kernel reassembly is a later increment); the current path covers "per-packet parse +
+//!    stream aggregation".
 //!
-//! ## 边界声明（诚实）
+//! ## Boundary statements (honest)
 //!
-//! - 只处理 IPv4 + TCP（UDP/其他 ethertype 丢弃并计数）。
-//! - 不做 TCP 序列号重排（按序到达假设）；不做校验和验证。
-//! - 物理过程（NIC 中断、DMA、NAPI 轮询）不在本蓝图——pcap 重放
-//!   模拟"包进入协议栈"的边界条件。
+//! - Only IPv4 + TCP handled (UDP/other ethertypes are dropped and counted).
+//! - No TCP sequence-number reordering (in-order arrival assumed); no checksum verification.
+//! - Physical processes (NIC interrupts, DMA, NAPI polling) are not in this blueprint — pcap
+//!   replay simulates the "packet entering the protocol stack" boundary condition.
 
-use axiom::deploy::{DeploySpec, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance};
 use axiom::link::{LinkKind, LinkSpec, ReadPolicy, WritePolicy};
 use axiom::resource::MachinePhysicalSpec;
 
-/// 网络收包路径的结构蓝图（DeploySpec）。
-pub fn blueprint() -> DeploySpec {
-    DeploySpec::new()
-        // ── 模块（6 个）──────────────────────────────────────────────
+/// Structural blueprint of the network receive path (DynamicTopology).
+pub fn blueprint() -> DynamicTopology {
+    DynamicTopology::new()
+        // ── machines (6) ──────────────────────────────────────────────
         .with_machine(MachineInstance::new(
             "pcap_reader",
             "pcap_reader",
@@ -73,8 +78,8 @@ pub fn blueprint() -> DeploySpec {
             "pkt_stats",
             MachinePhysicalSpec::default(),
         ))
-        // ── 数据流（5 条）────────────────────────────────────────────
-        // 原始包 → 以太 → IP → TCP → 应用
+        // ── data flow (5 links) ───────────────────────────────────────
+        // raw packet → Ethernet → IP → TCP → application
         .with_link(LinkSpec::new(
             ("pcap_reader", "pkt"),
             ("eth_parser", "pkt"),
@@ -111,7 +116,7 @@ pub fn blueprint() -> DeploySpec {
                 read_policy: ReadPolicy::Blocking,
             },
         ))
-        // 观测流：流统计 → PktStats（低速观测，Dropping 可丢）
+        // observe stream: stream stats → PktStats (low-rate observation, Dropping may discard)
         .with_link(LinkSpec::new(
             ("app_deliver", "stats"),
             ("pkt_stats", "log"),

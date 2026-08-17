@@ -1,19 +1,19 @@
-//! # Redis 风格服务器 — 装配与驱动
+//! # Redis-style server — assembly and driving
 //!
-//! 三种运行模式：
+//! Three run modes:
 //!
 //! ```text
-//! cargo run --manifest-path runtime/Cargo.toml --example redis_like            # TCP 服务器（默认）
-//! cargo run --manifest-path runtime/Cargo.toml --example redis_like -- --bench  # 吞吐 + 分配基准
-//! cargo run --manifest-path runtime/Cargo.toml --example redis_like -- --replay # AOF 重放确定性验证
+//! cargo run --manifest-path runtime/Cargo.toml --example redis_like            # TCP server (default)
+//! cargo run --manifest-path runtime/Cargo.toml --example redis_like -- --bench  # throughput + allocation benchmark
+//! cargo run --manifest-path runtime/Cargo.toml --example redis_like -- --replay # AOF replay determinism check
 //! ```
 //!
-//! ## 物理装配（蓝图之下）
+//! ## Physical assembly (below the blueprint)
 //!
 //! ```text
-//! main: TcpListener ──► DefaultReactor(poll) ──► accept → 连接表(shared_table)
+//! main: TcpListener ──► DefaultReactor(poll) ──► accept → connection table (shared_table)
 //!                                                    └─► rt.register_io(token=conn_id → conn_reader.io)
-//! loop { listener_reactor.poll → accept； rt.run_io(io_reactor, 连接事件) → tick 全图 }
+//! loop { listener_reactor.poll → accept; rt.run_io(io_reactor, connection events) → tick whole graph }
 //! ```
 
 mod blueprint;
@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 
-use axiom::deploy::DeploySpec;
+use axiom::deploy::DynamicTopology;
 use axiom::link::WritePolicy;
 use axiom_runtime::{
     default_reactor, ProcessResult, Runtime, RuntimeConfig, IoInterest, IoReactor,
@@ -34,7 +34,7 @@ use axiom_runtime::{
 
 use machines::*;
 
-// ── 分配计数（bench 用，psql --bench 同款）──────────────────────────────
+// ── Allocation counting (for bench mode, same as psql --bench) ──────────
 static ALLOCS: AtomicUsize = AtomicUsize::new(0);
 
 struct CountingAllocator;
@@ -56,7 +56,7 @@ unsafe impl std::alloc::GlobalAlloc for CountingAllocator {
 #[global_allocator]
 static ALLOCATOR: CountingAllocator = CountingAllocator;
 
-// ── 平台 raw IO 句柄提取 ────────────────────────────────────────────────
+// ── Platform raw IO handle extraction ───────────────────────────────────
 #[cfg(unix)]
 fn raw_of<T: std::os::unix::io::AsRawFd>(t: &T) -> RawIo {
     t.as_raw_fd()
@@ -67,10 +67,10 @@ fn raw_of<T: std::os::windows::io::AsRawSocket>(t: &T) -> RawIo {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 装配：register + materialize（9 机器类型，见 blueprint.rs）
+// Assembly: register + materialize (9 machine types, see blueprint.rs)
 // ════════════════════════════════════════════════════════════════════════
 
-fn build_runtime(cfg: RuntimeConfig, spec: &DeploySpec) -> Runtime {
+fn build_runtime(cfg: RuntimeConfig, spec: &DynamicTopology) -> Runtime {
     let mut rt = Runtime::new(cfg);
     rt.register::<ConnReader>("conn_reader");
     rt.register::<RespParser>("resp_parser");
@@ -87,7 +87,7 @@ fn build_runtime(cfg: RuntimeConfig, spec: &DeploySpec) -> Runtime {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模式 1：TCP 服务器（真实事件循环 + 网络 IO）
+// Mode 1: TCP server (real event loop + network IO)
 // ════════════════════════════════════════════════════════════════════════
 
 const LISTENER_TOKEN: IoToken = IoToken(0);
@@ -100,7 +100,7 @@ fn server() {
     let mut rt = build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint());
     let table = shared_table();
 
-    // 两个 reactor：listener（main 管理 accept）+ 连接（runtime 路由事件）
+    // Two reactors: listener (accept managed by main) + connections (runtime routes events)
     let mut listener_reactor = default_reactor().expect("listener reactor");
     listener_reactor
         .register(raw_of(&listener), IoInterest::READABLE, LISTENER_TOKEN)
@@ -110,7 +110,7 @@ fn server() {
     let mut next_conn: usize = 1;
 
     loop {
-        // ── 1. accept 新连接（listener_reactor 的 READABLE）────────────
+        // ── 1. accept new connections (listener_reactor READABLE) ────────
         if let Ok(events) = listener_reactor.poll(Some(Duration::from_millis(20))) {
             for ev in events {
                 if ev.token == LISTENER_TOKEN {
@@ -120,7 +120,7 @@ fn server() {
                                 stream.set_nonblocking(true).expect("nonblocking");
                                 let id = next_conn;
                                 next_conn += 1;
-                                // 物理：连接进共享表 + 注册 READABLE 事件到 runtime
+                                // Physical: connection goes into shared table + READABLE event registered to runtime
                                 table.lock().unwrap().conns.insert(id, stream);
                                 rt.register_io(
                                     &mut io_reactor,
@@ -133,14 +133,14 @@ fn server() {
                                 .expect("register_io");
                                 println!("+ conn #{id} from {addr}");
                             }
-                            Err(_) => break, // WouldBlock 或错误：本批 accept 完
+                            Err(_) => break, // WouldBlock or error: this batch of accepts is done
                         }
                     }
                 }
             }
         }
 
-        // ── 2. 连接事件 → 全图 tick（io_reactor 非阻塞取事件）──────────
+        // ── 2. connection events → whole-graph tick (io_reactor non-blocking event fetch) ──
         let _results = rt
             .run_io(&mut io_reactor, Vec::new(), Some(Duration::ZERO))
             .expect("run_io");
@@ -148,18 +148,18 @@ fn server() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模式 2：基准（无网络：RESP 字节注入解析链，测全图吞吐 + 分配）
+// Mode 2: benchmark (no network: RESP bytes injected into the parse chain, measures whole-graph throughput + allocations)
 // ════════════════════════════════════════════════════════════════════════
 
-/// bench 专用最小拓扑：resp_parser（入口，无入边）→ data_store →
-/// resp_encoder → conn_writer（+ aof_writer）；`obs` 控制 observe→monitor
-/// 载体（None = 无观测模块）。Parallel 模式入口注入需要无入边机器。
-fn bench_spec(obs: Option<WritePolicy>) -> DeploySpec {
+/// Bench-specific minimal topology: resp_parser (entry, no inbound edges) → data_store →
+/// resp_encoder → conn_writer (+ aof_writer); `obs` controls the observe→monitor
+/// carrier (None = no observer module). Parallel-mode entry injection needs machines with no inbound edges.
+fn bench_spec(obs: Option<WritePolicy>) -> DynamicTopology {
     use axiom::deploy::MachineInstance;
     use axiom::link::{LinkKind, LinkSpec, ReadPolicy};
     use axiom::resource::MachinePhysicalSpec;
 
-    let mut spec = DeploySpec::new()
+    let mut spec = DynamicTopology::new()
         .with_machine(MachineInstance::new(
             "resp_parser",
             "resp_parser",
@@ -241,9 +241,10 @@ fn bench_spec(obs: Option<WritePolicy>) -> DeploySpec {
     spec
 }
 
-/// 分片集群 bench 拓扑（**多入口**：每分片独立解析链——Redis 集群形态，
-/// 连接直连节点；Parallel 下两链真并行）。
-fn bench_spec_multi_entry() -> DeploySpec {
+/// Sharded-cluster bench topology (**multi-entry**: each shard has an independent parse chain —
+/// Redis cluster shape, where connections hit nodes directly; under Parallel the two chains
+/// genuinely run in parallel).
+fn bench_spec_multi_entry() -> DynamicTopology {
     use axiom::deploy::MachineInstance;
     use axiom::link::{LinkKind, LinkSpec, ReadPolicy};
     use axiom::resource::MachinePhysicalSpec;
@@ -259,7 +260,7 @@ fn bench_spec_multi_entry() -> DeploySpec {
             },
         )
     };
-    DeploySpec::new()
+    DynamicTopology::new()
         .with_machine(MachineInstance::new(
             "resp_parser_0",
             "resp_parser",
@@ -312,8 +313,8 @@ fn bench_spec_multi_entry() -> DeploySpec {
 fn bench() {
     const N: usize = 100_000;
 
-    // 构造 RESP 命令字节（conn_id = 0，表中无 socket → ConnWriter 是空操作）
-    // key "bench" 固定哈希到一个分片；用两把 key 让分片负载均衡（bench_a/bench_b）
+    // Build RESP command bytes (conn_id = 0, no socket in table → ConnWriter is a no-op)
+    // key "bench" hashes to a fixed shard; use two keys to balance shard load (bench_a/bench_b)
     let set_a = b"*3\r\n$3\r\nSET\r\n$6\r\nbench_a\r\n$5\r\nvalue\r\n".to_vec();
     let get_a = b"*2\r\n$3\r\nGET\r\n$6\r\nbench_a\r\n".to_vec();
     let set_b = b"*3\r\n$3\r\nSET\r\n$6\r\nbench_b\r\n$5\r\nvalue\r\n".to_vec();
@@ -333,12 +334,12 @@ fn bench() {
             .collect()
     };
 
-    // 一、观测载体对比（单 DataStore 基线，Parallel(4)）
-    println!("=== redis_like bench A: 观测模块对主路径的影响 ===");
-    println!("（Parallel(4)：链接走 channel 载体；monitor 模拟低速观测 20µs/事件）\n");
+    // A. Observer-carrier comparison (single DataStore baseline, Parallel(4))
+    println!("=== redis_like bench A: impact of observer module on the main path ===");
+    println!("(Parallel(4): links use the channel carrier; monitor simulates a slow observer at 20µs/event)\n");
     MONITOR_WORK_NS.store(20_000, Ordering::Relaxed);
 
-    let configs: [(&str, DeploySpec); 3] = [
+    let configs: [(&str, DynamicTopology); 3] = [
         ("baseline (no monitor)", bench_spec(None)),
         ("monitor + Blocking", bench_spec(Some(WritePolicy::Blocking))),
         ("monitor + Dropping", bench_spec(Some(WritePolicy::Dropping))),
@@ -346,7 +347,7 @@ fn bench() {
 
     for (label, spec) in configs {
         let mut rt = build_runtime(RuntimeConfig::parallel(4), &spec);
-        inject(&mut rt, batch(&set_a, 1000)); // 预热
+        inject(&mut rt, batch(&set_a, 1000)); // warm-up
 
         ALLOCS.store(0, Ordering::Relaxed);
         let t0 = Instant::now();
@@ -370,12 +371,13 @@ fn bench() {
     }
     MONITOR_WORK_NS.store(0, Ordering::Relaxed);
 
-    // 二、分片集群 vs 单 DataStore：并行分片的真实多核收益
-    println!("\n=== redis_like bench B: 分片集群（fan-out + fan-in + 并行分片）===");
-    println!("（两把 key 均衡分布到 2 分片；对比 Sequential 单核 vs Parallel 并行分片）\n");
+    // B. Sharded cluster vs single DataStore: real multicore benefit of parallel sharding
+    println!("\n=== redis_like bench B: sharded cluster (fan-out + fan-in + parallel shards) ===");
+    println!("(two keys balanced across 2 shards; compares Sequential single-core vs Parallel shards)\n");
 
-    // 双入口交替注入（每命令一个分片解析链——Redis 集群形态：
-    // 连接直连节点，命令并发到达各分片；Parallel 下两链真并行）。
+    // Alternate injection across the two entries (one parse chain per command shard — Redis
+    // cluster shape: connections hit nodes directly, commands arrive concurrently at each shard;
+    // under Parallel the two chains genuinely run in parallel).
     let mixed_shards = |n: usize| {
         (0..n)
             .flat_map(|i| {
@@ -411,7 +413,7 @@ fn bench() {
 
     let (seq_rate, seq_alloc) = run(&mut rt_seq, N);
     let (par_rate, par_alloc) = run(&mut rt_par, N);
-    // 单 DataStore 用单入口注入（公平对比：同样 100k 命令；多入口注入对它不适用）
+    // Single DataStore uses single-entry injection (fair comparison: same 100k commands; multi-entry injection does not apply to it)
     ALLOCS.store(0, Ordering::Relaxed);
     let t0 = Instant::now();
     inject(&mut rt_single, batch(&set_a, N));
@@ -433,25 +435,26 @@ fn bench() {
     );
 
     println!(
-        "\n预期：分片 Parallel 用两个 DataStore 线程并行处理（fan-in 汇聚无损语义）；\n\
-         sharded Sequential 因多一跳 sharder + 双 AOF 略低于单 DataStore（复杂度守恒：\n\
-         拓扑多一跳，绝对成本多一跳；Parallel 并行分片可抵消）。"
+        "\nExpected: sharded Parallel processes with two DataStore threads in parallel (fan-in convergence, lossless semantics);\n\
+         sharded Sequential is slightly below single DataStore because of the extra sharder hop + dual AOF (complexity is conserved:\n\
+         one extra topology hop costs one extra absolute hop; Parallel sharding can offset that)."
     );
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模式 3：AOF 重放（确定性验证：同命令序列 → 同最终状态）
+// Mode 3: AOF replay (determinism check: same command sequence → same final state)
 // ════════════════════════════════════════════════════════════════════════
 
 fn replay() {
-    // 每次从干净状态开始（AOF append 模式会累积；分片版有两个 AOF 文件）
+    // Start from a clean state every time (AOF append mode accumulates; the sharded variant has two AOF files)
     let _ = std::fs::remove_file("redis_like.aof");
     let _ = std::fs::remove_file("redis_like_aof_writer_0.aof");
     let _ = std::fs::remove_file("redis_like_aof_writer_1.aof");
 
-    // 1. 分片集群蓝图：命令按 key 哈希路由到 2 个 DataStore（fan-out）。
-    //    命令序列跨分片交错；断言不预设哈希分布，只验证分片自洽
-    //    （SET/GET 同 key 路由同分片）与终值正确。
+    // 1. Sharded-cluster blueprint: commands are routed by key hash to 2 DataStores (fan-out).
+    //    The command sequence is interleaved across shards; the assertions do not assume a
+    //    hash distribution, only that each shard is self-consistent (SET/GET for the same key
+    //    route to the same shard) and that final values are correct.
     let mut rt = build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded());
 
     let cmds: Vec<&[&[u8]]> = vec![
@@ -464,7 +467,7 @@ fn replay() {
         &[b"HSET", b"h", b"f", b"v"],
     ];
 
-    // 2. 逐条注入（RESP 字节 → 完整链路：解析 → 分片路由 → 执行 → 观测）
+    // 2. Inject one by one (RESP bytes → full chain: parse → shard routing → execute → observe)
     let mut observed: Vec<String> = Vec::new();
     for c in &cmds {
         let bytes = encode_resp(*c);
@@ -484,7 +487,7 @@ fn replay() {
         }
     }
 
-    // 3. 断言：确定性结果（跨分片汇聚，值与单 DataStore 版完全一致）
+    // 3. Assert: deterministic results (converged across shards, identical to the single-DataStore variant)
     assert_eq!(
         observed,
         vec![
@@ -496,10 +499,10 @@ fn replay() {
             "LPUSH => Int(2)".to_string(),
             "HSET => Int(1)".to_string(),
         ],
-        "分片集群必须确定性复现命令结果（fan-out/fan-in 不改变语义）"
+        "sharded cluster must deterministically reproduce command results (fan-out/fan-in does not change semantics)"
     );
 
-    // 4. GET 查询 helper（注入 RESP GET → 全链路 → observe 摘要）
+    // 4. GET query helper (inject RESP GET → full chain → observe summary)
     let get = |rt: &mut Runtime, key: &str| -> String {
         let out = rt
             .tick(vec![(
@@ -519,20 +522,20 @@ fn replay() {
         unreachable!()
     };
 
-    // 5. 跨分片路由自洽：SET/GET 同 key → 同分片 → 值一致
-    assert!(get(&mut rt, "k1").contains("Bulk(Some"), "GET k1 应命中其所在分片");
+    // 5. Cross-shard routing consistency: SET/GET for the same key → same shard → consistent value
+    assert!(get(&mut rt, "k1").contains("Bulk(Some"), "GET k1 should hit the shard that owns it");
     let k2v = get(&mut rt, "k2");
     assert!(
         k2v.contains("Bulk(Some([51]))"),
-        "GET k2 应返回存储值 \"3\"（跨分片路由一致）, got {k2v}"
+        "GET k2 should return the stored value \"3\" (consistent cross-shard routing), got {k2v}"
     );
-    assert!(get(&mut rt, "lst").contains("WRONGTYPE"), "list 用 GET 应报 WRONGTYPE");
+    assert!(get(&mut rt, "lst").contains("WRONGTYPE"), "GET on a list should report WRONGTYPE");
 
-    // 6. 重启（新 runtime，全新状态）→ 顺序重放双 AOF（每分片独立日志）
-    //    → sharder 重新哈希 → 各命令回到正确分片 → 状态重建
+    // 6. Restart (new runtime, fresh state) → replay both AOF files in order (one log per shard)
+    //    → sharder re-hashes → each command returns to the correct shard → state is rebuilt
     let aof0 = std::fs::read("redis_like_aof_writer_0.aof").unwrap_or_default();
     let aof1 = std::fs::read("redis_like_aof_writer_1.aof").unwrap_or_default();
-    assert!(!aof0.is_empty() || !aof1.is_empty(), "两个分片 AOF 至少一个非空");
+    assert!(!aof0.is_empty() || !aof1.is_empty(), "at least one of the two shard AOF files must be non-empty");
     let mut rt2 = build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded());
     for aof in [&aof0, &aof1] {
         let mut cursor = 0usize;
@@ -548,16 +551,16 @@ fn replay() {
             .expect("tick");
         }
     }
-    // 重放后状态 = 原状态（写命令无跨分片依赖 → 双日志重放顺序安全）
+    // Replayed state == original state (write commands have no cross-shard dependencies → dual-log replay order is safe)
     let k2v2 = get(&mut rt2, "k2");
     assert!(
         k2v2.contains("Bulk(Some([51]))"),
-        "rt2 (双 AOF 重放后): GET k2 应返回 \"3\", got {k2v2}"
+        "rt2 (after dual-AOF replay): GET k2 should return \"3\", got {k2v2}"
     );
     assert!(get(&mut rt2, "k1").contains("Bulk(Some"));
-    assert!(get(&mut rt2, "lst").contains("WRONGTYPE"), "重放后 lst 应存在（WRONGTYPE）");
+    assert!(get(&mut rt2, "lst").contains("WRONGTYPE"), "lst should exist after replay (WRONGTYPE)");
 
-    // 7. 调试注入（Control 流广播到两分片：debugger → data_store_0.ctrl + data_store_1.ctrl）
+    // 7. Debug injection (Control flow broadcast to both shards: debugger → data_store_0.ctrl + data_store_1.ctrl)
     let mut rt3 = build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded());
     let dbg = |rt: &mut Runtime, cmd: DebugCmd| -> Vec<String> {
         let out = rt
@@ -578,34 +581,34 @@ fn replay() {
         }
         obs
     };
-    // DEBUG SET（旁路控制，不记 AOF）→ 两分片都注入 → GET 任意分片命中
+    // DEBUG SET (out-of-band control, not logged to AOF) → injected into both shards → GET hits either shard
     let obs = dbg(&mut rt3, DebugCmd::Set("dk".into(), "dv".into()));
     assert!(
         obs.iter().any(|s| s.contains("DEBUG SET dk => dv")),
-        "DEBUG SET 应被 monitor 观测到: {obs:?}"
+        "DEBUG SET should be observed by monitor: {obs:?}"
     );
     assert!(
         get(&mut rt3, "dk").contains("Bulk(Some"),
-        "DEBUG 注入的键值应可被正常 GET 读取（广播两分片，任一分片命中）"
+        "keys injected via DEBUG should be readable by normal GET (broadcast to both shards; either shard hits)"
     );
-    // DEBUG INFO → 键数量（两分片各报一次）
+    // DEBUG INFO → key count (reported once per shard)
     let obs = dbg(&mut rt3, DebugCmd::Info);
     assert!(
         obs.iter().any(|s| s.contains("keys=")),
-        "DEBUG INFO 应返回统计: {obs:?}"
+        "DEBUG INFO should return statistics: {obs:?}"
     );
-    // DEBUG FLUSH → 两分片都清空；GET 返回 nil
+    // DEBUG FLUSH → both shards cleared; GET returns nil
     let _ = dbg(&mut rt3, DebugCmd::Flush);
     assert!(
         get(&mut rt3, "dk").contains("Bulk(None)"),
-        "DEBUG FLUSH 后 GET 应为 nil"
+        "GET should be nil after DEBUG FLUSH"
     );
 
-    println!("=== replay OK（分片集群：fan-out + fan-in + 双 AOF + Control 广播）===");
-    println!("7 条命令跨分片确定性复现；SET/GET 同 key 路由自洽；双 AOF 重放重建状态；DEBUG 广播两分片");
+    println!("=== replay OK (sharded cluster: fan-out + fan-in + dual AOF + Control broadcast) ===");
+    println!("7 commands deterministically reproduced across shards; SET/GET same-key routing consistent; dual-AOF replay rebuilds state; DEBUG broadcast across both shards");
 }
 
-/// 把 `[cmd, args...]` 编码为 RESP 命令字节（与 machines::encode_command 同格式）。
+/// Encodes `[cmd, args...]` as RESP command bytes (same format as machines::encode_command).
 fn encode_resp(args: &[&[u8]]) -> Vec<u8> {
     let mut out = Vec::with_capacity(64);
     out.extend_from_slice(format!("*{}\r\n", args.len()).as_bytes());
@@ -617,11 +620,11 @@ fn encode_resp(args: &[&[u8]]) -> Vec<u8> {
     out
 }
 
-/// 从 AOF 字节流定位下一条 RESP 命令的结束位置（按 `*N\r\n` + N×`$len\r\n...` 扫描）。
+/// Locates the end of the next RESP command in an AOF byte stream (scans by `*N\r\n` + N×`$len\r\n...`).
 fn next_command_end(buf: &[u8], from: usize) -> usize {
     let rest = &buf[from..];
-    // 简化：本 showcase 的 AOF 每条命令是一个完整 RESP 块，块间无分隔——
-    // 直接按 RESP 语法跳过 N 个参数（与 try_parse_command 相同逻辑）。
+    // Simplification: in this showcase each AOF command is a complete RESP block with no
+    // inter-block separators — so just skip N arguments per RESP syntax (same logic as try_parse_command).
     let (n_line, mut rest) = split_crlf_static(rest).expect("cmd header");
     let n: usize = std::str::from_utf8(&n_line[1..]).expect("n").parse().expect("n");
     for _ in 0..n {
@@ -651,17 +654,18 @@ fn main() {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模式 4：时间旅行调试（D1 事件溯源回放器 showcase）
+// Mode 4: time-travel debugging (event-sourcing replay showcase)
 // ════════════════════════════════════════════════════════════════════════
 //
-// 执行命令序列时录下输入事件流（journal）；之后从**干净状态**回放到
-// 任意时点查询状态——"系统出错后回放到崩溃前一刻看状态"（因果推理）。
-// 分片集群蓝图（fan-out/fan-in）下同样成立——回放是整图重放。
+// While executing the command sequence, record the input event stream (journal); afterwards,
+// replay from a **clean state** to any point in time and query the state — "after a failure,
+// replay to just before the crash and inspect the state" (causal reasoning).
+// This works under the sharded-cluster blueprint (fan-out/fan-in) too — replay is a whole-graph replay.
 
 fn timetravel() {
     use axiom_runtime::{ReplayJournal, Replayer};
 
-    // 1. 执行命令序列（分片集群），同时录 journal（RESP 字节输入，Clone）。
+    // 1. Execute the command sequence (sharded cluster) while recording the journal (RESP byte inputs, Clone).
     let mut rt = build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded());
     let mut journal = ReplayJournal::new();
 
@@ -686,9 +690,9 @@ fn timetravel() {
             .expect("tick");
         journal.record("resp_parser", "raw", &RawBytes(0, bytes));
     }
-    assert_eq!(journal.len(), 7, "7 批命令全部录下");
+    assert_eq!(journal.len(), 7, "all 7 batches of commands must be recorded");
 
-    // 2. 时间旅行：回放到任意时点（每次从干净状态）。
+    // 2. Time travel: replay to any point in time (each time from a clean state).
     let replayer = Replayer::new(&journal);
     let get = |rt: &mut Runtime, key: &str| -> String {
         let out = rt
@@ -709,58 +713,58 @@ fn timetravel() {
         unreachable!()
     };
 
-    // 时点 3：SET + INCR×2 之后——k2 应 = "2"，lst 还不存在。
+    // Time point 3: after SET + INCR×2 — k2 should = "2", lst does not exist yet.
     let (mut rt3, _) = replayer.forward_to(3, || {
         build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded())
     }).expect("replay to 3");
     let k2_at_3 = get(&mut rt3, "k2");
     assert!(
         k2_at_3.contains("Bulk(Some([50]))"),
-        "时点 3：k2 应 = \"2\"（INCR×2 已执行）, got {k2_at_3}"
+        "time point 3: k2 should = \"2\" (INCR×2 executed), got {k2_at_3}"
     );
     let lst_at_3 = get(&mut rt3, "lst");
     assert!(
         lst_at_3.contains("Bulk(None)"),
-        "时点 3：lst 尚未创建（LPUSH 未执行）, got {lst_at_3}"
+        "time point 3: lst not yet created (LPUSH not executed), got {lst_at_3}"
     );
 
-    // 时点 4：INCR×3 之后——k2 = "3"（时间旅行到任意中间时点）。
+    // Time point 4: after INCR×3 — k2 = "3" (time travel to any intermediate point).
     let (mut rt4, _) = replayer.forward_to(4, || {
         build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded())
     }).expect("replay to 4");
     let k2_at_4 = get(&mut rt4, "k2");
     assert!(
         k2_at_4.contains("Bulk(Some([51]))"),
-        "时点 4：k2 应 = \"3\"（INCR×3 已执行）, got {k2_at_4}"
+        "time point 4: k2 should = \"3\" (INCR×3 executed), got {k2_at_4}"
     );
 
-    // 时点 5：LPUSH×2 之后——lst 存在（WRONGTYPE 是 GET 列表的回复）。
+    // Time point 5: after LPUSH×2 — lst exists (WRONGTYPE is the reply to GET on a list).
     let (mut rt5, _) = replayer.forward_to(5, || {
         build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded())
     }).expect("replay to 5");
     let lst_at_5 = get(&mut rt5, "lst");
     assert!(
         lst_at_5.contains("WRONGTYPE"),
-        "时点 5：lst 已创建（LPUSH×2 已执行）, got {lst_at_5}"
+        "time point 5: lst created (LPUSH×2 executed), got {lst_at_5}"
     );
 
-    // 时点 7：全部命令后——h.f = v。
+    // Time point 7: after all commands — h.f = v.
     let (mut rt7, _) = replayer.forward_to(7, || {
         build_runtime(RuntimeConfig::sequential(), &blueprint::blueprint_sharded())
     }).expect("replay to 7");
     let h_at_7 = get(&mut rt7, "h");
     assert!(
         h_at_7.contains("WRONGTYPE"),
-        "时点 7：h 已创建（HSET 已执行）, got {h_at_7}"
+        "time point 7: h created (HSET executed), got {h_at_7}"
     );
 
-    println!("=== timetravel OK（D1 事件溯源回放器）===");
-    println!("7 批命令录为 journal；回放到时点 3/4/5/7 查询状态全部符合因果：");
-    println!("  t=3: k2=\"2\"（INCR×2 后）、lst 不存在（LPUSH 前）");
-    println!("  t=4: k2=\"3\"（INCR×3 后）");
-    println!("  t=5: lst 已创建（LPUSH×2 后）");
-    println!("  t=7: h 已创建（HSET 后）");
-    println!("分片集群（fan-out/fan-in）下时间旅行同样成立——回放是整图重放");
+    println!("=== timetravel OK (event-sourcing replay) ===");
+    println!("7 batches recorded into the journal; replay to time points 3/4/5/7 yields causal states:");
+    println!("  t=3: k2=\"2\" (after INCR×2), lst absent (before LPUSH)");
+    println!("  t=4: k2=\"3\" (after INCR×3)");
+    println!("  t=5: lst created (after LPUSH×2)");
+    println!("  t=7: h created (after HSET)");
+    println!("time travel also works under the sharded cluster (fan-out/fan-in) — replay is a whole-graph replay");
 }
 
 

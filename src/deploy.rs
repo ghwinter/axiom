@@ -1,6 +1,8 @@
+/// **Maturity: stable** (the stable core, the main subject of the current refactor).
+///
 /// Deployment specification — the "what, where, and how" of a system.
 ///
-/// A `DeploySpec` describes the complete topology of a deployed system:
+/// A `DynamicTopology` describes the complete topology of a deployed system:
 /// which machines and functions exist, how they are connected, and with
 /// what physical resources each machine runs.
 ///
@@ -11,11 +13,11 @@
 ///
 /// A spec can be built in code (using `&'static str` literals via the
 /// ergonomic constructors) or loaded from a declarative config file under the
-/// `serialize` feature — both paths produce the same `DeploySpec`:
+/// `serialize` feature — both paths produce the same `DynamicTopology`:
 ///
 /// ```ignore
 /// // Code-defined topology
-/// let deploy = DeploySpec::new()
+/// let deploy = DynamicTopology::new()
 ///     .with_machine(MachineInstance::new(
 ///         "ws_reader", "ws_machine", MachinePhysicalSpec::default(),
 ///     ))
@@ -34,7 +36,7 @@
 ///
 /// // Config-defined topology (requires the `serialize` feature):
 /// // let json = std::fs::read_to_string("topology.json")?;
-/// // let deploy: DeploySpec = serde_json::from_str(&json)?;
+/// // let deploy: DynamicTopology = serde_json::from_str(&json)?;
 /// ```
 
 #[cfg(not(feature = "std"))]
@@ -42,9 +44,11 @@ use crate::compat::prelude::*;
 use crate::compat::HashMap;
 #[cfg(not(feature = "std"))]
 use alloc::format;
-use crate::link::LinkSpec;
+use crate::flow::{CarrierCompatibility, CarrierCompatResult, FlowKind};
+use crate::link::{LinkKind, LinkSpec, WritePolicy};
 use crate::port::{PortSchema, PortDir, LinkCompat};
 use crate::resource::{MachinePhysicalSpec, ExecutionHint};
+use crate::topology::Topology;
 use alloc::borrow::Cow;
 
 // ── Machine instance ──────────────────────────────────────────────────────────
@@ -53,7 +57,7 @@ use alloc::borrow::Cow;
 ///
 /// Name and type fields use [`Cow<'static, str>`] so an instance can be built
 /// from `&'static str` literals in code or from owned `String`s deserialized
-/// out of a config file. Under the `serialize` feature the whole `DeploySpec`
+/// out of a config file. Under the `serialize` feature the whole `DynamicTopology`
 /// (and therefore `MachineInstance`) round-trips through Serde.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
@@ -69,7 +73,7 @@ pub struct MachineInstance {
     /// Whether this machine implements **Moore semantics** (output depends
     /// only on pre-update state).
     ///
-    /// Declared by the deployer. Used by [`DeploySpec::validate_deep`] for
+    /// Declared by the deployer. Used by [`DynamicTopology::validate_deep`] for
     /// cycle-safety analysis: every cycle in the topology must pass through
     /// at least one Moore machine, otherwise an algebraic loop exists.
     ///
@@ -107,7 +111,7 @@ impl MachineInstance {
     /// Declare that this machine implements Moore semantics.
     ///
     /// Builder-style: `MachineInstance::new(...).moore()`. Enables the
-    /// deploy-time cycle-safety check in [`DeploySpec::validate_deep`].
+    /// deploy-time cycle-safety check in [`DynamicTopology::validate_deep`].
     pub fn moore(mut self) -> Self {
         self.is_moore = true;
         self
@@ -165,31 +169,37 @@ impl Default for DeploySettings {
 
 // ── Incremental patch ─────────────────────────────────────────────────────────
 
-/// 蓝图的增量补丁——声明式意图（幂等）。
+/// Incremental patches for a blueprint — declarative intent (idempotent).
 ///
-/// 用于蓝图的**增量演进**：消费者（如 AI 蓝图接口）读取当前蓝图后，生成
-/// 一个 `Patch` 序列而非重写全图。所有操作**幂等**——`remove` 一个不存在
-/// 的机器/链接是 no-op，`upsert` 按标识（机器名 / 链接端点）匹配，已存在
-/// 则替换、否则添加。
+/// Used for the blueprint's **incremental evolution**: a consumer (such as an
+/// AI blueprint interface) reads the current blueprint and produces a sequence
+/// of `Patch`es rather than rewriting the whole graph. Every operation is
+/// **idempotent** — `remove` of a non-existent machine/link is a no-op,
+/// `upsert` matches by identity (machine name / link endpoint) and replaces if
+/// present, otherwise adds.
 ///
-/// 应用后配合 [`DeploySpec::validate`] / [`DeploySpec::validate_deep`] 验证
-/// 结果——补丁本身不报错（幂等），正确性由验证器把关。这与蓝图的可
-/// serialize 特性契合：AI 写 JSON 补丁，得到结构化验证错误，迭代。
+/// After applying, verify the result with
+/// [`DynamicTopology::validate`] / [`DynamicTopology::validate_deep`] — the
+/// patch itself never errors (idempotent); correctness is enforced by the
+/// validator. This fits the blueprint's `serialize` capability: the AI writes
+/// a JSON patch, gets structured validation errors, and iterates.
 ///
-/// # 标识约定
+/// # Identity conventions
 ///
-/// - 机器实例以 `name` 为标识；
-/// - 链接以 `(out, into)` 端点对为标识（`(machine, port)` 各一）。
+/// - a machine instance is identified by `name`;
+/// - a link is identified by the `(out, into)` endpoint pair (one `(machine, port)` each).
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
 pub enum Patch {
-    /// Upsert 机器实例：按 `name` 匹配，已存在则整体替换，否则添加。
+    /// Upsert a machine instance: match by `name`; replace the whole instance
+    /// if it exists, otherwise add it.
     UpsertMachine(MachineInstance),
-    /// 移除机器（按 `name`）及其所有相关链接；不存在则 no-op。
+    /// Remove a machine (by `name`) and all of its related links; no-op if absent.
     RemoveMachine(Cow<'static, str>),
-    /// Upsert 链接：按 `(out, into)` 端点匹配，已存在则替换 `kind`，否则添加。
+    /// Upsert a link: match by the `(out, into)` endpoints; replace `kind`
+    /// if it exists, otherwise add it.
     UpsertLink(LinkSpec),
-    /// 移除链接（按 `(out, into)` 端点匹配）；不存在则 no-op。
+    /// Remove a link (matched by the `(out, into)` endpoints); no-op if absent.
     RemoveLink {
         out: (Cow<'static, str>, Cow<'static, str>),
         into: (Cow<'static, str>, Cow<'static, str>),
@@ -200,20 +210,25 @@ pub enum Patch {
 
 /// Complete deployment specification.
 ///
-/// Under the `serialize` feature, `DeploySpec` is fully `Serialize`/`Deserialize`
+/// Under the `serialize` feature, `DynamicTopology` is fully `Serialize`/`Deserialize`
 /// — every field (including `MachineInstance::name`, `LinkSpec` endpoints) uses
 /// `Cow<'static, str>`, so a topology declared in TOML/JSON can be loaded
-/// directly into a `DeploySpec` and handed to a runtime adapter.
+/// directly into a `DynamicTopology` and handed to a runtime adapter.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
-pub struct DeploySpec {
+pub struct DynamicTopology {
     pub machines: Vec<MachineInstance>,
     pub funcs: Vec<FuncBinding>,
     pub links: Vec<LinkSpec>,
     pub settings: DeploySettings,
 }
 
-impl DeploySpec {
+// Blueprint concept: `DynamicTopology` is the **runtime projection (value form)**
+// of `Topology` — a declared, value-ified, type-erased topology. See [`Topology`]
+// (blueprint = unified topology declaration language).
+impl Topology for DynamicTopology {}
+
+impl DynamicTopology {
     /// Create an empty deployment spec.
     pub fn new() -> Self {
         Self {
@@ -300,10 +315,10 @@ impl DeploySpec {
     /// [`MachineInstance`], and is performed by [`validate_deep`](Self::validate_deep).
     ///
     /// **Note**: Port name existence and type compatibility require `PortSchema`,
-    /// which is not available in the static `DeploySpec`. These checks are
+    /// which is not available in the static `DynamicTopology`. These checks are
     /// performed at runtime via `LinkCompat::check` or in `validate_deep`.
     pub fn validate(&self) -> Result<(), ValidationError> {
-        // 1. 名称唯一性检查
+        // 1. Name uniqueness check
         let mut seen_machines: crate::compat::HashSet<&str> = crate::compat::HashSet::new();
         for m in &self.machines {
             if !seen_machines.insert(m.name.as_ref()) {
@@ -317,12 +332,12 @@ impl DeploySpec {
             }
         }
 
-        // 2. 链接引用的机器/函数存在性 + 自环检查
+        // 2. Existence of machines/funcs referenced by links + self-loop check
         for link in &self.links {
             let src_name: &str = link.out.0.as_ref();
             let dst_name: &str = link.into.0.as_ref();
 
-            // 自环检查
+            // Self-loop check
             if src_name == dst_name {
                 return Err(ValidationError::SelfLoop(src_name.to_string()));
             }
@@ -339,11 +354,12 @@ impl DeploySpec {
             }
         }
 
-        // 2.5 隐式 fan-out 拒绝：一个输出端口只能链接一个目标。
-        // 动态路径的路由是 1 对 1（route_target 取第一个）；fan-out 是
-        // **机器的职责**（Split / CloneSplit / Tee 契约）——蓝图必须用
-        // 显式 Tee 机器表达广播。此检查把"路由静默丢弃第二个目标"的
-        // 未定义行为提前到验证期拒绝。
+        // 2.5 Implicit fan-out rejection: an output port may link to only one target.
+        // Dynamic-path routing is 1-to-1 (route_target takes the first target);
+        // fan-out is the **machine's responsibility** (Split / CloneSplit / Tee
+        // contract) — a blueprint must express broadcast through an explicit Tee
+        // machine. This check rejects the undefined behavior of "routing silently
+        // dropping the second target" at validation time.
         let mut fanout_seen: crate::compat::HashSet<(&str, &str)> =
             crate::compat::HashSet::new();
         for link in &self.links {
@@ -357,7 +373,7 @@ impl DeploySpec {
             }
         }
 
-        // 3. 循环依赖: cycles are structurally ALLOWED here.
+        // 3. Cycles: cycles are structurally ALLOWED here.
         //
         // foundations.md §1.2a defines Moore delay to break algebraic cycles.
         // In a channel-based runtime, every link introduces a one-tick delay
@@ -397,12 +413,22 @@ impl DeploySpec {
     /// 7. **Inline acyclicity**: the Inline-edge subgraph must be a DAG — an
     ///    Inline cycle is a synchronous-call deadlock. Rejected as
     ///    [`ValidationError::InlineCycle`].
+    /// 8. **Materialization compatibility** (S3-1): for each **annotated**
+    ///    edge (`Observe`/`Control` flow), the carrier must not violate the
+    ///    flow semantics — an `Observe` edge (which must not back-pressure
+    ///    its source) on a blocking carrier (`BoundedBuf(Blocking)` /
+    ///    `Channel(drop=false)`) is rejected as
+    ///    [`ValidationError::CarrierViolatesSemantics`]. `Data` (the default /
+    ///    un-annotated) carries no constraint. See [`carrier_compatible`].
     ///
     /// # What it does NOT check
     ///
     /// - Whether a migrator exists for `LinkCompat::Migrate` (that requires
     ///   a `MigrateRegistry`, checked at runtime).
     /// - Actual memory consumption (only declared estimates are summed).
+    /// - Whether `MachineInstance::is_moore` matches the machine's type
+    ///   implementing [`crate::machine::Moore`] — that needs type information
+    ///   and is checked at deploy/materialize time by the runtime registry.
     pub fn validate_deep(&self, schemas: &HashMap<&str, PortSchema>) -> Result<(), ValidationError> {
         // 1. Run structural validation first.
         self.validate()?;
@@ -467,6 +493,27 @@ impl DeploySpec {
                         reason: reason.to_string(),
                     });
                 }
+            }
+
+            // 2b. Materialization compatibility matrix (S3-1): the flow kind
+            // is a semantic annotation that implies an optional carrier
+            // preference. `Violates` is a hard contract violation (an
+            // annotated edge whose carrier actively contradicts its
+            // semantics); `Permitted` is suboptimal but never wrong.
+            match carrier_compatible(src_port.flow, &link.kind) {
+                CarrierCompatResult::Violates => {
+                    return Err(ValidationError::CarrierViolatesSemantics {
+                        out: (src_machine.to_string(), src_port_name.to_string()),
+                        into: (dst_machine.to_string(), dst_port_name.to_string()),
+                        flow: src_port.flow.as_str(),
+                        carrier: link.kind.name().to_string(),
+                        reason: format!(
+                            "{} flow must not be back-pressured, but carrier blocks the producer",
+                            src_port.flow.as_str()
+                        ),
+                    });
+                }
+                CarrierCompatResult::Recommended | CarrierCompatResult::Permitted => {}
             }
         }
 
@@ -707,6 +754,30 @@ impl DeploySpec {
                     ));
                 }
             }
+
+            // 2b. Materialization compatibility matrix (S3-1): a `Violates`
+            // carrier is a hard contract violation. `Permitted`/`Recommended`
+            // produce no finding (lossless carriers are suboptimal, never
+            // wrong).
+            match carrier_compatible(src_port.flow, &link.kind) {
+                CarrierCompatResult::Violates => {
+                    report.push(RuleViolation::new(
+                        "flow-carrier",
+                        format!("links[{i}].kind"),
+                        format!(
+                            "{} flow on a non-back-pressuring carrier",
+                            src_port.flow.as_str()
+                        ),
+                        format!(
+                            "carrier {} can block the producer ({} → {})",
+                            link.kind.name(),
+                            src_machine,
+                            dst_machine,
+                        ),
+                    ));
+                }
+                CarrierCompatResult::Recommended | CarrierCompatResult::Permitted => {}
+            }
         }
 
         // 4. Resource budget.
@@ -859,9 +930,90 @@ impl DeploySpec {
     }
 }
 
+// ── Materialization compatibility matrix (S3-1) ───────────────────────────────
+
+/// The `(FlowKind, LinkKind)` materialization compatibility matrix.
+///
+/// `FlowKind` is a *semantic* annotation (unified value-flow principle — the
+/// physical layer does not distinguish Data/Control/Observe). From the
+/// receiver-side semantics it implies an **optional physical preference**
+/// (materialization preference), and the matrix classifies each carrier
+/// against that preference:
+///
+/// | | `Recommended` | `Permitted` (suboptimal, no finding) | `Violates` |
+/// |---|--------------|--------------------------------------|------------|
+/// | `Data` (default / un-annotated) | every carrier | — | — |
+/// | `Observe` ("must not back-pressure the source") | `Latest`, `BoundedBuf(Dropping\|Overwriting)`, `Channel(drop=true)`, `CasFreeRing`, `SharedState` | `Inline` (same-thread coupling) | `BoundedBuf(Blocking)`, `Channel(drop=false)` |
+/// | `Control` ("droppable, latest wins") | `Latest`, `BoundedBuf(Dropping\|Overwriting)`, `Channel(drop=true)` | `Inline`, `BoundedBuf(Blocking)`, `Channel(drop=false)`, `SharedState`, `CasFreeRing` | — |
+///
+/// Only **annotated** edges enter the matrix: `Data` (the default) carries no
+/// constraint, so un-annotated edges are always `Recommended` — a blueprint
+/// without annotations is not slower or less valid, it simply runs under pure
+/// structural analysis.
+///
+/// `Violates` is a hard contract violation (an Observe edge that can block
+/// its producer contradicts "must not back-pressure the source") and is
+/// rejected by [`DynamicTopology::validate_deep`]. `Permitted` is accepted
+/// silently — lossless carriers are *more* conservative than the preference,
+/// which is never wrong (a Control edge on a blocking channel still delivers
+/// the latest value; it just may block).
+pub fn carrier_compatible(flow: FlowKind, kind: &LinkKind) -> CarrierCompatResult {
+    match flow.carrier_compatibility() {
+        CarrierCompatibility::Any => CarrierCompatResult::Recommended,
+        CarrierCompatibility::NonBlocking => match kind {
+            // Blocking senders back-pressure the source → violate Observe.
+            LinkKind::BoundedBuf { write_policy, .. } => match write_policy {
+                WritePolicy::Blocking => CarrierCompatResult::Violates,
+                WritePolicy::Dropping | WritePolicy::Overwriting => {
+                    CarrierCompatResult::Recommended
+                }
+            },
+            LinkKind::Channel { drop_when_full, .. } => {
+                if *drop_when_full {
+                    CarrierCompatResult::Recommended
+                } else {
+                    CarrierCompatResult::Violates
+                }
+            }
+            // Same-thread observation couples observer latency to the source;
+            // acceptable when a tight coupling is intended, but not the
+            // "independent thread" recommendation.
+            LinkKind::Inline => CarrierCompatResult::Permitted,
+            // Latest / CasFreeRing / SharedState never block the producer.
+            LinkKind::Latest { .. }
+            | LinkKind::CasFreeRing { .. }
+            | LinkKind::SharedState => CarrierCompatResult::Recommended,
+        },
+        CarrierCompatibility::LatestWins => match kind {
+            LinkKind::Latest { .. }
+            | LinkKind::BoundedBuf {
+                write_policy: WritePolicy::Dropping | WritePolicy::Overwriting,
+                ..
+            }
+            | LinkKind::Channel {
+                drop_when_full: true,
+                ..
+            } => CarrierCompatResult::Recommended,
+            // Lossless / same-thread carriers deliver at least the latest
+            // value (they deliver more) — suboptimal, never wrong.
+            LinkKind::Inline
+            | LinkKind::BoundedBuf {
+                write_policy: WritePolicy::Blocking,
+                ..
+            }
+            | LinkKind::Channel {
+                drop_when_full: false,
+                ..
+            }
+            | LinkKind::CasFreeRing { .. }
+            | LinkKind::SharedState => CarrierCompatResult::Permitted,
+        },
+    }
+}
+
 // ── Validation errors ─────────────────────────────────────────────────────────
 
-/// Errors raised by [`DeploySpec::validate`] / [`DeploySpec::validate_deep`].
+/// Errors raised by [`DynamicTopology::validate`] / [`DynamicTopology::validate_deep`].
 ///
 /// Variants own their diagnostic strings (`String`, not `&'static str`) so they
 /// can describe names that originate from a deserialized config file as well as
@@ -870,14 +1022,15 @@ impl DeploySpec {
 #[derive(Debug)]
 pub enum ValidationError {
     UnknownMachine(String),
-    /// 机器名或函数名在部署中重复。
+    /// A machine name or function name is duplicated within the deployment.
     DuplicateName(String),
-    /// 机器链接到自身。
+    /// A machine links to itself.
     SelfLoop(String),
-    /// 隐式 fan-out：一个输出端口链接了多个目标。
+    /// Implicit fan-out: an output port links to multiple targets.
     ///
-    /// 动态路径路由是 1 对 1；fan-out 必须是机器的职责（`Split`/
-    /// `CloneSplit`/Tee）。修复：插入显式 Tee 机器，每端口一条链接。
+    /// Dynamic-path routing is 1-to-1; fan-out must be the machine's
+    /// responsibility (a `Split`/`CloneSplit`/`Tee`). Fix: insert an explicit
+    /// Tee machine, one link per port.
     FanOutViaTee { src_machine: String, src_port: String },
     UnknownPort {
         machine: String,
@@ -888,23 +1041,24 @@ pub enum ValidationError {
         into: (String, String),
         reason: String,
     },
-    /// 资源预算超出限制（validate_deep 专用）。
+    /// The resource budget was exceeded (used by `validate_deep` only).
     ResourceBudgetExceeded {
         requested_threads: usize,
         available_threads: usize,
     },
-    /// 拓扑中存在一个环，且环上没有任何 Moore 机器——构成代数环路。
+    /// The topology contains a cycle with no Moore machine on it — an algebraic loop.
     ///
-    /// `cycle` 列出环上的机器名（顺序为环的遍历顺序）。
-    /// 修复方式：将环上至少一台机器标记为 Moore（[`.moore()`](crate::deploy::MachineInstance::moore)），
-    /// 或确保运行时为每条链路提供单拍延迟（channel-based runtime）。
+    /// `cycle` lists the machine names on the cycle (in cycle traversal order).
+    /// To fix: mark at least one machine on the cycle as Moore
+    /// ([`.moore()`](crate::deploy::MachineInstance::moore)), or ensure the
+    /// runtime provides a one-tick delay on every link (a channel-based runtime).
     UnsafeCycle { cycle: Vec<String> },
-    /// 端口边度约束被违反。
+    /// A per-port edge-degree constraint was violated.
     ///
-    /// 每种 `LinkKind` 对每端口连接数有上限（见 `docs/architecture.md` §2）：
-    /// - `Inline`：每个输出端口出度 ≤ 1
-    /// - `Channel`：每个输入端口入度 ≤ 1（单消费者）
-    /// - `CasFreeRing`：出度 ≤ 1、入度 ≤ 1（SPSC）
+    /// Each `LinkKind` has an upper bound on connections per port (see `docs/architecture.md` §2):
+    /// - `Inline`: each output port has out-degree ≤ 1
+    /// - `Channel`: each input port has in-degree ≤ 1 (single consumer)
+    /// - `CasFreeRing`: out-degree ≤ 1 and in-degree ≤ 1 (SPSC)
     DegreeConstraintViolated {
         machine: String,
         port: String,
@@ -913,12 +1067,31 @@ pub enum ValidationError {
         limit: usize,
         actual: usize,
     },
-    /// Inline 边构成环——同步调用死锁。
+    /// Inline edges form a cycle — a synchronous-call deadlock.
     ///
-    /// `Inline` 连接是直接函数调用，无延迟。Inline 边的环是递归调用
-    /// 永不返回的死锁。即使环上有 Moore 机器也不安全（Moore 延迟只在
-    /// 有缓冲/通道的链路中有效）。
+    /// `Inline` connections are direct function calls with no delay. A cycle of
+    /// Inline edges is a recursive call that never returns — a deadlock. Even a
+    /// Moore machine on the cycle does not help (Moore delay is only effective
+    /// on buffered/channel links).
     InlineCycle { cycle: Vec<String> },
+    /// The materialization annotation (`FlowKind`) conflicts with the carrier
+    /// (`LinkKind`) semantic contract (S3-1).
+    ///
+    /// Applies only to **annotated** edges (`Observe`/`Control`):
+    /// - `Observe` ("must not back-pressure the source") on a blocking carrier
+    ///   (`BoundedBuf(Blocking)` / `Channel(drop_when_full=false)`) — the
+    ///   source gets back-pressured, violating the semantics.
+    ///
+    /// `Data` (default / un-annotated) carries no constraint and does not enter
+    /// the matrix; no carrier of `Control` constitutes a hard conflict (a
+    /// lossless carrier is merely more conservative than "droppable, latest wins").
+    CarrierViolatesSemantics {
+        out: (String, String),
+        into: (String, String),
+        flow: &'static str,
+        carrier: String,
+        reason: String,
+    },
 }
 
 impl core::fmt::Display for ValidationError {
@@ -965,6 +1138,13 @@ impl core::fmt::Display for ValidationError {
                     f,
                     "Inline edge cycle (deadlock): {}",
                     cycle.join(" → ")
+                )
+            }
+            Self::CarrierViolatesSemantics { out, into, flow, carrier, reason } => {
+                write!(
+                    f,
+                    "flow-kind {:?} → carrier {:?} violates semantics on {:?} → {:?}: {}",
+                    flow, carrier, out, into, reason
                 )
             }
         }
@@ -1043,38 +1223,38 @@ mod tests {
 
     #[test]
     fn apply_patch_upsert_machine() {
-        let mut spec = DeploySpec::new().with_machine(machine("a"));
-        // upsert 已存在的机器：整体替换。
+        let mut spec = DynamicTopology::new().with_machine(machine("a"));
+        // Upsert an existing machine: replace it entirely.
         let updated = MachineInstance::new("a", "new_type", MachinePhysicalSpec::default());
         spec.apply_patch(&Patch::UpsertMachine(updated));
         assert_eq!(spec.machines.len(), 1);
         assert_eq!(spec.machines[0].machine_type.as_ref(), "new_type");
-        // upsert 新机器：添加。
+        // Upsert a new machine: add it.
         spec.apply_patch(&Patch::UpsertMachine(machine("b")));
         assert_eq!(spec.machines.len(), 2);
     }
 
     #[test]
     fn apply_patch_remove_machine_cascades_links() {
-        let mut spec = DeploySpec::new()
+        let mut spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(inline("a", "out", "b", "in"));
         spec.apply_patch(&Patch::RemoveMachine("a".into()));
         assert_eq!(spec.machines.len(), 1);
         assert!(spec.links.is_empty(), "removing a machine cascades its links");
-        // 幂等：再删一次仍是 no-op。
+        // Idempotent: removing again is still a no-op.
         spec.apply_patch(&Patch::RemoveMachine("a".into()));
         assert_eq!(spec.machines.len(), 1);
     }
 
     #[test]
     fn apply_patch_upsert_link_replaces_kind() {
-        let mut spec = DeploySpec::new()
+        let mut spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(inline("a", "out", "b", "in"));
-        // upsert 相同端点：替换 kind。
+        // Upsert with the same endpoints: replace the kind.
         let channel = LinkSpec::new(
             ("a", "out"),
             ("b", "in"),
@@ -1090,7 +1270,7 @@ mod tests {
 
     #[test]
     fn apply_patch_remove_link_idempotent() {
-        let mut spec = DeploySpec::new()
+        let mut spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(inline("a", "out", "b", "in"));
@@ -1101,15 +1281,15 @@ mod tests {
             into: into.clone(),
         });
         assert!(spec.links.is_empty());
-        // 幂等：再删一次仍是 no-op。
+        // Idempotent: removing again is still a no-op.
         spec.apply_patch(&Patch::RemoveLink { out, into });
         assert!(spec.links.is_empty());
     }
 
     #[test]
     fn apply_patches_sequence() {
-        // 一次应用多个补丁：从空蓝图重建一个拓扑。
-        let mut spec = DeploySpec::new();
+        // Apply multiple patches at once: rebuild a topology from an empty blueprint.
+        let mut spec = DynamicTopology::new();
         spec.apply_patches(&[
             Patch::UpsertMachine(machine("a")),
             Patch::UpsertMachine(machine("b")),
@@ -1126,13 +1306,13 @@ mod tests {
 
     #[test]
     fn validate_ok_single_machine() {
-        let spec = DeploySpec::new().with_machine(machine("a"));
+        let spec = DynamicTopology::new().with_machine(machine("a"));
         assert!(spec.validate().is_ok(), "single machine should validate");
     }
 
     #[test]
     fn validate_ok_two_machines_linked() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"));
@@ -1141,7 +1321,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_duplicate_machine_name() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("a"));
         let err = spec.validate().unwrap_err();
@@ -1150,7 +1330,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_duplicate_func_name() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_func(FuncBinding::new("f", "ftype"))
             .with_func(FuncBinding::new("f", "ftype"));
         let err = spec.validate().unwrap_err();
@@ -1159,7 +1339,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_self_loop() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_link(bounded("a", "out", "a", "in"));
         let err = spec.validate().unwrap_err();
@@ -1169,7 +1349,7 @@ mod tests {
     #[test]
     fn validate_rejects_unknown_machine_in_link_src() {
         // "a" (src) does not exist; only "b" is declared.
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"));
         let err = spec.validate().unwrap_err();
@@ -1179,7 +1359,7 @@ mod tests {
     #[test]
     fn validate_rejects_unknown_machine_in_link_dst() {
         // "b" (dst) does not exist; only "a" is declared.
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_link(bounded("a", "out", "b", "in"));
         let err = spec.validate().unwrap_err();
@@ -1192,7 +1372,7 @@ mod tests {
 
     #[test]
     fn validate_deep_ok_compatible_types() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"));
@@ -1205,7 +1385,7 @@ mod tests {
 
     #[test]
     fn validate_deep_rejects_source_not_output() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "x", "b", "in"));
@@ -1224,7 +1404,7 @@ mod tests {
 
     #[test]
     fn validate_deep_rejects_target_not_input() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "y"));
@@ -1243,7 +1423,7 @@ mod tests {
 
     #[test]
     fn validate_deep_rejects_type_mismatch() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"));
@@ -1261,7 +1441,7 @@ mod tests {
 
     #[test]
     fn validate_deep_rejects_flow_mismatch() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"));
@@ -1281,7 +1461,7 @@ mod tests {
     #[test]
     fn validate_deep_accepts_version_drift_1() {
         // schema_ver 0 → 1: can_link_to returns Migrate, which validate_deep accepts.
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"));
@@ -1301,7 +1481,7 @@ mod tests {
     #[test]
     fn validate_deep_rejects_version_drift_2() {
         // schema_ver 0 → 2: can_link_to returns Incompatible ("schema version drift > 1").
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"));
@@ -1330,7 +1510,7 @@ mod tests {
     #[test]
     fn validate_deep_rejects_resource_budget_exceeded() {
         // 3 CpuBound machines (3 dedicated threads) vs cpu_threads = 2.
-        let mut spec = DeploySpec::new()
+        let mut spec = DynamicTopology::new()
             .with_machine(machine_cpu("a"))
             .with_machine(machine_cpu("b"))
             .with_machine(machine_cpu("c"));
@@ -1352,7 +1532,7 @@ mod tests {
     #[test]
     fn validate_deep_ok_resource_budget_within_limit() {
         // 2 CpuBound machines (2 dedicated threads) vs cpu_threads = 2 — within limit.
-        let mut spec = DeploySpec::new()
+        let mut spec = DynamicTopology::new()
             .with_machine(machine_cpu("a"))
             .with_machine(machine_cpu("b"));
         spec.settings = DeploySettings { cpu_threads: 2, io_threads: 2 };
@@ -1368,7 +1548,7 @@ mod tests {
     #[test]
     fn validate_deep_rejects_unsafe_non_moore_cycle() {
         // a → b → a via BoundedBuf, neither machine Moore → algebraic loop.
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"))
@@ -1389,7 +1569,7 @@ mod tests {
     #[test]
     fn validate_deep_ok_moore_breaks_cycle() {
         // a → b → a via BoundedBuf, a is Moore → cycle is algebraically safe.
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine_moore("a"))
             .with_machine(machine("b"))
             .with_link(bounded("a", "out", "b", "in"))
@@ -1410,7 +1590,7 @@ mod tests {
         // a → b → a via Inline links. a is Moore so the non-Moore cycle check
         // (step 4) does not fire; the Inline-cycle check (step 6) catches the
         // synchronous-call deadlock.
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine_moore("a"))
             .with_machine(machine("b"))
             .with_link(inline("a", "out", "b", "in"))
@@ -1435,8 +1615,9 @@ mod tests {
     #[test]
     fn validate_deep_rejects_degree_violation_inline_fanout() {
         // Two Inline links from a::out → outdeg 2, limit 1.
-        // 结构层现在**提前**拦截：FanOutViaTee（fan-out 必须显式 Tee）。
-        let spec = DeploySpec::new()
+        // The structural layer now intercepts **early**: FanOutViaTee
+        // (fan-out must be an explicit Tee).
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_machine(machine("c"))
@@ -1447,7 +1628,7 @@ mod tests {
         schemas.insert("b", PortSchema::new().with(PortDecl::input::<i32>("in")));
         schemas.insert("c", PortSchema::new().with(PortDecl::input::<i32>("in")));
         let err = spec.validate_deep(&schemas).unwrap_err();
-        // 验证错误信息引导用户用 Tee
+        // The validation error message guides the user toward a Tee
         assert!(
             err.to_string().contains("fan-out must be explicit"),
             "error should guide the user to an explicit Tee: {err}"
@@ -1472,7 +1653,7 @@ mod tests {
     fn validate_report_collects_all_violations() {
         // Three links with distinct problems: unknown machine, unknown port,
         // wrong direction (target is an Out port).
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(LinkSpec::new(("ghost", "out"), ("b", "in"), LinkKind::Inline))
@@ -1502,7 +1683,7 @@ mod tests {
 
     #[test]
     fn validate_report_ok_on_clean_spec() {
-        let spec = DeploySpec::new()
+        let spec = DynamicTopology::new()
             .with_machine(machine("a"))
             .with_machine(machine("b"))
             .with_link(LinkSpec::new(("a", "out"), ("b", "in"), LinkKind::Inline));
@@ -1524,6 +1705,360 @@ mod tests {
         let s = v.to_string();
         assert!(s.contains("[link-type]"), "{s}");
         assert!(s.contains("links[0]"), "{s}");
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // S3-1 — FlowKind × LinkKind materialization compatibility matrix
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Schema: source has an Observe output `obs` + Data output `out`;
+    /// target has an Observe input `obs_in` + Data input `in`.
+    fn schema_observe_pair() -> (PortSchema, PortSchema) {
+        let src = PortSchema::new()
+            .with(PortDecl::observe::<i32>("obs"))
+            .with(PortDecl::output::<i32>("out"))
+            .with(PortDecl::ctrl_out::<i32>("ctrl"));
+        let dst = PortSchema::new()
+            .with(PortDecl::new::<i32>("obs_in", PortDir::In, FlowKind::Observe))
+            .with(PortDecl::input::<i32>("in"))
+            .with(PortDecl::ctrl_in::<i32>("ctrl_in"));
+        (src, dst)
+    }
+
+    #[test]
+    fn carrier_compatible_matrix_observe() {
+        // Observe ("must not back-pressure the source"):
+        // blocking carriers violate; dropping/latest/casfree/shared never do.
+        assert_eq!(
+            carrier_compatible(
+                FlowKind::Observe,
+                &LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ),
+            CarrierCompatResult::Violates,
+        );
+        assert_eq!(
+            carrier_compatible(
+                FlowKind::Observe,
+                &LinkKind::Channel {
+                    capacity: 4,
+                    drop_when_full: false,
+                },
+            ),
+            CarrierCompatResult::Violates,
+        );
+        assert_eq!(
+            carrier_compatible(
+                FlowKind::Observe,
+                &LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Dropping,
+                    read_policy: ReadPolicy::NonBlocking,
+                },
+            ),
+            CarrierCompatResult::Recommended,
+        );
+        assert_eq!(
+            carrier_compatible(FlowKind::Observe, &LinkKind::Latest { capacity: 1 }),
+            CarrierCompatResult::Recommended,
+        );
+        // Inline couples observer latency to the source — suboptimal, not a violation.
+        assert_eq!(
+            carrier_compatible(FlowKind::Observe, &LinkKind::Inline),
+            CarrierCompatResult::Permitted,
+        );
+    }
+
+    #[test]
+    fn carrier_compatible_matrix_control_and_data() {
+        // Control ("droppable, latest wins"): droppable carriers recommended;
+        // lossless carriers are permitted (more conservative, never wrong).
+        assert_eq!(
+            carrier_compatible(
+                FlowKind::Control,
+                &LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Overwriting,
+                    read_policy: ReadPolicy::NonBlocking,
+                },
+            ),
+            CarrierCompatResult::Recommended,
+        );
+        assert_eq!(
+            carrier_compatible(
+                FlowKind::Control,
+                &LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ),
+            CarrierCompatResult::Permitted,
+        );
+        // Data (default / un-annotated): every carrier is fine.
+        assert_eq!(
+            carrier_compatible(
+                FlowKind::Data,
+                &LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ),
+            CarrierCompatResult::Recommended,
+        );
+    }
+
+    #[test]
+    fn validate_deep_rejects_observe_on_blocking_carrier() {
+        // An Observe edge on a blocking carrier back-pressures its source —
+        // contradicts "must not back-pressure the source".
+        let spec = DynamicTopology::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(LinkSpec::new(
+                ("a", "obs"),
+                ("b", "obs_in"),
+                LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ));
+        let (sa, sb) = schema_observe_pair();
+        let mut schemas = HashMap::new();
+        schemas.insert("a", sa);
+        schemas.insert("b", sb);
+        match spec.validate_deep(&schemas) {
+            Err(ValidationError::CarrierViolatesSemantics { out, into, flow, carrier, .. }) => {
+                assert_eq!(out, ("a".to_string(), "obs".to_string()));
+                assert_eq!(into, ("b".to_string(), "obs_in".to_string()));
+                assert_eq!(flow, "observe");
+                assert_eq!(carrier, "BoundedBuf");
+            }
+            other => panic!("expected CarrierViolatesSemantics, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validate_deep_ok_observe_on_nonblocking_carrier() {
+        let spec = DynamicTopology::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(LinkSpec::new(
+                ("a", "obs"),
+                ("b", "obs_in"),
+                LinkKind::Latest { capacity: 1 },
+            ));
+        let (sa, sb) = schema_observe_pair();
+        let mut schemas = HashMap::new();
+        schemas.insert("a", sa);
+        schemas.insert("b", sb);
+        assert!(spec.validate_deep(&schemas).is_ok());
+    }
+
+    #[test]
+    fn validate_deep_ok_control_on_blocking_carrier() {
+        // Control on a lossless blocking carrier: permitted (not a violation).
+        let spec = DynamicTopology::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(LinkSpec::new(
+                ("a", "ctrl"),
+                ("b", "ctrl_in"),
+                LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ));
+        let (sa, sb) = schema_observe_pair();
+        let mut schemas = HashMap::new();
+        schemas.insert("a", sa);
+        schemas.insert("b", sb);
+        assert!(spec.validate_deep(&schemas).is_ok());
+    }
+
+    #[test]
+    fn validate_report_flags_flow_carrier() {
+        let spec = DynamicTopology::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(LinkSpec::new(
+                ("a", "obs"),
+                ("b", "obs_in"),
+                LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ));
+        let (sa, sb) = schema_observe_pair();
+        let mut schemas = HashMap::new();
+        schemas.insert("a", sa);
+        schemas.insert("b", sb);
+        let report = spec.validate_report(&schemas);
+        assert!(
+            report.violations.iter().any(|v| v.rule_id == "flow-carrier"),
+            "{:?}",
+            report.violations.iter().map(|v| v.rule_id).collect::<Vec<_>>()
+        );
+    }
+
+    /// Matrix completion: the remaining carrier×flow cells. Observe on a
+    /// dropping channel, a lock-free ring and shared memory never blocks the
+    /// producer → Recommended. Control on a single-slot carrier is the
+    /// canonical "latest wins" → Recommended.
+    #[test]
+    fn carrier_compatible_matrix_completion() {
+        assert_eq!(
+            carrier_compatible(
+                FlowKind::Observe,
+                &LinkKind::Channel {
+                    capacity: 8,
+                    drop_when_full: true,
+                },
+            ),
+            CarrierCompatResult::Recommended,
+        );
+        assert_eq!(
+            carrier_compatible(
+                FlowKind::Observe,
+                &LinkKind::CasFreeRing {
+                    capacity: 8,
+                    storage: crate::link::MemoryRegion::Heap { size: 64 },
+                },
+            ),
+            CarrierCompatResult::Recommended,
+        );
+        assert_eq!(
+            carrier_compatible(FlowKind::Observe, &LinkKind::SharedState),
+            CarrierCompatResult::Recommended,
+        );
+        assert_eq!(
+            carrier_compatible(FlowKind::Control, &LinkKind::Latest { capacity: 0 }),
+            CarrierCompatResult::Recommended,
+        );
+        // Control on a lock-free ring: lossless → suboptimal, never wrong.
+        assert_eq!(
+            carrier_compatible(
+                FlowKind::Control,
+                &LinkKind::CasFreeRing {
+                    capacity: 8,
+                    storage: crate::link::MemoryRegion::Heap { size: 64 },
+                },
+            ),
+            CarrierCompatResult::Permitted,
+        );
+    }
+
+    /// An un-annotated (`Data`) edge carries no materialization constraint:
+    /// a blocking carrier is *fine* for it — the compatibility matrix only
+    /// constrains edges whose flow kind is explicitly annotated.
+    #[test]
+    fn validate_deep_ok_unannotated_data_on_blocking_carrier() {
+        let spec = DynamicTopology::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(LinkSpec::new(
+                ("a", "out"),
+                ("b", "in"),
+                LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ));
+        let (sa, sb) = schema_observe_pair();
+        let mut schemas = HashMap::new();
+        schemas.insert("a", sa);
+        schemas.insert("b", sb);
+        assert!(spec.validate_deep(&schemas).is_ok());
+    }
+
+    /// Mixed annotation topology: one annotated (`Observe` on a blocking
+    /// carrier → violates) plus one un-annotated (`Data` on a blocking
+    /// carrier → fine). The matrix must flag only the annotated edge.
+    #[test]
+    fn validate_deep_mixed_flow_flags_only_annotated_edge() {
+        let spec = DynamicTopology::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(LinkSpec::new(
+                ("a", "obs"),
+                ("b", "obs_in"),
+                LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ))
+            .with_link(LinkSpec::new(
+                ("a", "out"),
+                ("b", "in"),
+                LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ));
+        let (sa, sb) = schema_observe_pair();
+        let mut schemas = HashMap::new();
+        schemas.insert("a", sa);
+        schemas.insert("b", sb);
+        match spec.validate_deep(&schemas) {
+            Err(ValidationError::CarrierViolatesSemantics { out, flow, .. }) => {
+                // The violation must name the annotated Observe edge, not the
+                // un-annotated Data edge.
+                assert_eq!(out, ("a".to_string(), "obs".to_string()));
+                assert_eq!(flow, "observe");
+            }
+            other => panic!("expected CarrierViolatesSemantics, got: {other:?}"),
+        }
+    }
+
+    /// The report form reports exactly one `flow-carrier` violation for the
+    /// mixed topology — the Data edge contributes none.
+    #[test]
+    fn validate_report_mixed_flow_single_violation() {
+        let spec = DynamicTopology::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_link(LinkSpec::new(
+                ("a", "obs"),
+                ("b", "obs_in"),
+                LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ))
+            .with_link(LinkSpec::new(
+                ("a", "out"),
+                ("b", "in"),
+                LinkKind::BoundedBuf {
+                    capacity: 4,
+                    write_policy: WritePolicy::Blocking,
+                    read_policy: ReadPolicy::Blocking,
+                },
+            ));
+        let (sa, sb) = schema_observe_pair();
+        let mut schemas = HashMap::new();
+        schemas.insert("a", sa);
+        schemas.insert("b", sb);
+        let report = spec.validate_report(&schemas);
+        let flow_violations: Vec<_> = report
+            .violations
+            .iter()
+            .filter(|v| v.rule_id == "flow-carrier")
+            .collect();
+        assert_eq!(flow_violations.len(), 1, "{:?}", report.violations);
+        // The single violation is the annotated Observe edge, not the
+        // un-annotated Data edge (which the matrix does not constrain).
+        assert!(flow_violations[0].expected.contains("observe"));
     }
 }
 
@@ -1574,7 +2109,7 @@ impl core::fmt::Display for RuleViolation {
     }
 }
 
-/// All violations (and advisory warnings) found by [`DeploySpec::validate_report`].
+/// All violations (and advisory warnings) found by [`DynamicTopology::validate_report`].
 ///
 /// - `violations` — hard failures: the blueprint is invalid.
 /// - `warnings` — advisory: valid, but may require runtime support
@@ -1601,4 +2136,3 @@ impl ValidationReport {
         self.warnings.push(v);
     }
 }
-

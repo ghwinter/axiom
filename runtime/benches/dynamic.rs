@@ -36,7 +36,7 @@ unsafe impl GlobalAlloc for CountingAlloc {
 static A: CountingAlloc = CountingAlloc;
 
 use axiom::declare_ports;
-use axiom::deploy::{DeploySpec, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance};
 use axiom::link::{LinkKind, LinkSpec};
 use axiom::machine::{FusedInline, Machine, SingleOutput};
 use axiom::port::MachineContext;
@@ -120,7 +120,7 @@ fn build_runtime(fused: bool) -> Runtime {
     } else {
         rt.register::<Step>("step");
     }
-    let spec = DeploySpec::new()
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("p1", "step", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("p2", "step", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("p3", "step", MachinePhysicalSpec::default()))

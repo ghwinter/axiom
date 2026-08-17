@@ -9,13 +9,16 @@ use crate::prelude_all::*;
 
 // ── Port types ──────────────────────────────────────────────
 
-// 注：本文件未采用 `#[crate::ports]` 宏。FuncMachine 的端口枚举基于关联类型
-// `F::Input` / `F::Output`，且手写的 `Clone`/`PartialEq` impl 刻意只要求
-// `F::Input: Clone` / `F::Output: Clone`，而非 `F: Clone`（见下方各 impl 注释）。
-// `#[ports]` 宏对生成的枚举统一使用 `#[derive(Debug, Clone, PartialEq)]`，
-// 这会向泛型参数 `F` 强加 `Clone`/`PartialEq` 约束（std derive 的保守行为），
-// 收紧了 `Func` trait（仅 `Send + Sync + 'static`）所允许的边界，属于语义回归。
-// 因此保留手写。
+// Note: this file does not use the `#[crate::ports]` macro. FuncMachine's port
+// enums are based on the associated types `F::Input` / `F::Output`, and the
+// hand-written `Clone`/`PartialEq` impls deliberately require only
+// `F::Input: Clone` / `F::Output: Clone` rather than `F: Clone` (see the impl
+// comments below). The `#[ports]` macro applies
+// `#[derive(Debug, Clone, PartialEq)]` uniformly to the generated enums,
+// which would impose `Clone`/`PartialEq` bounds on the generic parameter `F`
+// (the conservative behavior of std derive), tightening the bounds permitted
+// by the `Func` trait (which requires only `Send + Sync + 'static`) — a
+// semantic regression. The hand-written version is therefore kept.
 
 pub struct FuncMachinePorts<F>(PhantomData<F>);
 
@@ -135,4 +138,24 @@ where
     }
     fn cleanup(_state: (), _ctx: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
     fn deterministic() -> bool { !F::nondeterministic() }
+}
+
+// ── Straight contract (unified static entry point) ──────────
+//
+// FuncMachine is the bridge that connects a pure function into the static
+// path's combinators: `F::Input → F::Output`, calling `F::call` directly on
+// the raw payload without enum wrapping/unwrapping.
+
+impl<F: Func> StraightMachine for FuncMachine<F>
+where
+    F::Input: Clone,
+    F::Output: Clone,
+{
+    type StraightIn = F::Input;
+    type StraightOut = F::Output;
+
+    #[inline]
+    fn process_straight(_state: &mut (), input: F::Input) -> F::Output {
+        F::call(input)
+    }
 }

@@ -1,16 +1,18 @@
-//! declarative_dag — 纯 core 能力展示：声明式任意拓扑 + 复合机器 + 验证 + 分析。
+//! declarative_dag — pure core capability demo: declarative arbitrary topologies
+//! + composite machines + validation + analysis.
 //!
-//! 这个 example **不依赖 runtime**——它只用 axiom core 的结构定义能力：
+//! This example **does not depend on the runtime** — it uses only axiom core's
+//! structural-definition capabilities:
 //!
-//! 1. `DeploySpec` 声明一个 fan-out + fan-in DAG（非线性）；
-//! 2. `CompositeSpec` 定义一个复合机器（子拓扑 + 端口映射）；
-//! 3. `expand_composites` 展开复合为扁平拓扑；
-//! 4. `validate_deep` 验证端口类型/方向/度约束/环安全性；
-//! 5. `analyze` 做图论分析（SCC/SPOF/orphan/observability）。
+//! 1. `DynamicTopology` declares a fan-out + fan-in DAG (non-linear);
+//! 2. `CompositeSpec` defines a composite machine (sub-topology + port mapping);
+//! 3. `expand_composites` expands composites into a flat topology;
+//! 4. `validate_deep` validates port types/directions/degree constraints/cycle safety;
+//! 5. `analyze` performs graph-theoretic analysis (SCC/SPOF/orphan/observability).
 //!
-//! # 拓扑
+//! # Topology
 //!
-//! 展开前（含复合 `scaler` 实例）：
+//! Before expansion (with the composite `scaler` instance):
 //!
 //! ```text
 //!                  ┌─► scaler (composite) ─┐
@@ -21,7 +23,7 @@
 //!                      observer (observe port, no consumer)
 //! ```
 //!
-//! `scaler` 复合展开后（`doubler_a` 被封装在复合内）：
+//! After the `scaler` composite is expanded (`doubler_a` is wrapped inside it):
 //!
 //! ```text
 //!                          ┌─► scaler.doubler_a ─┐
@@ -32,11 +34,12 @@
 //!                              observer
 //! ```
 //!
-//! 这个拓扑包含：fan-out（split → 两条路径）、fan-in（两条路径 → merge）、
-//! 复合机器（scaler）、观察端口（doubler_b::status）。它不是线性链——
-//! `pipeline2`/`pipeline3` 无法表达这个拓扑，需要 `fanout2` + `fanin2` 组合或动态路径。
+//! This topology contains: fan-out (split → two paths), fan-in (two paths → merge),
+//! a composite machine (scaler), and an observe port (doubler_b::status). It is not a
+//! linear chain — `pipeline2`/`pipeline3` cannot express it; it needs a `fanout2` +
+//! `fanin2` combination or the dynamic path.
 //!
-//! # 运行
+//! # Running
 //!
 //! ```sh
 //! cargo run --example declarative_dag
@@ -44,7 +47,7 @@
 
 use axiom::compat::HashMap;
 use axiom::composite::{expand_composites, CompositeSpec};
-use axiom::deploy::{DeploySpec, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance};
 use axiom::link::{LinkKind, LinkSpec, WritePolicy, ReadPolicy};
 use axiom::port::{PortDecl, PortSchema};
 use axiom::resource::MachinePhysicalSpec;
@@ -52,15 +55,15 @@ use axiom::resource::MachinePhysicalSpec;
 use std::collections::BTreeMap;
 
 // ════════════════════════════════════════════════════════════════════════════
-// Port schemas — 模拟真实 Machine 的端口声明（不需要 Machine 实现）
+// Port schemas — simulate the port declarations of real Machines (no Machine impl needed)
 // ════════════════════════════════════════════════════════════════════════════
 
-/// `src` 机器：无输入，一个 i32 输出端口 `out`。
+/// `src` machine: no input, one i32 output port `out`.
 fn src_schema() -> PortSchema {
     PortSchema::new().with(PortDecl::output::<i32>("out"))
 }
 
-/// `split` 机器：一个 i32 输入 `in`，两个 i32 输出 `a`/`b`（fan-out 源）。
+/// `split` machine: one i32 input `in`, two i32 outputs `a`/`b` (fan-out source).
 fn split_schema() -> PortSchema {
     PortSchema::new()
         .with(PortDecl::input::<i32>("in"))
@@ -68,15 +71,15 @@ fn split_schema() -> PortSchema {
         .with(PortDecl::output::<i32>("b"))
 }
 
-/// `doubler` 机器：一个 i32 输入 `x`，一个 i32 输出 `y`。
-/// 这是复合 `scaler` 内部的子机器，也是外部的 `doubler_b`。
+/// `doubler` machine: one i32 input `x`, one i32 output `y`.
+/// This is the sub-machine inside the composite `scaler`, and also the external `doubler_b`.
 fn doubler_schema() -> PortSchema {
     PortSchema::new()
         .with(PortDecl::input::<i32>("x"))
         .with(PortDecl::output::<i32>("y"))
 }
 
-/// `doubler_b` 机器：在 doubler 基础上多一个 observe 端口 `status`。
+/// `doubler_b` machine: like doubler, plus an observe port `status`.
 fn doubler_b_schema() -> PortSchema {
     PortSchema::new()
         .with(PortDecl::input::<i32>("x"))
@@ -84,7 +87,7 @@ fn doubler_b_schema() -> PortSchema {
         .with(PortDecl::observe::<i32>("status"))
 }
 
-/// `merge` 机器：两个 i32 输入 `a`/`b`，一个 i32 输出 `out`（fan-in 汇点）。
+/// `merge` machine: two i32 inputs `a`/`b`, one i32 output `out` (fan-in sink).
 fn merge_schema() -> PortSchema {
     PortSchema::new()
         .with(PortDecl::input::<i32>("a"))
@@ -93,14 +96,15 @@ fn merge_schema() -> PortSchema {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 复合机器定义
+// Composite machine definition
 // ════════════════════════════════════════════════════════════════════════════
 
-/// `scaler` 复合：内部是一个 `doubler` 子机器，外部端口 `in`→子`x`，`out`←子`y`。
+/// The `scaler` composite: inside is a `doubler` sub-machine, with external port `in`→sub `x`
+/// and `out`←sub `y`.
 ///
-/// 这展示了 core 能独立定义嵌套拓扑——不需要 runtime。
+/// This shows that core can define nested topologies on its own — no runtime needed.
 fn scaler_composite() -> CompositeSpec {
-    let sub_spec = DeploySpec::new()
+    let sub_spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("doubler_a", "doubler", MachinePhysicalSpec::default()));
     CompositeSpec::new(sub_spec)
         .with_input("in", "doubler_a", "x")
@@ -108,7 +112,7 @@ fn scaler_composite() -> CompositeSpec {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 主流程
+// Main flow
 // ════════════════════════════════════════════════════════════════════════════
 
 fn main() {
@@ -117,8 +121,8 @@ fn main() {
     println!("╚══════════════════════════════════════════════════════════════════╝");
     println!();
 
-    // ── 1. 构造 DeploySpec（声明式拓扑，含复合实例）──
-    let spec = DeploySpec::new()
+    // ── 1. Build a DynamicTopology (declarative topology, with a composite instance) ──
+    let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("src", "src", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("split", "split", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("scaler", "scaler", MachinePhysicalSpec::default()))
@@ -126,7 +130,7 @@ fn main() {
         .with_machine(MachineInstance::new("merge", "merge", MachinePhysicalSpec::default()))
         // src → split
         .with_link(LinkSpec::new(("src", "out"), ("split", "in"), LinkKind::Inline))
-        // split → scaler (fan-out 分支 A)
+        // split → scaler (fan-out branch A)
         .with_link(LinkSpec::new(
             ("split", "a"), ("scaler", "in"),
             LinkKind::BoundedBuf {
@@ -135,7 +139,7 @@ fn main() {
                 read_policy: ReadPolicy::Blocking,
             },
         ))
-        // split → doubler_b (fan-out 分支 B)
+        // split → doubler_b (fan-out branch B)
         .with_link(LinkSpec::new(
             ("split", "b"), ("doubler_b", "x"),
             LinkKind::BoundedBuf {
@@ -144,12 +148,12 @@ fn main() {
                 read_policy: ReadPolicy::Blocking,
             },
         ))
-        // scaler → merge (fan-in 分支 A)
+        // scaler → merge (fan-in branch A)
         .with_link(LinkSpec::new(("scaler", "out"), ("merge", "a"), LinkKind::Inline))
-        // doubler_b → merge (fan-in 分支 B)
+        // doubler_b → merge (fan-in branch B)
         .with_link(LinkSpec::new(("doubler_b", "y"), ("merge", "b"), LinkKind::Inline));
 
-    println!("── 1. DeploySpec (含复合实例 scaler) ──────────────────────────");
+    println!("── 1. DynamicTopology (with composite instance scaler) ──────────────");
     println!("  machines: {}", spec.machines.len());
     println!("  links:    {}", spec.links.len());
     for m in &spec.machines {
@@ -157,11 +161,11 @@ fn main() {
     }
     println!();
 
-    // ── 2. 验证复合定义 ──
+    // ── 2. Validate the composite definition ──
     println!("── 2. CompositeSpec::validate (scaler) ────────────────────────");
     let scaler = scaler_composite();
     match scaler.validate() {
-        Ok(()) => println!("  ✓ scaler composite validates (input_map + output_map 完整)"),
+        Ok(()) => println!("  ✓ scaler composite validates (input_map + output_map complete)"),
         Err(e) => {
             println!("  ✗ scaler composite validation failed: {e}");
             return;
@@ -169,23 +173,23 @@ fn main() {
     }
     println!();
 
-    // ── 3. 展开复合 ──
+    // ── 3. Expand composites ──
     println!("── 3. expand_composites (scaler → scaler.doubler_a) ───────────");
     let mut composites = BTreeMap::new();
     composites.insert("scaler".to_string(), scaler);
     let (expanded_machines, expanded_links) =
         expand_composites(spec.machines.clone(), spec.links.clone(), &composites)
             .expect("expand_composites");
-    println!("  展开前: {} machines, {} links", spec.machines.len(), spec.links.len());
-    println!("  展开后: {} machines, {} links", expanded_machines.len(), expanded_links.len());
+    println!("  before expansion: {} machines, {} links", spec.machines.len(), spec.links.len());
+    println!("  after expansion:  {} machines, {} links", expanded_machines.len(), expanded_links.len());
     for m in &expanded_machines {
         println!("    • {} ({})", m.name, m.machine_type);
     }
     println!();
 
-    // ── 4. 构造展开后的 DeploySpec 并验证 ──
-    println!("── 4. validate_deep (端口类型/方向/度约束/环安全) ──────────────");
-    let expanded_spec = DeploySpec::new()
+    // ── 4. Build the expanded DynamicTopology and validate it ──
+    println!("── 4. validate_deep (port types/directions/degree constraints/cycle safety) ──");
+    let expanded_spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("src", "src", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("split", "split", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("scaler.doubler_a", "doubler", MachinePhysicalSpec::default()))
@@ -209,12 +213,12 @@ fn main() {
     schemas.insert("merge", merge_schema());
 
     match expanded_spec.validate_deep(&schemas) {
-        Ok(()) => println!("  ✓ validate_deep passed — 端口类型/方向/度约束/环安全全部通过"),
+        Ok(()) => println!("  ✓ validate_deep passed — port types/directions/degree constraints/cycle safety all pass"),
         Err(e) => println!("  ✗ validate_deep failed: {e}"),
     }
     println!();
 
-    // ── 5. 图论分析 ──
+    // ── 5. Graph-theoretic analysis ──
     println!("── 5. analyze (SCC/SPOF/orphan/observability) ─────────────────");
     let report = expanded_spec.analyze(Some(&schemas));
     if report.is_clean() {
@@ -227,21 +231,21 @@ fn main() {
     }
     println!();
 
-    // ── 6. 附加：演示反窄化规则验证 ──
-    println!("── 6. 反窄化规则验证 ──────────────────────────────────────────");
-    println!("  这个拓扑包含:");
+    // ── 6. Bonus: demonstrate the anti-narrowing rule validation ──
+    println!("── 6. Anti-narrowing rule validation ───────────────────────────");
+    println!("  This topology contains:");
     println!("    • fan-out  (split → {{scaler, doubler_b}})");
     println!("    • fan-in   ({{scaler, doubler_b}} → merge)");
-    println!("    • 复合机器 (scaler → scaler.doubler_a)");
-    println!("    • 多机器类型 (src/split/doubler/doubler_b/merge)");
-    println!("    • 多链接物理语义 (Inline + BoundedBuf)");
-    println!("  pipeline2/pipeline3 无法表达这个拓扑——它们只支持 A→B→C。");
-    println!("  这个 example 证明 core 的 DeploySpec 能表达任意 DAG。");
+    println!("    • a composite machine (scaler → scaler.doubler_a)");
+    println!("    • multiple machine types (src/split/doubler/doubler_b/merge)");
+    println!("    • multiple link physical semantics (Inline + BoundedBuf)");
+    println!("  pipeline2/pipeline3 cannot express this topology — they only support A→B→C.");
+    println!("  This example proves that core's DynamicTopology can express arbitrary DAGs.");
     println!();
 
-    // ── 7. 附加：演示度约束违反被捕获 ──
-    println!("── 7. 度约束违反检测 (Inline outdeg ≤ 1) ──────────────────────");
-    let bad_spec = DeploySpec::new()
+    // ── 7. Bonus: demonstrate degree-constraint violations being caught ──
+    println!("── 7. Degree-constraint violation detection (Inline outdeg ≤ 1) ─");
+    let bad_spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "src", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("b", "split", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("c", "split", MachinePhysicalSpec::default()))
@@ -253,12 +257,12 @@ fn main() {
     bad_schemas.insert("c", split_schema());
     match bad_spec.validate_deep(&bad_schemas) {
         Ok(()) => println!("  ✗ should have rejected Inline fan-out (bug!)"),
-        Err(e) => println!("  ✓ 正确拒绝 Inline outdeg=2: {e}"),
+        Err(e) => println!("  ✓ correctly rejected Inline outdeg=2: {e}"),
     }
     println!();
 
     println!("══════════════════════════════════════════════════════════════════");
-    println!("  core 能独立定义、验证、分析任意拓扑——不需要 runtime。");
-    println!("  runtime 的职责是执行，不是定义。");
+    println!("  core can define, validate, and analyze arbitrary topologies on its own — no runtime needed.");
+    println!("  The runtime's job is execution, not definition.");
     println!("══════════════════════════════════════════════════════════════════");
 }
