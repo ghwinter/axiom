@@ -921,6 +921,7 @@ fn runtime_parallel_cycle_terminates_via_tick_limit() {
     let mut rt = Runtime::new(RuntimeConfig {
         mode: ExecMode::Parallel(2),
         max_ticks: Some(10),
+        max_messages_per_machine: None,
     });
     rt.register::<Doubler>("doubler");
     rt.materialize(&spec).expect("materialize");
@@ -1970,3 +1971,66 @@ fn runtime_snapshot_replay_deterministic() {
 }
 
 
+
+#[test]
+fn fairness_prevents_machine_starvation() {
+    // H2：每机器每轮配额——flood 机器 defer 到下一轮，其他机器不饿死。
+    let cfg = RuntimeConfig {
+        mode: ExecMode::Sequential,
+        max_ticks: Some(10_000),
+        max_messages_per_machine: Some(1),
+    };
+    let mut rt = Runtime::new(cfg);
+    rt.register::<Doubler>("doubler");
+    let spec = DeploySpec::new()
+        .with_machine(MachineInstance::new("m1", "doubler", MachinePhysicalSpec::default()))
+        .with_machine(MachineInstance::new("m2", "doubler", MachinePhysicalSpec::default()));
+    rt.materialize(&spec).expect("materialize");
+
+    // flood：m1 100 条；标记：m2 1 条（999）。
+    let mut inputs: Vec<(String, String, Box<dyn core::any::Any + Send>)> = (0..100)
+        .map(|i| ("m1".to_string(), "x".to_string(), Box::new(i as i32) as Box<dyn core::any::Any + Send>))
+        .collect();
+    inputs.push(("m2".to_string(), "x".to_string(), Box::new(999i32) as Box<dyn core::any::Any + Send>));
+
+    let outputs = rt.tick(inputs).expect("tick");
+    let values: Vec<i32> = outputs.iter().map(|o| match o {
+        ProcessResult::Yield { value, .. } => *value.downcast_ref::<i32>().expect("i32 payload"),
+        other => panic!("expected Yield, got {other:?}"),
+    }).collect();
+
+    assert_eq!(values.len(), 101);
+    // 配额 1：m1 处理 1 条达配额 → m2 优先（第 2 个）——flood 不饿死 m2。
+    assert_eq!(values[1], 1998, "m2 must be processed in round 2, not starved by m1 flood");
+}
+
+#[test]
+fn fairness_quota_zero_keeps_fifo() {
+    // 配额 0 = 无限制（FIFO 保持现状）：m2 的标记最后处理（被 flood 排队）。
+    let cfg = RuntimeConfig {
+        mode: ExecMode::Sequential,
+        max_ticks: Some(10_000),
+        max_messages_per_machine: Some(0),
+    };
+    let mut rt = Runtime::new(cfg);
+    rt.register::<Doubler>("doubler");
+    let spec = DeploySpec::new()
+        .with_machine(MachineInstance::new("m1", "doubler", MachinePhysicalSpec::default()))
+        .with_machine(MachineInstance::new("m2", "doubler", MachinePhysicalSpec::default()));
+    rt.materialize(&spec).expect("materialize");
+
+    let mut inputs: Vec<(String, String, Box<dyn core::any::Any + Send>)> = (0..100)
+        .map(|i| ("m1".to_string(), "x".to_string(), Box::new(i as i32) as Box<dyn core::any::Any + Send>))
+        .collect();
+    inputs.push(("m2".to_string(), "x".to_string(), Box::new(999i32) as Box<dyn core::any::Any + Send>));
+
+    let outputs = rt.tick(inputs).expect("tick");
+    let values: Vec<i32> = outputs.iter().map(|o| match o {
+        ProcessResult::Yield { value, .. } => *value.downcast_ref::<i32>().expect("i32 payload"),
+        other => panic!("expected Yield, got {other:?}"),
+    }).collect();
+
+    assert_eq!(values.len(), 101);
+    // 无配额：FIFO——m1 flood 先处理，m2 的标记最后（第 101 个）。
+    assert_eq!(values[100], 1998, "without quota, FIFO order: m2 processed last");
+}

@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 use axiom::port::PortDir;
 
 use crate::carrier::{channel_for, ChanReceiver, ChanSender, RoutedMsg};
-use crate::config::{ExecMode, RuntimeConfig};
+use crate::config::RuntimeConfig;
 use crate::erasure::{ProcessResult, RunningMachine};
 use crate::error::RuntimeError;
 use crate::io::{IoInterest, IoReactor, IoToken, RawIo};
@@ -25,6 +25,10 @@ pub struct Runtime {
     config: RuntimeConfig,
     registry: Registry,
     topology: Option<LiveTopology>,
+    /// 调度器（内部子系统契约：Sequential/Parallel/自定义，构造时按
+    /// `RuntimeConfig::mode` 选择——见 `scheduler.rs`）。`Option` 便于
+    /// `tick` 取出调度（避免 `&self.scheduler` 与 `&mut self` 双重借用）。
+    scheduler: Option<Box<dyn crate::scheduler::Scheduler>>,
     /// IO 多路复用路由表：token → (machine_name, port_name)。
     /// `register_io` 填充，`run_io` 查询——把 reactor 就绪事件转为
     /// `(machine, port, IoEvent)` 输入注入 tick 循环。
@@ -33,7 +37,8 @@ pub struct Runtime {
 
 impl Runtime {
     pub fn new(config: RuntimeConfig) -> Self {
-        Self { config, registry: Registry::new(), topology: None, io_routing: BTreeMap::new() }
+        let scheduler = crate::scheduler::default_scheduler(&config);
+        Self { config, registry: Registry::new(), topology: None, scheduler: Some(scheduler), io_routing: BTreeMap::new() }
     }
 
     pub fn default() -> Self {
@@ -207,14 +212,19 @@ impl Runtime {
     ///
     /// - `Sequential` / `Inline`：单线程 BFS 驱动（直接 move 投递）。
     /// - `Parallel(n)`：每机器一个线程 + channel 载体（见 [`Self::drive_parallel`]）。
+    ///
+    /// 经 [`crate::scheduler::Scheduler`] 委托——调度策略是可替换的内部
+    /// 子系统（结构一致性：runtime 内部也用"模块 + 契约"组织）。
     pub fn tick(
         &mut self,
         inputs: Vec<(String, String, Box<dyn core::any::Any + Send>)>,
     ) -> Result<Vec<ProcessResult>, RuntimeError> {
-        match self.config.mode {
-            ExecMode::Parallel(n) if n >= 1 => self.drive_parallel(inputs),
-            _ => self.drive_sequential(inputs),
-        }
+        // 取出调度器（避免 &self.scheduler 与 &mut self 双重借用），
+        // tick 后放回——调度器是纯策略（无跨 tick 状态）。
+        let scheduler = self.scheduler.take().expect("runtime scheduler present");
+        let result = scheduler.tick(self, inputs);
+        self.scheduler = Some(scheduler);
+        result
     }
 
     /// 单线程 BFS 驱动循环：注入外部 inputs（machine, port, payload）→ process →
@@ -232,7 +242,7 @@ impl Runtime {
     /// 单线程顺序驱动下，所有 link kind（Inline/BoundedBuf/Channel…）
     /// 物理化都是**直接 move 投递**：生产者与消费者在同一线程交替执行，
     /// 缓冲永不积压，有界性无物理意义——直接投递是等价物理。
-    fn drive_sequential(
+    pub(crate) fn drive_sequential(
         &mut self,
         inputs: Vec<(String, String, Box<dyn core::any::Any + Send>)>,
     ) -> Result<Vec<ProcessResult>, RuntimeError> {
@@ -270,7 +280,34 @@ impl Runtime {
         let machine_index = &topology.machine_index;
         let mut stopped: Vec<bool> = vec![false; topology.machines.len()];
 
-        while let Some((mid, pid, payload)) = queue.pop_front() {
+        // H2 公平性：每机器每轮处理配额（None = FIFO 无限制，默认）。
+        // 达配额的机器的后续消息 defer 到下一轮（配额重置）——防止单个
+        // flood 源独占 BFS 饿死其他源。
+        let fairness = self.config.max_messages_per_machine;
+        let mut processed: Vec<u64> = vec![0; topology.machines.len()];
+        let mut deferred: std::collections::VecDeque<(usize, u16, Box<dyn core::any::Any + Send>)> =
+            std::collections::VecDeque::new();
+
+        loop {
+            let Some((mid, pid, payload)) = queue.pop_front() else {
+                if deferred.is_empty() {
+                    break;
+                }
+                // 本轮结束：deferred 进入下一轮（配额重置），继续传播。
+                std::mem::swap(&mut queue, &mut deferred);
+                processed.fill(0);
+                continue;
+            };
+
+            // 公平性：机器达配额 → defer 到下一轮，优先处理其他机器。
+            if let Some(quota) = fairness {
+                if quota > 0 && processed[mid] >= quota {
+                    deferred.push_back((mid, pid, payload));
+                    continue;
+                }
+            }
+            processed[mid] += 1;
+
             // 已停机机器：丢弃后续消息（Done 是停机信号，不是 Idle）。
             if stopped[mid] {
                 continue;
@@ -364,7 +401,7 @@ impl Runtime {
     /// tick 注入后 drop 所有入口 sender → 入口线程 `recv` 返回 `None` →
     /// 退出 → drop 自己的输出 sender → 下游 `recv` 断开 → 级联停止 →
     /// `thread::scope` 收敛。终端输出经结果 channel 收集。
-    fn drive_parallel(
+    pub(crate) fn drive_parallel(
         &mut self,
         inputs: Vec<(String, String, Box<dyn core::any::Any + Send>)>,
     ) -> Result<Vec<ProcessResult>, RuntimeError> {

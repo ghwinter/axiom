@@ -176,6 +176,13 @@ fixed-function path are **narrow subsets** of the design space. They are
 **not** the default, **not** the target, and **not** an acceptable
 fallback when full structural power proves difficult to implement.
 
+> **Formal basis (2026-08).** The strict definitions live in
+> `docs/structural-model.md`: system = typed graph (§1); axiom's domain is
+> the **structure layer** (module set + links), behavior is a black box
+> (§2 — behavioral complexity never requires the dynamic path); static =
+> topology as types, dynamic = topology as values materialized at runtime
+> (§3); static covers series-parallel + composite hierarchies (§4).
+
 > **Forbidden as axiom's default capability:**
 >
 > 1. **Single-pipeline bias** — designing the type system, examples, or

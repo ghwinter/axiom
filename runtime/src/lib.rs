@@ -77,6 +77,7 @@ mod io;
 mod registry;
 mod replay;
 mod routing;
+mod scheduler;
 mod runtime;
 mod static_path;
 mod topology;
