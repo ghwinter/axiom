@@ -651,6 +651,86 @@ where
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Section 4.7: Composite — 类型化复合节点（层次化抽象）
+// ════════════════════════════════════════════════════════════════════════════
+
+/// 类型化复合节点：把子拓扑封装为单节点（命名 / 层次化 / 复用）。
+///
+/// `Composite<Inner>` 透明转发 `Inner: FlowThrough` 的 `Head`/`Out`/`States`
+/// 与 `new_states`/`process_one`/`cleanup`——外部视它为**单进单出节点**，
+/// 可嵌套进 [`Chain`]/[`Diamond`]/其他 [`Composite`]。执行与直接展开
+/// `Inner` **完全等价**（转发即内联，零额外成本）。
+///
+/// 价值：
+/// - **抽象**：命名子系统（`type Pipeline = Composite<Chain<...>>`）、
+///   隐藏内部结构、防止误用；
+/// - **层次化**：顶层串并联树的节点可以是复合（`structural-model.md`
+///   定义 4.2 的静态形态）；
+/// - **复用**：同一复合类型多处使用（如多路并行中的共享子系统）。
+///
+/// 注意：复合提供**抽象**，不扩展图类（`FlowThrough` 是单进单出代数；
+/// 多进多出子拓扑需 `run_parallel` 或动态路径）。
+pub struct Composite<Inner>(core::marker::PhantomData<Inner>);
+
+impl<Inner> FlowThrough for Composite<Inner>
+where
+    Inner: FlowThrough,
+{
+    type Head = Inner::Head;
+    type Out = Inner::Out;
+    type States = Inner::States;
+
+    fn new_states() -> Result<Self::States, StaticExecError> {
+        Inner::new_states()
+    }
+    fn process_one(
+        states: &mut Self::States,
+        input: <Self::Head as StraightMachine>::StraightIn,
+    ) -> Self::Out {
+        Inner::process_one(states, input)
+    }
+    fn cleanup(states: Self::States) -> Result<(), StaticExecError> {
+        Inner::cleanup(states)
+    }
+}
+
+impl<Inner> StaticChain for Composite<Inner>
+where
+    Inner: StaticChain,
+{
+}
+
+/// 独立并行执行两个 [`FlowThrough`] 链（多流静态表达的第一块）。
+///
+/// 两条链各自单进单出、**独立输入输出**（互不干扰的状态元组）——同步
+/// 批处理模型下顺序执行与并行执行结果一致（无共享状态），语义等价。
+/// 这是"多流"的起点：`run_parallel::<Composite<A>, Composite<B>>(...)`
+/// 并行两个命名的独立子系统。
+///
+/// 每个流独立 `new_states`/`process_one`/`cleanup`，仅 out `Vec` 分配
+/// （`with_capacity`）——与 [`FlowThrough`] 相同的零成本形态。
+pub fn run_parallel<A: FlowThrough, B: FlowThrough>(
+    a_inputs: Vec<<A::Head as StraightMachine>::StraightIn>,
+    b_inputs: Vec<<B::Head as StraightMachine>::StraightIn>,
+) -> Result<(Vec<A::Out>, Vec<B::Out>), StaticExecError> {
+    let mut a_states = A::new_states()?;
+    let mut a_out = Vec::with_capacity(a_inputs.len());
+    for x in a_inputs {
+        a_out.push(A::process_one(&mut a_states, x));
+    }
+    A::cleanup(a_states)?;
+
+    let mut b_states = B::new_states()?;
+    let mut b_out = Vec::with_capacity(b_inputs.len());
+    for x in b_inputs {
+        b_out.push(B::process_one(&mut b_states, x));
+    }
+    B::cleanup(b_states)?;
+
+    Ok((a_out, b_out))
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // Section 5: 单元测试
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -905,6 +985,78 @@ mod tests {
         //   Sum(16) → 下游 A(16)
         let outputs = DChainArms::run_all(vec![1]).expect("diamond chain arms");
         assert_eq!(outputs, vec![16]);
+    }
+
+    // ══ Composite 测试（Section 4.7）════════════════════════════════════
+
+    #[test]
+    fn composite_matches_direct_chain() {
+        // Composite<Chain3> 与直接 Chain3 结果一致（透明转发，零额外成本）。
+        type Direct = Chain<Doubler, Chain<Adder, Tripler, StraightId>, StraightId>;
+        type Wrapped = Composite<Chain<Doubler, Chain<Adder, Tripler, StraightId>, StraightId>>;
+        let d = Direct::run_all(vec![1, 2]).expect("direct");
+        let w = Wrapped::run_all(vec![1, 2]).expect("composite");
+        assert_eq!(d, w, "composite must be semantically identical to its inner topology");
+        assert_eq!(d, vec![6, 18]);
+    }
+
+    #[test]
+    fn composite_embeds_in_chain() {
+        // Chain<Doubler, Composite<Chain<Adder, Tripler>>, StraightId>：
+        // 复合作为链的 Tail（层次化：顶层串并联树的节点是复合）。
+        type Sub = Composite<Chain<Adder, Tripler, StraightId>>;
+        type Top = Chain<Doubler, Sub, StraightId>;
+        // 输入 [1]: D(2) → A(2) → T(6)
+        let outputs = Top::run_all(vec![1]).expect("chain with composite tail");
+        assert_eq!(outputs, vec![6]);
+    }
+
+    #[test]
+    fn composite_embeds_in_diamond_arm() {
+        // Diamond 的臂是 Composite（左右臂各包一条链）。
+        type LeftArm = Composite<Chain<Adder, Tripler, StraightId>>;
+        type RightArm = Composite<Chain<Tripler, Doubler, StraightId>>;
+        type D = Diamond<
+            Doubler,
+            LeftArm,
+            RightArm,
+            Adder,
+            StraightClone,
+            StraightId,
+            StraightId,
+            Sum,
+        >;
+        // 输入 [1]: D(2) → split(2,2)
+        //   左臂 A→T: 2 → A(2) → T(6)
+        //   右臂 T→D: 2 → T(6) → D(12)
+        //   Sum(18) → 下游 A(18)
+        let outputs = D::run_all(vec![1]).expect("diamond with composite arms");
+        assert_eq!(outputs, vec![18]);
+    }
+
+    // ══ Parallel 测试（Section 4.7）════════════════════════════════════
+
+    #[test]
+    fn parallel_runs_two_independent_chains() {
+        // 两条独立链：A 链 Doubler→Adder；B 链 Tripler。
+        // 独立输入输出，结果与各自单独运行一致。
+        type A = Chain<Doubler, Adder, StraightId>;
+        type B = Tripler;
+        let (a_out, b_out) = run_parallel::<A, B>(vec![1, 2, 3], vec![10]).expect("parallel");
+        // A: D(2,4,6) → A 累加(2,6,12)；B: T(30)
+        assert_eq!(a_out, vec![2, 6, 12]);
+        assert_eq!(b_out, vec![30]);
+    }
+
+    #[test]
+    fn parallel_with_composite_subsystems() {
+        // 并行两个命名的复合子系统（多流 + 层次化的组合）。
+        type SubA = Composite<Chain<Doubler, Tripler, StraightId>>;
+        type SubB = Composite<Chain<Adder, Doubler, StraightId>>;
+        let (a_out, b_out) = run_parallel::<SubA, SubB>(vec![2], vec![3]).expect("parallel composite");
+        // SubA: D(4) → T(12)；SubB: A(3) → D(6)
+        assert_eq!(a_out, vec![12]);
+        assert_eq!(b_out, vec![6]);
     }
 
     #[test]

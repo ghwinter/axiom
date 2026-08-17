@@ -206,6 +206,25 @@ let outputs = rt.tick(inputs)?;         // 驱动一轮
 | `Sequential` | Single-thread BFS, direct move delivery | Deterministic, testable |
 | `Parallel(n)` | One OS thread per machine + channel carriers | Multi-core, backpressure |
 
+**Internal subsystem contracts (2026-08).** `axiom-runtime` is itself a parent
+system whose subsystems are **necessary-but-replaceable** modules — structural
+consistency applied to the runtime itself (each subsystem has an explicit
+interface contract, mirroring the machine/link model of the user space):
+
+| Subsystem | Contract | Replaceable strategies |
+|-----------|----------|------------------------|
+| **Scheduler** (drives `tick`) | `scheduler::Scheduler` — `tick(&self, rt, inputs)`, selected at construction by `RuntimeConfig::mode`, held as `Box<dyn Scheduler>` | `SequentialScheduler` (BFS + fairness quota), `ParallelScheduler` (thread-per-machine); custom schedulers implement the trait |
+| **Carrier factory** | `carrier::channel_for` — `LinkKind → carrier` (channel / sync / slot / overwrite) | per-kind physicalization; `CasFreeRing` is a future increment |
+| **Lifecycle** | `materialize`/`shutdown` + `MachineHandle` init/cleanup | runtime-managed; restart/supervision is a future increment |
+| **IO reactor** | `io::IoReactor` trait | platform backends (epoll / kqueue / WSAEventSelect) |
+| **Replay** | `replay::` module | snapshot/replay of machine states |
+
+The **Scheduler** contract is the first internal subsystem formalized (2026-08):
+`SequentialScheduler`/`ParallelScheduler` implement `scheduler::Scheduler`, and
+`Runtime::tick` delegates through it. This mirrors the external
+`RuntimeContract` (`docs/adapters.md`): the runtime as a whole is replaceable
+per contract; its internal subsystems are replaceable per their own contracts.
+
 **Capabilities:**
 
 | Capability | What it does |
@@ -249,6 +268,16 @@ let results: Vec<_> = configs.par_iter()
 > compiler fuses stages into a single loop. This closes the anti-narrowing gap
 > at the execution layer: the static path is no longer limited to linear chains
 > (see `docs/philosophy.md` §"The structural scope constraint").
+>
+> **Structural positioning (2026-08).** Static is the **main execution layer**
+> for *structure-fixed* systems: topology encoded as types, behavioral
+> complexity (what happens inside `process`) is a black box and never
+> requires the dynamic path. Static covers series-parallel graphs **plus
+> composite hierarchies** (any subgraph encapsulated as one node, recursively
+> — top level a series-parallel tree). The dynamic path serves only
+> topologies *sourced from runtime data* (config/plugin assembly, dynamic
+> links, cycles' time drive). Formal definitions: `docs/structural-model.md`
+> §2–4.
 
 The static path lives in `axiom-runtime::static_path` and builds on the type
 contracts in `axiom::static_exec` (`Link`, `Split`, `Merge`). It uses a

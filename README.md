@@ -113,8 +113,8 @@ The two layers are disjoint. When we say "module $M$ sends data to module $N$", 
 
 | Path | Topology shape | Topology known at | Per-message cost | Zero-cost? | Role |
 |------|---------------|-------------------|------------------|------------|------|
-| **DeploySpec + Runtime** (main model) | **arbitrary graph** (cycles, fan-in/out, composite) | runtime | fused: 1 alloc/msg (typed-slot reuse); plain: per-hop alloc + vtable | no (dynamic tax: dispatch + type-erasure) | general execution: complex graph systems |
-| **static_path** (optimization subset) | fixed shape (linear/fan/diamond) | compile time | **zero** | yes | hot paths: compile-time-known shape |
+| **static_path** (main model) | structure-fixed systems: series-parallel + composite hierarchies (chains, fans, diamonds, nested subsystems) | compile time | **zero** (0 allocs/msg) | yes | primary execution: any structure-fixed system, regardless of behavioral complexity (see `docs/structural-model.md` §2–4) |
+| **DeploySpec + Runtime** (structure-dynamic adapter) | topology sourced from runtime data (config/plugin assembly, dynamic links, cycles' time drive) | runtime | fused: 1 alloc/msg (typed-slot reuse); plain: per-hop alloc + vtable | no (dynamic tax: dispatch + type-erasure) | structural-dynamic systems: topology not known until runtime |
 
 The static path monomorphizes over concrete machine types and inlines
 `StraightLink::convert` / `StraightSplit::split` / `StraightMerge::merge` — in
@@ -129,9 +129,13 @@ is not known until runtime; this "dynamic tax" is the dispatch + type-erasure
 cost of the dynamic path — measured 1.0 allocs/msg for fused chains (typed-slot
 reuse, `runtime/src/typed_slot.rs`) vs 0.000 for the static path (see
 `docs/foundations.md` §15.3 for the 2026-08 revision and the falsified
-"~5× / 1 alloc per message" claim). **Neither path imposes a linear assumption on
-the model** — an arbitrary graph runs on the dynamic path; only the
-optimization (monomorphization) is shape-restricted.
+"~5× / 1 alloc per message" claim). **The static/dynamic split is a structural
+criterion, not a behavioral one** (see `docs/structural-model.md`): axiom's
+domain is the structure layer (module set + links); behavioral complexity
+(what happens inside a `process`) is a black box and never requires the
+dynamic path. Static covers any structure-fixed system — series-parallel
+plus composite hierarchies — regardless of how complex the behavior is;
+the dynamic path serves only topologies *sourced from runtime data*.
 
 > **Scope note (anti-narrowing rule).** The static execution path
 > (`axiom_runtime::static_path`) supports linear pipelines (`pipeline2`/`pipeline3`,
@@ -286,6 +290,7 @@ dictate physics, the carrier choice does".
 | [`docs/doc-governance.md`](docs/doc-governance.md) | Documentation standards & decision records — tier taxonomy, word budgets, decision log |
 | [`docs/adapters.md`](docs/adapters.md) | Adapter ecosystem rules & runtime-contract certification — Guarantees audit, release tiers |
 | [`docs/architecture.md`](docs/architecture.md) | Architecture details — ports, links, deployment, runtime comparison |
+| [`docs/structural-model.md`](docs/structural-model.md) | Formal structural model — system as typed graph, structure vs behavior layer, static/dynamic criterion (set/graph/category theory) |
 | [`docs/architecture_diagrams.md`](docs/architecture_diagrams.md) | Diagrams — system layers, link strategies, deployment, roadmap |
 
 ## Why "axiom"

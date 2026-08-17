@@ -26,6 +26,13 @@ pub struct RuntimeConfig {
     /// 驱动循环每 tick 的最大 process 次数（防止无限循环）。
     /// `None` = 无限制。
     pub max_ticks: Option<u64>,
+    /// 公平性配额：每台机器每**轮**（round）最多处理的输入条数。
+    ///
+    /// `None` = 无限制（FIFO 逐级传播，默认）。
+    /// `Some(n)` = 任一机器达配额后其后续消息 defer 到下一轮（其他机器
+    /// 优先）——防止单个 flood 源饿死其他源（H2：tick 公平性，源自
+    /// 信箱轮询的公平性上限模式）。`0` = 非法（等价 None）。
+    pub max_messages_per_machine: Option<u64>,
 }
 
 impl Default for RuntimeConfig {
@@ -33,12 +40,13 @@ impl Default for RuntimeConfig {
         Self {
             mode: ExecMode::default(),
             max_ticks: Some(1_000_000),
+            max_messages_per_machine: None,
         }
     }
 }
 
 impl RuntimeConfig {
-    pub fn inline() -> Self { Self { mode: ExecMode::Inline, max_ticks: None } }
-    pub fn sequential() -> Self { Self { mode: ExecMode::Sequential, max_ticks: Some(1_000_000) } }
-    pub fn parallel(n: u32) -> Self { Self { mode: ExecMode::Parallel(n), max_ticks: Some(10_000_000) } }
+    pub fn inline() -> Self { Self { mode: ExecMode::Inline, max_ticks: None, max_messages_per_machine: None } }
+    pub fn sequential() -> Self { Self { mode: ExecMode::Sequential, max_ticks: Some(1_000_000), max_messages_per_machine: None } }
+    pub fn parallel(n: u32) -> Self { Self { mode: ExecMode::Parallel(n), max_ticks: Some(10_000_000), max_messages_per_machine: None } }
 }
