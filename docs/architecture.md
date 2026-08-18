@@ -185,6 +185,22 @@ The same `Machine` implementation, zero modifications.
 
 ### axiom-runtime: the bundled reference runtime
 
+**Positioning: a catalogue of physical data-flow designs, not a mandated
+executor.** Axiom core is a constraint system that declares *what* flows between
+modules without dictating *how* the physical layer moves it. `axiom-runtime` is
+the seed of that physical layer: its carriers (stack-passed `Inline` calls, heap
+`Channel`/`BoundedBuf` queues, single-slot `Latest`/`SharedState`, bounded FIFO
+`CasFreeRing`) are **replaceable physical designs for "how data flows"**.
+Composing them is a blueprint decision (`LinkKind` per edge); the runtime's
+obligation is to provide each design and to verify it can honor the blueprint
+(`check_spec` at `materialize`) — not to impose one execution shape on every
+system. The bundled `Runtime`'s unified drive loop is **one way to use these
+modules** (the deterministic single-process reference), not the only form. The
+current direction is to make each carrier/driver a standalone composable unit,
+so an application can select a physical stack (e.g. only the lock-free ring +
+a custom driver) without dragging in the rest (see
+`docs/internal/runtime-modularization-design-notes.md`).
+
 `axiom-runtime` (in the `runtime/` subdirectory) is the reference implementation
 bundled with this repo. Unlike the hypothetical external adapters above, it is
 a concrete `Runtime` that materializes a `DynamicTopology` and drives `tick()`:

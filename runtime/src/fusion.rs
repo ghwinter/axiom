@@ -22,12 +22,18 @@
 //! and queue overhead, keeping only `Box<dyn Any>` (1) + internal routing (1) ≈ +2 alloc/hop.
 //! Net reduction of 2 alloc/hop (verified empirically in R003).
 //!
-//! # TupleOutput handling
+//! # Output handling
 //!
-//! `FusedInline` allows `TupleOutput` (2 outputs). Of a hop's 2 outputs, one may go into the chain
-//! (to the next stage) while the other is terminal (collected as an output). `FusedPipeline`
-//! uses `internal_link` to record the in-chain ports; the remaining ports are returned as terminal
-//! outputs.
+//! A fused stage is a **single-input single-output** machine: `register_fused`
+//! requires `M::Input: Pack` + `M::Output: Unpack`, and `Unpack` is only
+//! generated for single-output port enums (`src/portset.rs`), so every in-chain
+//! stage has exactly one data output port. That one output feeds the next
+//! stage (in-chain port) or the chain tail (terminal). Non-chain output ports
+//! (e.g. an `Observe` port) are collected as terminal outputs. `TupleOutput`
+//! machines do **not** enter a fused chain — they lack `Unpack` — so the old
+//! claim "one output in-chain + the other terminal" is not realized (and must
+//! not be assumed: a widened `FusedCompatible` would need explicit
+//! multi-output delivery, never silent dropping).
 
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -86,6 +92,20 @@ impl FusedPipeline {
             .collect();
         Self { stages, internal_links, name, schema }
     }
+
+    /// Flatten collected terminal outputs into a [`ProcessResult`].
+    fn into_result(
+        mut terminal: Vec<(&'static str, Box<dyn core::any::Any + Send>)>,
+    ) -> ProcessResult {
+        if terminal.is_empty() {
+            ProcessResult::Idle
+        } else if terminal.len() == 1 {
+            let (port, value) = terminal.pop().unwrap();
+            ProcessResult::Yield { port, value }
+        } else {
+            ProcessResult::YieldMulti { outputs: terminal }
+        }
+    }
 }
 
 impl RunningMachine for FusedPipeline {
@@ -106,7 +126,6 @@ impl RunningMachine for FusedPipeline {
         let mut slot: Option<Box<dyn core::any::Any + Send>> = Some(payload);
         let mut terminal: Vec<(&'static str, Box<dyn core::any::Any + Send>)> = Vec::new();
         let mut last_port: &'static str = "";
-        let mut broken = false;
 
         for i in 0..self.stages.len() {
             // Port ID: the first stage uses the externally injected port_id; later stages use the
@@ -117,11 +136,21 @@ impl RunningMachine for FusedPipeline {
                 self.internal_links[i - 1].1
             };
             match self.stages[i].process_scratch(pid, &mut slot) {
-                ScratchResult::Idle | ScratchResult::Done => {
-                    // Chain broken: the value is not in the slot (Idle = no output / Done = stop);
-                    // return the terminal outputs collected so far.
-                    broken = true;
-                    break;
+                ScratchResult::Done => {
+                    // A stage completed (shutdown signal): the **whole chain** must stop, so the
+                    // driver propagates the shutdown cascade (`mark_stopped` keyed on
+                    // `ProcessResult::Done`). Previously this was folded into the `Idle`/broken
+                    // path, returning Idle/terminal — the driver's cancellation never fired and
+                    // the completed chain kept processing. Terminal values collected so far are
+                    // dropped (not delivered): they are Observe (best-effort, droppable) or
+                    // non-chain ports, and delivering them after a completion signal would be
+                    // ordering-unsound across fuse boundaries.
+                    return ProcessResult::Done;
+                }
+                ScratchResult::Idle => {
+                    // Chain broken without completion: the in-slot value was consumed with no
+                    // output; deliver what was collected before the break.
+                    return Self::into_result(terminal);
                 }
                 ScratchResult::Yield(port) => {
                     last_port = port;
@@ -140,20 +169,10 @@ impl RunningMachine for FusedPipeline {
 
         // The chain-tail value (not broken): move it out of the slot as a terminal output —
         // no new allocation.
-        if !broken {
-            if let Some(v) = slot.take() {
-                terminal.push((last_port, v));
-            }
+        if let Some(v) = slot.take() {
+            terminal.push((last_port, v));
         }
-
-        if terminal.is_empty() {
-            ProcessResult::Idle
-        } else if terminal.len() == 1 {
-            let (port, value) = terminal.pop().unwrap();
-            ProcessResult::Yield { port, value }
-        } else {
-            ProcessResult::YieldMulti { outputs: terminal }
-        }
+        Self::into_result(terminal)
     }
 
     fn is_done(&self) -> bool {
