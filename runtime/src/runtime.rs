@@ -10,7 +10,10 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use axiom::port::PortDir;
+use axiom::compat::HashMap;
+use axiom::deploy::{CycleRule, DynamicTopology, RuleViolation, ValidationReport};
+use axiom::port::{PortDir, PortSchema};
+use axiom::runtime_contract::RuntimeContract;
 
 use crate::carrier::{channel_for, ChanReceiver, ChanSender, RoutedMsg};
 use crate::config::RuntimeConfig;
@@ -83,6 +86,22 @@ impl Runtime {
         self.registry.register_fused::<M>(machine_type);
     }
 
+    /// Register a **fusible** machine with **Moore semantics** — `M: FusedInline + Moore`.
+    ///
+    /// The fused-path analogue of [`Self::register_moore`]: it records Moore at the type
+    /// level, so a genuinely-Moore fused machine can be *honestly* declared `.moore()` in
+    /// the topology and pass the S3-2 materialization check (previously fused registrars
+    /// reported `is_moore() == false` unconditionally, mis-rejecting true Moore fused types).
+    pub fn register_fused_moore<M>(&mut self, machine_type: &str)
+    where
+        M: axiom::machine::Machine + axiom::machine::FusedInline + axiom::machine::Moore,
+        M::Input: core::any::Any + Send + axiom::portset::Pack,
+        M::Output: core::any::Any + Send + axiom::portset::Unpack,
+        M::ProcessOutput: axiom::machine::FusedCompatible,
+    {
+        self.registry.register_fused_moore::<M>(machine_type);
+    }
+
     /// Register a composite Machine — a sub-topology plus port mapping wrapped into a single
     /// `machine_type`.
     ///
@@ -101,15 +120,28 @@ impl Runtime {
 
     /// Materialize a `DynamicTopology` — interpret the pure-data topology as runtime entities.
     ///
-    /// Materialization steps:
+    /// Every deployment path passes through the deployment contracts **before
+    /// any physics is created** (design principle §0.5.2 — wire every
+    /// declaration):
+    ///
     /// 1. `DynamicTopology::validate()` structural checks (name uniqueness, self-loops, degree
     ///    constraints);
     /// 2. **Composite expansion** — replace composite instances registered via
     ///    `register_composite` with namespaced sub-topologies + redirected external links
     ///    (recursive to any depth);
-    /// 3. Build machine instances from the expanded `machine_type`s;
-    /// 4. `validate_endpoint` checks port existence + direction;
-    /// 5. `apply_fusion` fuses adjacent FusedInline chains.
+    /// 3. **Deep validation** — `validate_deep_for` on the expanded topology: port existence,
+    ///    type/flow compatibility, the FlowKind×carrier matrix, edge-degree constraints,
+    ///    Inline acyclicity. The Moore-on-cycles rule is chosen from the runtime's declared
+    ///    [`LinkDelay`](axiom::runtime_contract::LinkDelay): a channel-based runtime
+    ///    (one-tick per link) allows cycles, a zero-delay runtime requires a Moore machine
+    ///    per cycle;
+    /// 4. **Capability audit** — `RuntimeContract::check_spec`: link kinds, backpressure
+    ///    actions, execution modes, physical budget must fit inside the runtime's declared
+    ///    guarantees;
+    /// 5. Build machine instances from the expanded `machine_type`s (including the S3-2
+    ///    Moore declaration ↔ `register_moore` implementation check);
+    /// 6. `validate_endpoint` checks port existence + direction;
+    /// 7. `apply_fusion` fuses adjacent FusedInline chains.
     pub fn materialize(&mut self, spec: &axiom::deploy::DynamicTopology) -> Result<(), RuntimeError> {
         spec.validate().map_err(|e| RuntimeError::InitFailed {
             machine: "<spec>".into(),
@@ -134,6 +166,64 @@ impl Runtime {
                 error: axiom::machine::InitError::Other(format!("composite error: {other}")),
             },
         })?;
+
+        // ── Contract wiring (design principle §0.5.2) ──────────────────────────
+        // The expanded topology is the real blueprint the physics will honor.
+        // Assemble the schema map it needs (instance name → schema, resolved from
+        // the registered machine type) and reject unregistered types up front.
+        let mut schemas: HashMap<&str, PortSchema> = HashMap::new();
+        for m in &expanded_machines {
+            let machine_type = m.machine_type.as_ref();
+            match self.registry.schema(machine_type) {
+                Some(schema) => {
+                    schemas.insert(m.name.as_ref(), schema);
+                }
+                None => {
+                    return Err(RuntimeError::InitFailed {
+                        machine: machine_type.to_string(),
+                        error: axiom::machine::InitError::Other(format!(
+                            "type `{machine_type}` not registered"
+                        )),
+                    });
+                }
+            }
+        }
+        let expanded_spec = DynamicTopology {
+            machines: expanded_machines.clone(),
+            funcs: spec.funcs.clone(),
+            links: expanded_links.clone(),
+            settings: spec.settings.clone(),
+        };
+
+        // 3. Deep validation — the blueprint-level invariants. The cycle rule is
+        //    runtime-parameterized: the runtime's declared link delay decides
+        //    whether Moore machines are required on cycles (channel-based
+        //    runtimes break algebraic loops with their one-tick buffers).
+        let cycle_rule = CycleRule::from_link_delay(self.guarantees().link_delay);
+        expanded_spec.validate_deep_for(&schemas, cycle_rule).map_err(|e| {
+            let mut report = ValidationReport::default();
+            report.push(RuleViolation::new(
+                "deep-validation",
+                "<topology>",
+                "blueprint satisfies deep-validation contracts",
+                e.to_string(),
+            ));
+            RuntimeError::ContractViolation {
+                contract: "validate_deep",
+                report,
+            }
+        })?;
+
+        // 4. Capability audit — the runtime declares what it can physically honor;
+        //    a blueprint demanding more (a link kind, backpressure action or
+        //    execution mode the runtime does not implement) is rejected here.
+        let report = self.check_spec(&expanded_spec, &schemas);
+        if !report.is_ok() {
+            return Err(RuntimeError::ContractViolation {
+                contract: "check_spec",
+                report,
+            });
+        }
 
         let mut machines: BTreeMap<String, Box<dyn RunningMachine>> = BTreeMap::new();
 
@@ -242,6 +332,25 @@ impl Runtime {
         });
         Ok(())
     }
+
+    // TODO(known-gap): live reconfiguration — applying a core-side `TopologyMutation`
+    // (validated structural ops: spawn/link/unlink/retire/replace) to a *running*
+    // `LiveTopology` is not yet supported. `materialize` builds the live topology
+    // once from a static `DynamicTopology`; there is no reconfigure path that
+    // transitions running entities, and the runtime-safety semantics of doing so are
+    // unspecified. Before implementing, the following must be defined:
+    //   - in-flight messages / queue draining when a link is unlinked or a machine
+    //     retired mid-stream (quiesce semantics per carrier);
+    //   - credit-window reconciliation when a `CreditPolicy` link is removed while
+    //     credits are outstanding;
+    //   - backpressure-state transitions when a machine migrates between carriers
+    //     (block/drop/overwrite/credit) without losing pending pressure state;
+    //   - retirement gating: a machine may only retire once its in-degree drains,
+    //     reusing the existing shutdown propagation rather than cutting live edges.
+    // A future `reconfigure(&TopologyMutation) -> Result<Vec<TopologyDelta>, _>` would
+    // validate the delta against the live state, quiesce the affected subgraph, apply
+    // the change atomically, and re-materialize only the affected indexes (topo_order,
+    // in_degree, route_map, ids) — not the whole topology.
 
     pub fn topology(&self) -> Option<&LiveTopology> { self.topology.as_ref() }
 

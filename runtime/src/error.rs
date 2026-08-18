@@ -39,6 +39,20 @@ pub enum RuntimeError {
     /// (mistakenly assuming feedback cycles can be broken) — rejected at deploy
     /// time.
     MooreMismatch { machine: String, machine_type: String },
+
+    /// The blueprint failed one of the deployment contracts — deep validation
+    /// (`DynamicTopology::validate_deep_for`: port existence, type/flow
+    /// compatibility, the FlowKind×carrier matrix, edge-degree constraints,
+    /// Inline acyclicity, cycle safety) or the runtime capability audit
+    /// (`RuntimeContract::check_spec`: link kinds, backpressure actions,
+    /// execution modes, physical budget). `report` carries the structured
+    /// violations (`rule_id`-tagged) for machine-readable feedback. Rejected
+    /// before any physics is created.
+    ContractViolation {
+        /// The contract that failed: `"validate_deep"` or `"check_spec"`.
+        contract: &'static str,
+        report: axiom::deploy::ValidationReport,
+    },
 }
 
 impl core::fmt::Display for RuntimeError {
@@ -74,6 +88,13 @@ impl core::fmt::Display for RuntimeError {
                 "machine `{machine}` declares Moore semantics but type `{machine_type}` is not registered as Moore \
                  (register the type with `register_moore` to make the declaration contract-valid)"
             ),
+            Self::ContractViolation { contract, report } => {
+                write!(f, "{contract} rejected the blueprint")?;
+                for v in &report.violations {
+                    write!(f, "\n  {v}")?;
+                }
+                Ok(())
+            }
         }
     }
 }

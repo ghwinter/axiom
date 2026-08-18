@@ -41,6 +41,14 @@
 //! | **experimental** (extensions, advanced as core) | [`session`](crate::session) / [`hybrid`](crate::hybrid) / [`projection`](crate::projection) / [`stream`](crate::stream) / [`composite`](crate::composite) / [`entity`](crate::entity) / [`migrate`](crate::migrate) / [`shared`](crate::shared) / [`backpressure`](crate::backpressure) / [`builtin`](crate::builtin) |
 //! | **tool** (tooling) | [`lint`](crate::lint) / [`runtime_contract`](crate::runtime_contract) / [`config`](crate::config) / [`blueprint`](crate::blueprint) |
 //!
+//! **Experimental extensions are not part of the default export surface.**
+//! The `hybrid`, `stream`, and `shared` modules stay `pub mod` (reachable by
+//! explicit path, `axiom::hybrid::…`) but are **deliberately excluded from
+//! `prelude_all`**: a machine morphology that does not map 1:1 to a blueprint
+//! decision adds neither blueprint truthfulness nor redemption verifiability
+//! (design principle §0.5.1 in `docs/design-principles.md`), so it must be
+//! opted into explicitly rather than appearing in the default vocabulary.
+//!
 //! [`Func`]: crate::func::Func
 //! [`Port`]: crate::port
 //! [`Flow`]: crate::flow
@@ -138,13 +146,12 @@ pub mod prelude_all {
         Identity, Sink, Tee, Latch, Collector, EntityRoot, FuncMachine,
     };
     pub use crate::composite::{CompositeSpec, CompositeError, expand_composites};
-    pub use crate::deploy::{DynamicTopology, DeploySettings, MachineInstance, FuncBinding, Patch, ValidationError};
+    pub use crate::deploy::{DynamicTopology, DeploySettings, MachineInstance, FuncBinding, Patch, ValidationError, CycleRule};
     #[cfg(feature = "std")]
     pub use crate::config::{ConfigCell, ConfigError};
     pub use crate::entity::{Entity, EntityRestoreError};
     pub use crate::flow::FlowKind;
     pub use crate::func::{Func, FuncRef, FuncWithScratch, FuncScratchPipeline, Scratched, CostEstimate};
-    pub use crate::hybrid::{HybridMachine, HybridDriver, HybridState, ContinuousState, Jump};
     pub use crate::link::{LinkKind, LinkSpec, WritePolicy, ReadPolicy, MemoryRegion};
     pub use crate::machine::{
         Machine, Moore, ProcessOutput, InitError, CleanupError,
@@ -169,9 +176,6 @@ pub mod prelude_all {
         SessionType, SessionOp, SessionState, SessionProtocol, SessionError, is_dual,
         GlobalType, GlobalOp, LocalType, LocalOp, Role, project, is_consistent,
     };
-    #[cfg(feature = "std")]
-    pub use crate::shared::SharedResource;
-    pub use crate::stream::StreamingMachine;
     pub use crate::static_exec::{
         StaticExecError,
         StraightMachine, StraightLink, StraightId, StraightSplit, StraightClone, StraightMerge,

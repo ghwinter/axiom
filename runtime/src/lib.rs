@@ -56,6 +56,7 @@
 //! ## Module structure
 //!
 //! - [`config`] — `ExecMode` / `RuntimeConfig`
+//! - [`contract`] — `RuntimeContract for Runtime` (capability declaration + `check_spec` guard)
 //! - [`erasure`] — `RunningMachine` trait + `ProcessResult` + `MachineWrapper`
 //! - [`registry`] — `RegisterFn` + `Registry`
 //! - [`topology`] — `LiveTopology` + `PhysicalLink`
@@ -74,6 +75,7 @@ extern crate alloc;
 
 mod carrier;
 mod config;
+mod contract;
 mod erasure;
 mod error;
 mod fusion;

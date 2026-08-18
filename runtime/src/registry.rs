@@ -5,7 +5,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 
 use axiom::machine::Machine;
-use axiom::port::MachineContext;
+use axiom::port::{MachineContext, PortSchema};
 
 // CompositeSpec is now referenced from core — composition is a structural definition capability that belongs to axiom core.
 use axiom::composite::CompositeSpec;
@@ -24,6 +24,15 @@ pub trait RegisterFn: Send + Sync {
     fn is_moore(&self) -> bool {
         false
     }
+
+    /// The port schema of the machine type this registrar builds.
+    ///
+    /// Captured at registration time (`M::port_schema()`). Used by `materialize`
+    /// to assemble the schema map that deep validation
+    /// ([`axiom::deploy::DynamicTopology::validate_deep_for`]) needs to check
+    /// port existence, type compatibility and the FlowKind×carrier matrix
+    /// before any physics is created.
+    fn schema(&self) -> PortSchema;
 }
 
 struct TypedRegisterFn<M: Machine>
@@ -34,6 +43,8 @@ where
     fused: bool,
     /// Whether registered via `register_moore` (type-level guarantee of `M: Moore`).
     moore: bool,
+    /// `M::port_schema()` — captured so the registry can feed deep validation.
+    schema: PortSchema,
     _phantom: core::marker::PhantomData<M>,
 }
 
@@ -50,6 +61,10 @@ where
     fn is_moore(&self) -> bool {
         self.moore
     }
+
+    fn schema(&self) -> PortSchema {
+        self.schema.clone()
+    }
 }
 
 /// Typed fused registrar — builds [`ScratchMachine`] (allocation-free inter-stage passing after the unsafe workaround).
@@ -60,6 +75,13 @@ where
     M::Input: core::any::Any + Send + axiom::portset::Pack,
     M::Output: core::any::Any + Send + axiom::portset::Unpack,
 {
+    /// `M::port_schema()` — captured so the registry can feed deep validation.
+    schema: PortSchema,
+    /// Whether registered via `register_fused_moore` — the fused-path Moore contract
+    /// channel. Closed the gap where fused machines could never be declared Moore
+    /// (`is_moore()` always returned `false`), so a genuinely-Moore fused type was
+    /// rejected with `MooreMismatch` on an honest declaration.
+    moore: bool,
     _phantom: core::marker::PhantomData<M>,
 }
 
@@ -70,6 +92,14 @@ where
 {
     fn build(&self, ctx: MachineContext) -> Result<Box<dyn RunningMachine>, RuntimeError> {
         Ok(Box::new(ScratchMachine::<M>::new(ctx, true)?))
+    }
+
+    fn is_moore(&self) -> bool {
+        self.moore
+    }
+
+    fn schema(&self) -> PortSchema {
+        self.schema.clone()
     }
 }
 
@@ -99,6 +129,7 @@ impl Registry {
             Box::new(TypedRegisterFn::<M> {
                 fused: false,
                 moore: false,
+                schema: M::port_schema(),
                 _phantom: core::marker::PhantomData,
             }),
         );
@@ -123,6 +154,7 @@ impl Registry {
             Box::new(TypedRegisterFn::<M> {
                 fused: false,
                 moore: true,
+                schema: M::port_schema(),
                 _phantom: core::marker::PhantomData,
             }),
         );
@@ -144,6 +176,31 @@ impl Registry {
         self.builders.insert(
             machine_type.to_string(),
             Box::new(TypedFusedRegisterFn::<M> {
+                schema: M::port_schema(),
+                moore: false,
+                _phantom: core::marker::PhantomData,
+            }),
+        );
+    }
+
+    /// Register a **fusible** machine with **Moore semantics** — `M: FusedInline + Moore`
+    /// guarantees at the type level both fused pass-through and that outputs depend only
+    /// on the pre-update state. The fused-path analogue of [`Self::register_moore`]: it
+    /// records `moore = true` so a genuine Moore fused type can be *honestly* declared
+    /// `.moore()` in the topology and pass the S3-2 materialization check — closing the
+    /// gap where fused registrars returned `is_moore() == false` unconditionally.
+    pub fn register_fused_moore<M>(&mut self, machine_type: &str)
+    where
+        M: Machine + axiom::machine::FusedInline + axiom::machine::Moore,
+        M::Input: core::any::Any + Send + axiom::portset::Pack,
+        M::Output: core::any::Any + Send + axiom::portset::Unpack,
+        M::ProcessOutput: axiom::machine::FusedCompatible,
+    {
+        self.builders.insert(
+            machine_type.to_string(),
+            Box::new(TypedFusedRegisterFn::<M> {
+                schema: M::port_schema(),
+                moore: true,
                 _phantom: core::marker::PhantomData,
             }),
         );
@@ -177,6 +234,13 @@ impl Registry {
             .get(machine_type)
             .map(|b| b.is_moore())
             .unwrap_or(false)
+    }
+
+    /// The port schema of a registered `machine_type`, if it is a concrete
+    /// machine (not a composite). `None` for unregistered types — the
+    /// materialization layer reports them as unknown before building physics.
+    pub(crate) fn schema(&self, machine_type: &str) -> Option<PortSchema> {
+        self.builders.get(machine_type).map(|b| b.schema())
     }
 }
 
