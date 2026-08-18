@@ -491,86 +491,114 @@ impl DynamicTopology {
         self.validate()?;
 
         // 2. Per-link port/type/flow compatibility.
+        //
+        // A `FuncBinding` endpoint is a stateless transform with **no port
+        // schema** — its "port" field is opaque. Such an endpoint is exempt
+        // from port existence/direction/type checks, but the machine end of a
+        // mixed link is still validated. This keeps `validate_deep_for`'s
+        // verdict consistent with `validate()` (which already accepts func
+        // endpoints) instead of misreporting `UnknownMachine`.
+        let func_names: crate::compat::HashSet<&str> =
+            self.funcs.iter().map(|f| f.name.as_ref()).collect();
+
         for link in &self.links {
             let src_machine: &str = link.out.0.as_ref();
             let dst_machine: &str = link.into.0.as_ref();
             let src_port_name: &str = link.out.1.as_ref();
             let dst_port_name: &str = link.into.1.as_ref();
 
-            let src_schema = schemas.get(src_machine).ok_or_else(|| {
-                ValidationError::UnknownMachine(src_machine.to_string())
-            })?;
-            let dst_schema = schemas.get(dst_machine).ok_or_else(|| {
-                ValidationError::UnknownMachine(dst_machine.to_string())
-            })?;
+            let src_is_func = func_names.contains(src_machine);
+            let dst_is_func = func_names.contains(dst_machine);
 
-            let src_port = src_schema.find(src_port_name).ok_or_else(|| {
-                ValidationError::UnknownPort {
-                    machine: src_machine.to_string(),
-                    port: src_port_name.to_string(),
-                }
-            })?;
-            let dst_port = dst_schema.find(dst_port_name).ok_or_else(|| {
-                ValidationError::UnknownPort {
-                    machine: dst_machine.to_string(),
-                    port: dst_port_name.to_string(),
-                }
-            })?;
-
-            // Direction check: source must be Out, target must be In.
-            if src_port.dir != PortDir::Out {
-                return Err(ValidationError::LinkTypeMismatch {
-                    out: (src_machine.to_string(), src_port_name.to_string()),
-                    into: (dst_machine.to_string(), dst_port_name.to_string()),
-                    reason: "source port is not an output".to_string(),
-                });
-            }
-            if dst_port.dir != PortDir::In {
-                return Err(ValidationError::LinkTypeMismatch {
-                    out: (src_machine.to_string(), src_port_name.to_string()),
-                    into: (dst_machine.to_string(), dst_port_name.to_string()),
-                    reason: "target port is not an input".to_string(),
-                });
-            }
-
-            // Type/flow/version compatibility.
-            let compat = src_port.can_link_to(dst_port);
-            match compat {
-                LinkCompat::Compatible => {}
-                LinkCompat::Migrate { from_ver, to_ver } => {
-                    // Migration is allowed but requires a runtime migrator.
-                    // Report as a warning via DeepValidationWarning if needed;
-                    // here we accept it (runtime will fail if no migrator).
-                    let _ = (from_ver, to_ver);
-                }
-                LinkCompat::Incompatible { reason } => {
+            // Resolve each machine endpoint's port (funcs have no schema). A
+            // genuinely unknown endpoint is an error; a func endpoint is
+            // skipped.
+            let src_port = if src_is_func {
+                None
+            } else {
+                let schema = schemas.get(src_machine).ok_or_else(|| {
+                    ValidationError::UnknownMachine(src_machine.to_string())
+                })?;
+                let port = schema.find(src_port_name).ok_or_else(|| {
+                    ValidationError::UnknownPort {
+                        machine: src_machine.to_string(),
+                        port: src_port_name.to_string(),
+                    }
+                })?;
+                if port.dir != PortDir::Out {
                     return Err(ValidationError::LinkTypeMismatch {
                         out: (src_machine.to_string(), src_port_name.to_string()),
                         into: (dst_machine.to_string(), dst_port_name.to_string()),
-                        reason: reason.to_string(),
+                        reason: "source port is not an output".to_string(),
                     });
                 }
-            }
-
-            // 2b. Materialization compatibility matrix (S3-1): the flow kind
-            // is a semantic annotation that implies an optional carrier
-            // preference. `Violates` is a hard contract violation (an
-            // annotated edge whose carrier actively contradicts its
-            // semantics); `Permitted` is suboptimal but never wrong.
-            match carrier_compatible(src_port.flow, &link.kind) {
-                CarrierCompatResult::Violates => {
-                    return Err(ValidationError::CarrierViolatesSemantics {
+                Some(port)
+            };
+            let dst_port = if dst_is_func {
+                None
+            } else {
+                let schema = schemas.get(dst_machine).ok_or_else(|| {
+                    ValidationError::UnknownMachine(dst_machine.to_string())
+                })?;
+                let port = schema.find(dst_port_name).ok_or_else(|| {
+                    ValidationError::UnknownPort {
+                        machine: dst_machine.to_string(),
+                        port: dst_port_name.to_string(),
+                    }
+                })?;
+                if port.dir != PortDir::In {
+                    return Err(ValidationError::LinkTypeMismatch {
                         out: (src_machine.to_string(), src_port_name.to_string()),
                         into: (dst_machine.to_string(), dst_port_name.to_string()),
-                        flow: src_port.flow.as_str(),
-                        carrier: link.kind.name().to_string(),
-                        reason: format!(
-                            "{} flow must not be back-pressured, but carrier blocks the producer",
-                            src_port.flow.as_str()
-                        ),
+                        reason: "target port is not an input".to_string(),
                     });
                 }
-                CarrierCompatResult::Recommended | CarrierCompatResult::Permitted => {}
+                Some(port)
+            };
+
+            // Type/flow/version and carrier compatibility only when BOTH ends
+            // are machine ports (a func side has no port type or flow to
+            // compare against).
+            if let (Some(src_port), Some(dst_port)) = (src_port, dst_port) {
+                let compat = src_port.can_link_to(dst_port);
+                match compat {
+                    LinkCompat::Compatible => {}
+                    LinkCompat::Migrate { from_ver, to_ver } => {
+                        // Migration is allowed but requires a runtime migrator.
+                        // Reported as a `link-migrate` warning by
+                        // `validate_report`; here accept it (the runtime fails
+                        // if no migrator).
+                        let _ = (from_ver, to_ver);
+                    }
+                    LinkCompat::Incompatible { reason } => {
+                        return Err(ValidationError::LinkTypeMismatch {
+                            out: (src_machine.to_string(), src_port_name.to_string()),
+                            into: (dst_machine.to_string(), dst_port_name.to_string()),
+                            reason: reason.to_string(),
+                        });
+                    }
+                }
+
+                // 2b. Materialization compatibility matrix (S3-1): the flow
+                // kind is a semantic annotation implying an optional carrier
+                // preference. `Violates` is a hard contract violation (an
+                // annotated edge whose carrier actively contradicts its
+                // semantics); `Permitted` is suboptimal but never wrong.
+                match carrier_compatible(src_port.flow, &link.kind) {
+                    CarrierCompatResult::Violates => {
+                        return Err(ValidationError::CarrierViolatesSemantics {
+                            out: (src_machine.to_string(), src_port_name.to_string()),
+                            into: (dst_machine.to_string(), dst_port_name.to_string()),
+                            flow: src_port.flow.as_str(),
+                            carrier: link.kind.name().to_string(),
+                            reason: format!(
+                                "{} flow must not be back-pressured, but carrier blocks the producer",
+                                src_port.flow.as_str()
+                            ),
+                        });
+                    }
+                    CarrierCompatResult::Recommended | CarrierCompatResult::Permitted => {}
+                }
             }
         }
 
@@ -740,105 +768,144 @@ impl DynamicTopology {
         }
 
         // 3. Per-link port existence / direction / type compatibility.
+        //
+        // A func endpoint has no port schema, so only its machine counterpart
+        // is validated here (the func side is opaque). This is consistent with
+        // `validate()` / `validate_deep_for`, which both accept func endpoints.
+        let func_names: crate::compat::HashSet<&str> =
+            self.funcs.iter().map(|f| f.name.as_ref()).collect();
+
         for (i, link) in self.links.iter().enumerate() {
             let src_machine: &str = link.out.0.as_ref();
             let dst_machine: &str = link.into.0.as_ref();
             let src_port_name: &str = link.out.1.as_ref();
             let dst_port_name: &str = link.into.1.as_ref();
 
-            let src_schema = match schemas.get(src_machine) {
-                Some(s) => s,
-                None => continue, // already reported by link-resolve-machine
+            let src_is_func = func_names.contains(src_machine);
+            let dst_is_func = func_names.contains(dst_machine);
+
+            // Resolve machine ports; skip the func side's opaque port.
+            let src_port = if src_is_func {
+                None
+            } else {
+                match (schemas.get(src_machine), schemas.get(src_machine).and_then(|s| s.find(src_port_name))) {
+                    // Even when the machine is genuinely unknown, the
+                    // link-resolve-machine finding above already reported it.
+                    (None, _) => None,
+                    (Some(_), None) => {
+                        report.push(RuleViolation::new(
+                            "link-resolve-port",
+                            format!("links[{i}].out[1]"),
+                            format!("'{src_machine}' declares port '{src_port_name}'"),
+                            "port not found",
+                        ));
+                        None
+                    }
+                    (Some(_), Some(p)) => Some(p),
+                }
             };
-            let dst_schema = match schemas.get(dst_machine) {
-                Some(s) => s,
-                None => continue,
+            let dst_port = if dst_is_func {
+                None
+            } else {
+                match (schemas.get(dst_machine), schemas.get(dst_machine).and_then(|s| s.find(dst_port_name))) {
+                    (None, _) => None,
+                    (Some(_), None) => {
+                        report.push(RuleViolation::new(
+                            "link-resolve-port",
+                            format!("links[{i}].into[1]"),
+                            format!("'{dst_machine}' declares port '{dst_port_name}'"),
+                            "port not found",
+                        ));
+                        None
+                    }
+                    (Some(_), Some(p)) => Some(p),
+                }
             };
 
-            let src_port = match src_schema.find(src_port_name) {
-                Some(p) => p,
-                None => {
+            // Port direction, type compatibility and carrier matrix only when
+            // both ends are machine ports.
+            if let (Some(src_port), Some(dst_port)) = (src_port, dst_port) {
+                if src_port.dir != PortDir::Out {
                     report.push(RuleViolation::new(
-                        "link-resolve-port",
+                        "link-direction",
                         format!("links[{i}].out[1]"),
-                        format!("'{src_machine}' declares port '{src_port_name}'"),
-                        "port not found",
+                        "source port is an output",
+                        format!("'{src_port_name}' is {:?}", src_port.dir),
                     ));
-                    continue;
                 }
-            };
-            let dst_port = match dst_schema.find(dst_port_name) {
-                Some(p) => p,
-                None => {
+                if dst_port.dir != PortDir::In {
                     report.push(RuleViolation::new(
-                        "link-resolve-port",
+                        "link-direction",
                         format!("links[{i}].into[1]"),
-                        format!("'{dst_machine}' declares port '{dst_port_name}'"),
-                        "port not found",
+                        "target port is an input",
+                        format!("'{dst_port_name}' is {:?}", dst_port.dir),
                     ));
-                    continue;
                 }
-            };
 
-            if src_port.dir != PortDir::Out {
+                match src_port.can_link_to(dst_port) {
+                    LinkCompat::Compatible => {}
+                    LinkCompat::Migrate { from_ver, to_ver } => {
+                        report.warn(RuleViolation::new(
+                            "link-migrate",
+                            format!("links[{i}]"),
+                            "compatible via schema migration",
+                            format!("version {from_ver} → {to_ver} (runtime migrator required)"),
+                        ));
+                    }
+                    LinkCompat::Incompatible { reason } => {
+                        report.push(RuleViolation::new(
+                            "link-type",
+                            format!("links[{i}]"),
+                            "source port can link to target port",
+                            reason.to_string(),
+                        ));
+                    }
+                }
+
+                // 2b. Materialization compatibility matrix (S3-1): a `Violates`
+                // carrier is a hard contract violation. `Permitted`/`Recommended`
+                // produce no finding (lossless carriers are suboptimal, never
+                // wrong).
+                match carrier_compatible(src_port.flow, &link.kind) {
+                    CarrierCompatResult::Violates => {
+                        report.push(RuleViolation::new(
+                            "flow-carrier",
+                            format!("links[{i}].kind"),
+                            format!(
+                                "{} flow on a non-back-pressuring carrier",
+                                src_port.flow.as_str()
+                            ),
+                            format!(
+                                "carrier {} can block the producer ({} → {})",
+                                link.kind.name(),
+                                src_machine,
+                                dst_machine,
+                            ),
+                        ));
+                    }
+                    CarrierCompatResult::Recommended | CarrierCompatResult::Permitted => {}
+                }
+            }
+        }
+
+        // 3b. Implicit fan-out rejection — mirrors `validate()`'s
+        // `FanOutViaTee`: an output port may link to only **one** target;
+        // broadcast must be expressed through an explicit Tee machine. Without
+        // this, `validate_report` would report a BoundedBuf fan-out topology
+        // as OK while `validate_deep` rejects it, violating "checks mirror
+        // validate_deep".
+        let mut fanout_seen: crate::compat::HashSet<(&str, &str)> =
+            crate::compat::HashSet::new();
+        for (i, link) in self.links.iter().enumerate() {
+            let src: &str = link.out.0.as_ref();
+            let port: &str = link.out.1.as_ref();
+            if !fanout_seen.insert((src, port)) {
                 report.push(RuleViolation::new(
-                    "link-direction",
-                    format!("links[{i}].out[1]"),
-                    "source port is an output",
-                    format!("'{src_port_name}' is {:?}", src_port.dir),
+                    "link-fanout",
+                    format!("links[{i}].out"),
+                    "an output port links to exactly one target (broadcast via Tee)",
+                    format!("'{src}'.'{port}' has more than one out-edge"),
                 ));
-            }
-            if dst_port.dir != PortDir::In {
-                report.push(RuleViolation::new(
-                    "link-direction",
-                    format!("links[{i}].into[1]"),
-                    "target port is an input",
-                    format!("'{dst_port_name}' is {:?}", dst_port.dir),
-                ));
-            }
-
-            match src_port.can_link_to(dst_port) {
-                LinkCompat::Compatible => {}
-                LinkCompat::Migrate { from_ver, to_ver } => {
-                    report.warn(RuleViolation::new(
-                        "link-migrate",
-                        format!("links[{i}]"),
-                        "compatible via schema migration",
-                        format!("version {from_ver} → {to_ver} (runtime migrator required)"),
-                    ));
-                }
-                LinkCompat::Incompatible { reason } => {
-                    report.push(RuleViolation::new(
-                        "link-type",
-                        format!("links[{i}]"),
-                        "source port can link to target port",
-                        reason.to_string(),
-                    ));
-                }
-            }
-
-            // 2b. Materialization compatibility matrix (S3-1): a `Violates`
-            // carrier is a hard contract violation. `Permitted`/`Recommended`
-            // produce no finding (lossless carriers are suboptimal, never
-            // wrong).
-            match carrier_compatible(src_port.flow, &link.kind) {
-                CarrierCompatResult::Violates => {
-                    report.push(RuleViolation::new(
-                        "flow-carrier",
-                        format!("links[{i}].kind"),
-                        format!(
-                            "{} flow on a non-back-pressuring carrier",
-                            src_port.flow.as_str()
-                        ),
-                        format!(
-                            "carrier {} can block the producer ({} → {})",
-                            link.kind.name(),
-                            src_machine,
-                            dst_machine,
-                        ),
-                    ));
-                }
-                CarrierCompatResult::Recommended | CarrierCompatResult::Permitted => {}
             }
         }
 
@@ -899,10 +966,9 @@ impl DynamicTopology {
     /// Returns the machine names along the cycle (in traversal order) if one
     /// exists, or `None` if the non-Moore subgraph is acyclic.
     ///
-    // Implementation: iterative DFS with color marking. White = unvisited,
-    // Gray = on current stack, Black = finished. A Gray→Gray edge is a back
-    // edge (cycle). We reconstruct the cycle from the stack.
-    fn find_non_moore_cycle(&self) -> Option<Vec<String>> {
+    /// `pub(crate)`: reused by the runtime contract's zero-delay Moore check
+    /// (`crate::runtime_contract::RuntimeContract::check_spec`).
+    pub(crate) fn find_non_moore_cycle(&self) -> Option<Vec<String>> {
         use crate::compat::HashMap as Map;
         use crate::compat::HashSet as Set;
 
@@ -2121,6 +2187,59 @@ mod tests {
         // The single violation is the annotated Observe edge, not the
         // un-annotated Data edge (which the matrix does not constrain).
         assert!(flow_violations[0].expected.contains("observe"));
+    }
+
+    /// A `FuncBinding` endpoint is a stateless transform with no port schema.
+    /// All three validation layers must handle it consistently: `validate()`
+    /// already accepts func endpoints; `validate_deep` must not misreport
+    /// `UnknownMachine`, and `validate_report` must not skip the machine-side
+    /// port check.
+    #[test]
+    fn func_endpoint_consistent_across_validation_layers() {
+        let spec = DynamicTopology::new()
+            .with_machine(machine("a"))
+            .with_func(FuncBinding::new("aggregate", "agg"))
+            .with_link(LinkSpec::new(
+                ("a", "out"),
+                ("aggregate", "in"), // func "port" is opaque
+                LinkKind::Inline,
+            ));
+        let mut schemas = HashMap::new();
+        schemas.insert("a", schema_io_i32());
+
+        assert!(spec.validate().is_ok(), "validate() must accept func endpoint");
+        assert!(
+            spec.validate_deep(&schemas).is_ok(),
+            "validate_deep() must accept func endpoint (no UnknownMachine)"
+        );
+        assert!(spec.validate_report(&schemas).is_ok(), "{:?}", spec.validate_report(&schemas).violations);
+    }
+
+    /// `validate_report` must mirror `validate()` / `validate_deep`'s
+    /// implicit fan-out rejection. Previously a BoundedBuf fan-out spec passed
+    /// validate_report (is_ok) while validate_deep rejected it — a contract
+    /// inconsistency.
+    #[test]
+    fn validate_report_reports_fanout_like_validate_deep() {
+        let spec = DynamicTopology::new()
+            .with_machine(machine("a"))
+            .with_machine(machine("b"))
+            .with_machine(machine("c"))
+            .with_link(bounded("a", "out", "b", "in"))
+            .with_link(bounded("a", "out", "c", "in"));
+        let mut schemas = HashMap::new();
+        schemas.insert("a", schema_io_i32());
+        schemas.insert("b", schema_io_i32());
+        schemas.insert("c", schema_io_i32());
+
+        assert!(matches!(spec.validate(), Err(ValidationError::FanOutViaTee { .. })));
+        assert!(matches!(spec.validate_deep(&schemas), Err(ValidationError::FanOutViaTee { .. })));
+        let report = spec.validate_report(&schemas);
+        assert!(
+            report.violations.iter().any(|v| v.rule_id == "link-fanout"),
+            "validate_report must mirror validate_deep fan-out rejection, got {:?}",
+            report.violations,
+        );
     }
 }
 

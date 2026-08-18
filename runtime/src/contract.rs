@@ -206,4 +206,40 @@ mod tests {
         assert!(!g.backpressure_supported(&CreditPolicy::default()));
         assert_eq!(CreditPolicy::default().required_action(), axiom::backpressure::BackpressureAction::Defer);
     }
+
+    #[test]
+    fn runtime_rejects_deep_physical_budget() {
+        // The runtime honestly declares it cannot pin cores / place NUMA /
+        // allocate huge pages / dispatch SIMD — a hard-real-time blueprint
+        // must be rejected before deployment (B2 declaration-redemption loop).
+        let rt = Runtime::default();
+        let spec = DynamicTopology::new().with_machine(MachineInstance::new(
+            "rt",
+            "RT",
+            axiom::resource::MachinePhysicalSpec {
+                execution: ExecutionHint::CpuBound,
+                cpu_affinity: axiom::resource::CpuAffinity::Exclusive(vec![0]),
+                numa_node: Some(0),
+                huge_pages: axiom::resource::HugePages::Size2MiB,
+                simd: Some(axiom::resource::SimdRequirement {
+                    features: vec![alloc::borrow::Cow::Borrowed("avx2")],
+                }),
+                ..axiom::resource::MachinePhysicalSpec::default()
+            },
+        ));
+        let report = rt.check_spec(&spec, &empty_schemas());
+        for rule in [
+            "runtime-resource-affinity",
+            "runtime-resource-affinity-exclusive",
+            "runtime-resource-numa",
+            "runtime-resource-hugepages",
+            "runtime-resource-simd",
+        ] {
+            assert!(
+                report.violations.iter().any(|v| v.rule_id == rule),
+                "{rule} missing: {:?}",
+                report.violations,
+            );
+        }
+    }
 }

@@ -40,12 +40,13 @@ use crate::link::{
     LinkKind, LinkSpec, MemoryRegion, ReadPolicy, WritePolicy,
 };
 use crate::port::PortSchema;
-use crate::resource::ExecutionHint;
+use crate::resource::{CpuAffinity, ExecutionHint, HugePages};
 
 #[cfg(not(feature = "std"))]
 use alloc::format;
 #[cfg(not(feature = "std"))]
 use alloc::vec;
+use alloc::borrow::Cow;
 use alloc::vec::Vec;
 
 /// Per-kind capability for `BoundedBuf` links.
@@ -178,6 +179,17 @@ pub struct PhysicalBudget {
     pub cache_line_align: bool,
     /// Maximum `max_cleanup_latency_us` accepted (0 = unlimited).
     pub max_cleanup_latency_us: u64,
+    /// Runtime can pin a machine to specific cores (`CpuAffinity::Allowed`).
+    pub cpu_affinity: bool,
+    /// Runtime can guarantee exclusive core ownership (`CpuAffinity::Exclusive`).
+    pub cpu_exclusive: bool,
+    /// Runtime can place machine memory on a requested NUMA node.
+    pub numa: bool,
+    /// Runtime can allocate huge pages for machine working memory.
+    pub huge_pages: bool,
+    /// SIMD instruction sets the runtime's build target provides
+    /// (LLVM `target_feature` names, e.g. `"avx2"`, `"sse4.2"`, `"neon"`).
+    pub simd_features: Vec<Cow<'static, str>>,
 }
 
 /// Everything a runtime adapter declares it guarantees.
@@ -249,7 +261,9 @@ pub trait RuntimeContract {
     /// Default implementation checks, per link: kind support, per-kind policy
     /// support, capacity limits, and **backpressure-action support** (the
     /// carrier must be able to execute the action the link's declared policy
-    /// demands). Per machine: execution-mode support, physical budget. Plus:
+    /// demands). Per machine: execution-mode support, physical budget
+    /// (memory / alignment / cleanup latency / threads, plus the deep budget —
+    /// CPU affinity, NUMA placement, huge pages, SIMD features). Plus:
     /// Moore/cycle requirement (only when `link_delay == Zero`) and
     /// total-thread budget.
     fn check_spec(
@@ -339,6 +353,65 @@ pub trait RuntimeContract {
                     format!("{}µs declared", m.physical.max_cleanup_latency_us),
                 ));
             }
+
+            // Deep physical budget (B2): CPU affinity / NUMA / huge pages /
+            // SIMD. A blueprint that declares a physical requirement the
+            // runtime cannot honor is rejected *before* deployment — the
+            // "exclusive core + huge pages" deployment scenario must fail
+            // loudly here rather than degrade silently at runtime.
+            if !b.cpu_affinity && !matches!(m.physical.cpu_affinity, CpuAffinity::None) {
+                report.push(RuleViolation::new(
+                    "runtime-resource-affinity",
+                    format!("machines[{i}].physical.cpu_affinity"),
+                    "CPU core affinity supported by runtime",
+                    format!(
+                        "{:?} requested, runtime does not pin cores",
+                        m.physical.cpu_affinity
+                    ),
+                ));
+            }
+            if !b.cpu_exclusive && matches!(m.physical.cpu_affinity, CpuAffinity::Exclusive(_)) {
+                report.push(RuleViolation::new(
+                    "runtime-resource-affinity-exclusive",
+                    format!("machines[{i}].physical.cpu_affinity"),
+                    "exclusive core ownership supported by runtime",
+                    "CpuAffinity::Exclusive requested, runtime cannot guarantee exclusive cores",
+                ));
+            }
+            if !b.numa && m.physical.numa_node.is_some() {
+                report.push(RuleViolation::new(
+                    "runtime-resource-numa",
+                    format!("machines[{i}].physical.numa_node"),
+                    "NUMA placement supported by runtime",
+                    format!(
+                        "node {:?} requested, runtime does not place by NUMA",
+                        m.physical.numa_node
+                    ),
+                ));
+            }
+            if !b.huge_pages && m.physical.huge_pages != HugePages::None {
+                report.push(RuleViolation::new(
+                    "runtime-resource-hugepages",
+                    format!("machines[{i}].physical.huge_pages"),
+                    "huge-page allocation supported by runtime",
+                    format!(
+                        "{:?} requested, runtime cannot allocate huge pages",
+                        m.physical.huge_pages
+                    ),
+                ));
+            }
+            if let Some(simd) = &m.physical.simd {
+                for feat in &simd.features {
+                    if !b.simd_features.iter().any(|s| s == feat) {
+                        report.push(RuleViolation::new(
+                            "runtime-resource-simd",
+                            format!("machines[{i}].physical.simd"),
+                            format!("SIMD feature '{feat}' supported by runtime"),
+                            "declared unsupported",
+                        ));
+                    }
+                }
+            }
         }
 
         // 3. Total-thread budget.
@@ -363,8 +436,11 @@ pub trait RuntimeContract {
         if g.link_delay == LinkDelay::Zero && !spec.machines.is_empty() {
             // Validate the Moore invariant directly: a cycle with no Moore
             // machine is an algebraic loop in a zero-delay runtime.
-            let has_non_moore_cycle = spec_has_non_moore_cycle(spec);
-            if has_non_moore_cycle {
+            // Reuses deploy's `find_non_moore_cycle`: a cycle in the subgraph
+            // induced by non-Moore machines. This is exact (not the previous
+            // conservative "any cycle ∧ no Moore at all" approximation, which
+            // missed two-cycle specs where one cycle had a Moore machine).
+            if spec.find_non_moore_cycle().is_some() {
                 report.push(RuleViolation::new(
                     "runtime-cycle-moore",
                     "links",
@@ -523,19 +599,6 @@ fn thread_count(e: &ExecutionHint) -> usize {
     }
 }
 
-fn spec_has_non_moore_cycle(spec: &DynamicTopology) -> bool {
-    // Reuse the public analysis: feedback_loops finds cycles; for the
-    // zero-delay rule we need a cycle without any Moore machine.
-    // Simplification: if the spec has any feedback loop and not every
-    // machine is Moore, flag it (conservative).
-    let loops = crate::analysis::feedback_loops(spec);
-    if loops.is_empty() {
-        return false;
-    }
-    let any_moore = spec.machines.iter().any(|m| m.is_moore);
-    !any_moore
-}
-
 // ── Reference runtime ──────────────────────────────────────────────────────────
 
 /// Reference runtime declaration matching the built-in `axiom-runtime`
@@ -595,6 +658,15 @@ impl RuntimeContract for ReferenceRuntime {
                 max_state_bytes: 0,
                 cache_line_align: false,
                 max_cleanup_latency_us: 0,
+                // The reference runtime drives machines cooperatively without
+                // core pinning, NUMA placement, huge-page allocation, or
+                // target-feature dispatch — honestly declared unsupported so
+                // a blueprint demanding them is rejected before deployment.
+                cpu_affinity: false,
+                cpu_exclusive: false,
+                numa: false,
+                huge_pages: false,
+                simd_features: vec![],
             },
             // Built-in carrier validation (see runtime/carrier.rs): BoundedBlocking
             // supports Block, BoundedDropping/Channel(drop) supports Drop,
@@ -619,7 +691,7 @@ mod tests {
     };
     use crate::deploy::{DynamicTopology, MachineInstance};
     use crate::port::PortDecl;
-    use crate::resource::MachinePhysicalSpec;
+    use crate::resource::{CpuAffinity, HugePages, MachinePhysicalSpec, SimdRequirement};
 
     fn schema_io() -> HashMap<&'static str, PortSchema> {
         let s = PortSchema::new()
@@ -850,6 +922,54 @@ mod tests {
             .violations
             .iter()
             .any(|v| v.rule_id == "runtime-cycle-moore"));
+    }
+
+    #[test]
+    fn zero_delay_runtime_flags_cycle_among_mixed_moore_spec() {
+        // Regression: the old `spec_has_non_moore_cycle` only flagged a cycle
+        // when NO machine was Moore. With two cycles — one breaking through a
+        // Moore machine, one not — the unsafe cycle was silently accepted.
+        // The exact `find_non_moore_cycle` (cycle in the non-Moore subgraph)
+        // must flag it.
+        struct ZeroDelay;
+        impl RuntimeContract for ZeroDelay {
+            fn id(&self) -> &'static str {
+                "test/zero-delay-2"
+            }
+            fn guarantees(&self) -> Guarantees {
+                Guarantees {
+                    link_kinds: LinkKindSupport {
+                        inline: true,
+                        ..LinkKindSupport::default()
+                    },
+                    exec_modes: ExecModeSupport {
+                        sequential: true,
+                        ..ExecModeSupport::default()
+                    },
+                    link_delay: LinkDelay::Zero,
+                    ..Guarantees::default()
+                }
+            }
+        }
+        // Safe cycle: m(moore) → m → m(moore).
+        // Unsafe cycle: a → b → a, neither Moore.
+        let spec = DynamicTopology::new()
+            .with_machine(MachineInstance::new("m1", "M1", MachinePhysicalSpec::default()).moore())
+            .with_machine(MachineInstance::new("m2", "M2", MachinePhysicalSpec::default()))
+            .with_machine(MachineInstance::new("m3", "M3", MachinePhysicalSpec::default()).moore())
+            .with_machine(MachineInstance::new("a", "A", MachinePhysicalSpec::default()))
+            .with_machine(MachineInstance::new("b", "B", MachinePhysicalSpec::default()))
+            .with_link(crate::link::LinkSpec::new(("m1", "out"), ("m2", "in"), LinkKind::Inline))
+            .with_link(crate::link::LinkSpec::new(("m2", "out"), ("m3", "in"), LinkKind::Inline))
+            .with_link(crate::link::LinkSpec::new(("m3", "out"), ("m1", "in"), LinkKind::Inline))
+            .with_link(crate::link::LinkSpec::new(("a", "out"), ("b", "in"), LinkKind::Inline))
+            .with_link(crate::link::LinkSpec::new(("b", "out"), ("a", "in"), LinkKind::Inline));
+        let report = ZeroDelay.check_spec(&spec, &schema_io());
+        assert!(
+            report.violations.iter().any(|v| v.rule_id == "runtime-cycle-moore"),
+            "unsafe non-Moore cycle missed among mixed-Moore spec: {:?}",
+            report.violations,
+        );
     }
 
     // ── S3-3: backpressure policy ↔ carrier correspondence ─────────────────────
@@ -1086,5 +1206,172 @@ mod tests {
                 report.violations,
             );
         }
+    }
+
+    // ── B2: deep physical budget (CPU affinity / NUMA / huge pages / SIMD) ────
+
+    /// A machine that declares the full hard-real-time stack: exclusive cores,
+    /// NUMA node 0, 2 MiB huge pages, and an AVX2 hot path.
+    fn hard_real_time_spec() -> DynamicTopology {
+        DynamicTopology::new().with_machine(MachineInstance::new(
+            "rt",
+            "RT",
+            MachinePhysicalSpec {
+                execution: ExecutionHint::CpuBound,
+                cpu_affinity: CpuAffinity::Exclusive(vec![2, 3]),
+                numa_node: Some(0),
+                huge_pages: HugePages::Size2MiB,
+                simd: Some(SimdRequirement {
+                    features: vec![alloc::borrow::Cow::Borrowed("avx2")],
+                }),
+                ..MachinePhysicalSpec::default()
+            },
+        ))
+    }
+
+    /// A runtime that can honor none of the deep physical budget.
+    fn no_deep_budget_runtime() -> impl RuntimeContract {
+        struct NoDeep;
+        impl RuntimeContract for NoDeep {
+            fn id(&self) -> &'static str {
+                "test/no-deep-budget"
+            }
+            fn guarantees(&self) -> Guarantees {
+                Guarantees {
+                    link_kinds: LinkKindSupport {
+                        inline: true,
+                        ..LinkKindSupport::default()
+                    },
+                    exec_modes: ExecModeSupport {
+                        sequential: true,
+                        thread_per_machine: true,
+                        ..ExecModeSupport::default()
+                    },
+                    link_delay: LinkDelay::OneTick,
+                    physical: PhysicalBudget::default(),
+                    ..Guarantees::default()
+                }
+            }
+        }
+        NoDeep
+    }
+
+    /// A runtime that can honor the full deep physical budget.
+    fn full_deep_budget_runtime() -> impl RuntimeContract {
+        struct FullDeep;
+        impl RuntimeContract for FullDeep {
+            fn id(&self) -> &'static str {
+                "test/full-deep-budget"
+            }
+            fn guarantees(&self) -> Guarantees {
+                Guarantees {
+                    link_kinds: LinkKindSupport {
+                        inline: true,
+                        ..LinkKindSupport::default()
+                    },
+                    exec_modes: ExecModeSupport {
+                        sequential: true,
+                        thread_per_machine: true,
+                        ..ExecModeSupport::default()
+                    },
+                    link_delay: LinkDelay::OneTick,
+                    physical: PhysicalBudget {
+                        cpu_affinity: true,
+                        cpu_exclusive: true,
+                        numa: true,
+                        huge_pages: true,
+                        simd_features: vec![alloc::borrow::Cow::Borrowed("avx2")],
+                        ..PhysicalBudget::default()
+                    },
+                    ..Guarantees::default()
+                }
+            }
+        }
+        FullDeep
+    }
+
+    #[test]
+    fn rejects_deep_physical_budget_when_unsupported() {
+        let rt = no_deep_budget_runtime();
+        let report = rt.check_spec(&hard_real_time_spec(), &schema_io());
+        for rule in [
+            "runtime-resource-affinity",
+            "runtime-resource-affinity-exclusive",
+            "runtime-resource-numa",
+            "runtime-resource-hugepages",
+            "runtime-resource-simd",
+        ] {
+            assert!(
+                report.violations.iter().any(|v| v.rule_id == rule),
+                "expected {rule} violation, got {:?}",
+                report.violations,
+            );
+        }
+    }
+
+    #[test]
+    fn accepts_deep_physical_budget_when_declared() {
+        let rt = full_deep_budget_runtime();
+        let report = rt.check_spec(&hard_real_time_spec(), &schema_io());
+        assert!(report.is_ok(), "{:?}", report.violations);
+    }
+
+    #[test]
+    fn allowed_affinity_needs_only_pinning_not_exclusivity() {
+        // `CpuAffinity::Allowed` must be satisfied by a runtime that pins
+        // cores but does not guarantee exclusive ownership.
+        struct PinOnly;
+        impl RuntimeContract for PinOnly {
+            fn id(&self) -> &'static str {
+                "test/pin-only"
+            }
+            fn guarantees(&self) -> Guarantees {
+                Guarantees {
+                    link_kinds: LinkKindSupport {
+                        inline: true,
+                        ..LinkKindSupport::default()
+                    },
+                    exec_modes: ExecModeSupport {
+                        sequential: true,
+                        thread_per_machine: true,
+                        ..ExecModeSupport::default()
+                    },
+                    link_delay: LinkDelay::OneTick,
+                    physical: PhysicalBudget {
+                        cpu_affinity: true,
+                        ..PhysicalBudget::default()
+                    },
+                    ..Guarantees::default()
+                }
+            }
+        }
+        let spec = DynamicTopology::new().with_machine(MachineInstance::new(
+            "rt",
+            "RT",
+            MachinePhysicalSpec {
+                execution: ExecutionHint::CpuBound,
+                cpu_affinity: CpuAffinity::Allowed(vec![4]),
+                ..MachinePhysicalSpec::default()
+            },
+        ));
+        let report = PinOnly.check_spec(&spec, &schema_io());
+        assert!(report.is_ok(), "{:?}", report.violations);
+
+        // The same runtime must reject the exclusive form.
+        let spec = DynamicTopology::new().with_machine(MachineInstance::new(
+            "rt",
+            "RT",
+            MachinePhysicalSpec {
+                execution: ExecutionHint::CpuBound,
+                cpu_affinity: CpuAffinity::Exclusive(vec![4]),
+                ..MachinePhysicalSpec::default()
+            },
+        ));
+        let report = PinOnly.check_spec(&spec, &schema_io());
+        assert!(
+            report.violations.iter().any(|v| v.rule_id == "runtime-resource-affinity-exclusive"),
+            "{:?}",
+            report.violations,
+        );
     }
 }

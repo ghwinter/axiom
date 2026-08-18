@@ -244,9 +244,34 @@ pub fn schema() -> Value {
                     "state_heap_bytes": { "type": "integer", "minimum": 0 },
                     "cache_line_align": { "type": "boolean" },
                     "deterministic": { "type": "boolean" },
-                    "max_cleanup_latency_us": { "type": "integer", "minimum": 0 }
+                    "max_cleanup_latency_us": { "type": "integer", "minimum": 0 },
+                    "per_message_latency_us": { "type": "integer", "minimum": 0, "description": "Expected per-message latency in µs; 0 = undeclared (serde default)." },
+                    "cpu_affinity": { "$ref": "#/$defs/cpu_affinity" },
+                    "numa_node": { "type": ["integer", "null"], "minimum": 0, "description": "Preferred NUMA node (0-based); null = no preference." },
+                    "huge_pages": { "$ref": "#/$defs/huge_pages" },
+                    "simd": { "anyOf": [{ "$ref": "#/$defs/simd" }, { "type": "null" }], "description": "Required SIMD instruction sets; null = none." }
                 },
                 "required": ["execution", "state_heap_bytes", "cache_line_align", "deterministic", "max_cleanup_latency_us"],
+                "additionalProperties": false
+            },
+            "cpu_affinity": {
+                "oneOf": [
+                    { "const": "None" },
+                    { "type": "object", "properties": { "Allowed": { "type": "array", "items": { "type": "integer", "minimum": 0 } } }, "required": ["Allowed"], "additionalProperties": false },
+                    { "type": "object", "properties": { "Exclusive": { "type": "array", "items": { "type": "integer", "minimum": 0 } } }, "required": ["Exclusive"], "additionalProperties": false }
+                ]
+            },
+            "huge_pages": {
+                "oneOf": [
+                    { "const": "None" },
+                    { "const": "Size2MiB" },
+                    { "const": "Size1GiB" }
+                ]
+            },
+            "simd": {
+                "type": "object",
+                "properties": { "features": { "type": "array", "items": { "type": "string" }, "minItems": 1 } },
+                "required": ["features"],
                 "additionalProperties": false
             },
             "execution": {
@@ -492,8 +517,87 @@ mod tests {
             "machine", "func", "link", "settings", "physical", "execution",
             "link_kind", "write_policy", "read_policy", "memory_region",
             "thread_pool", "subprocess", "restart",
+            "cpu_affinity", "huge_pages", "simd",
         ] {
             assert!(defs.contains_key(key), "missing $def {key}");
+        }
+    }
+
+    #[test]
+    fn schema_describes_every_serialized_physical_field() {
+        // The schema is the AI-facing contract: `physical` has
+        // `additionalProperties: false`, so ANY field serde emits that the
+        // schema does not describe makes real `to_json` output fail schema
+        // validation. Guard drift in both directions: every emitted field
+        // must appear in the schema, and every schema-required field must be
+        // emitted.
+        let s = schema();
+        let props = s["$defs"]["physical"]["properties"]
+            .as_object()
+            .expect("physical.properties");
+        let required = s["$defs"]["physical"]["required"]
+            .as_array()
+            .expect("physical.required");
+
+        // Fully-populated spec: every B2 deep-budget field set.
+        let spec = DynamicTopology::new().with_machine(machine(
+            "rt",
+            "RT",
+            MachinePhysicalSpec {
+                execution: ExecutionHint::CpuBound,
+                state_heap_bytes: 16384,
+                cache_line_align: true,
+                deterministic: true,
+                max_cleanup_latency_us: 1000,
+                per_message_latency_us: 12,
+                cpu_affinity: crate::resource::CpuAffinity::Exclusive(vec![2, 3]),
+                numa_node: Some(0),
+                huge_pages: crate::resource::HugePages::Size2MiB,
+                simd: Some(crate::resource::SimdRequirement {
+                    features: vec![alloc::borrow::Cow::Borrowed("avx2")],
+                }),
+            },
+        ));
+        let json = to_json(&spec).expect("serialize");
+        let value: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        let emitted: Vec<&str> = value["machines"][0]["physical"]
+            .as_object()
+            .expect("physical object")
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        for k in &emitted {
+            assert!(
+                props.contains_key(*k),
+                "serialized field '{k}' missing from schema physical.properties"
+            );
+        }
+        for r in required {
+            let name = r.as_str().expect("required name");
+            assert!(
+                emitted.contains(&name),
+                "schema requires '{name}' but serde did not emit it"
+            );
+        }
+
+        // Default spec: every emitted key must still be described (serde emits
+        // all fields, including the serde(default) ones, as null / defaults).
+        let spec = DynamicTopology::new().with_machine(machine(
+            "d",
+            "D",
+            MachinePhysicalSpec::default(),
+        ));
+        let json = to_json(&spec).expect("serialize");
+        let value: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        for k in value["machines"][0]["physical"]
+            .as_object()
+            .expect("physical object")
+            .keys()
+        {
+            assert!(
+                props.contains_key(k),
+                "default spec field '{k}' missing from schema physical.properties"
+            );
         }
     }
 

@@ -541,12 +541,19 @@ impl MachineContext {
     }
 
     /// Send a signal to this machine (called by runtime).
+    ///
+    /// Signals are **sticky bits**: `Shutdown` (bit 0) and `Checkpoint`
+    /// (bit 1) are OR-ed in and can coexist. `Shutdown` is never cleared by
+    /// [`poll_signal`](Self::poll_signal); `Checkpoint` is cleared only when a
+    /// machine consumes it. This removes the old store-based encoding's silent
+    /// data loss where a later advisory `Checkpoint` overwrote a pending
+    /// `Shutdown`.
     pub fn send_signal(&self, signal: SystemSignal) {
-        let code = match signal {
+        let bit = match signal {
             SystemSignal::Shutdown => 1,
             SystemSignal::Checkpoint => 2,
         };
-        self.signal_flag.store(code, Ordering::Release);
+        self.signal_flag.fetch_or(bit, Ordering::Release);
     }
 
     /// Poll for a pending **advisory** signal (`Checkpoint`). Returns and
@@ -574,13 +581,15 @@ impl MachineContext {
     /// `Shutdown`.
     pub fn poll_signal(&self) -> Option<SystemSignal> {
         let flag = self.signal_flag.load(Ordering::Acquire);
-        if flag == 2 {
-            // Checkpoint: consume and return.
-            self.signal_flag.store(0, Ordering::Release);
+        if flag & 2 != 0 {
+            // Checkpoint pending (bit 1): consume it — clear only the
+            // Checkpoint bit, leaving any `Shutdown` bit untouched so a
+            // runtime that also needs to shut down still observes it.
+            self.signal_flag.fetch_and(!2, Ordering::Release);
             Some(SystemSignal::Checkpoint)
         } else {
-            // 0 (nothing) or 1 (Shutdown): do NOT consume Shutdown.
-            // The runtime will observe it via has_shutdown_signal().
+            // No Checkpoint. Do NOT consume Shutdown — the runtime observes it
+            // via has_shutdown_signal().
             None
         }
     }
@@ -600,7 +609,7 @@ impl MachineContext {
     /// shutdown non-negotiable.
     #[inline]
     pub fn has_shutdown_signal(&self) -> bool {
-        self.signal_flag.load(Ordering::Acquire) == 1
+        self.signal_flag.load(Ordering::Acquire) & 1 != 0
     }
 
     pub fn set_snapshot_fn(&mut self, f: Arc<dyn Fn() -> Option<Vec<u8>> + Send + Sync>) {
@@ -817,13 +826,18 @@ mod tests {
     }
 
     #[test]
-    fn context_send_signal_overwrites() {
-        // send_signal is a covering store (not fetch_or): a later Checkpoint
-        // overwrites the earlier Shutdown, flipping the flag from 1 to 2.
+    fn context_shutdown_survives_checkpoint() {
+        // Signals are sticky bits: a later advisory Checkpoint must NOT
+        // overwrite a pending mandatory Shutdown. Previously the covering
+        // store flipped the flag 1→2 and lost the Shutdown; the sticky-bit
+        // encoding keeps both and Shutdown remains observable.
         let ctx = MachineContext::new("test");
         ctx.send_signal(SystemSignal::Shutdown);
         ctx.send_signal(SystemSignal::Checkpoint);
-        assert!(!ctx.has_shutdown_signal());
+        assert!(ctx.has_shutdown_signal(), "Shutdown must survive a later Checkpoint");
+        // Consuming the Checkpoint (machine-side) must not consume Shutdown.
+        assert_eq!(ctx.poll_signal(), Some(SystemSignal::Checkpoint));
+        assert!(ctx.has_shutdown_signal(), "poll_signal must not consume Shutdown");
     }
 
     #[test]
