@@ -4,57 +4,6 @@
 
 ---
 
-## 0. The Governing Principle: Blueprint–Redemption Isomorphism
-
-### 0.1 The Core Proposition
-
-The meta-question that governs every axiom design decision:
-
-> **The blueprint is the product; execution is its redemption; validation is the isomorphism guarantee.**
-
-A system's structure is declared once as a typed graph (the blueprint, abstraction layer $\mathcal{A}$); running it realizes that blueprint (the redemption, physical layer $\mathcal{P}_h$); validation guarantees the redemption is faithful — the correspondence $\mathcal{A} \leftrightarrow \mathcal{P}_h$ is **verified, not assumed**.
-
-### 0.2 Why Three Value-Poles Are One Relationship
-
-The three value claims axiom makes for complex systems are not three independent ends but three faces of the single correspondence between declaration and physics:
-
-| Value claim | Face of the correspondence |
-|---|---|
-| Decouplability / maintainability / comprehensibility | the blueprint stays true as the system evolves |
-| Verifiability (evidence, contracts) | the redemption is verifiable |
-| Zero cost (static path) | the redemption is cheap enough to be the default path |
-
-A feature that serves none of these faces — that neither makes the blueprint more truthful nor the redemption more verifiable — is over-design and is rejected.
-
-### 0.3 The Meta-Question (Rejection Criterion)
-
-> For every candidate feature: **does it make the blueprint more truthful (more accurately predicting runtime behavior), or the redemption more verifiable (more reliably honoring the blueprint)? If neither, it is over-design.**
-
-"Truthful" is grounded, not rhetorical: a blueprint is truthful exactly when it predicts runtime behavior accurately, and accuracy is adjudicated by the evidence (the E-series verification contracts).
-
-### 0.4 Decoupling Is the Means; Isomorphism Is the Promise
-
-- **Decoupling** (the abstraction–physics split) answers: *can the physics evolve independently of the blueprint?* It makes verification possible.
-- **Isomorphism** (the verified correspondence) answers: *does the physics actually honor the blueprint?* It keeps decoupling from degenerating into drift.
-
-Decoupling without isomorphism degenerates into two unrelated things; isomorphism without decoupling degenerates into a single object with no separate layer to verify. The two hold together: decoupling enables verification, verification prevents decoupling from becoming a lie.
-
-### 0.5 First Corollaries
-
-1. **Prune morphology exceptions.** A structural vocabulary item must map 1:1 to a blueprint decision. An experimental machine morphology that neither makes the blueprint more truthful nor the redemption more verifiable is moved out of the default export surface.
-2. **Wire every declaration.** A declared contract (`RuntimeContract`, `validate_deep` rules, the FlowKind×carrier matrix) that is not executed on a redemption path is an unverified correspondence — declared-but-unexecuted weight — and must be wired or removed.
-
-### 0.6 Relation to the Other Principles
-
-Every principle in this document is a specialization of the governing proposition:
-
-- **execution-shape isomorphism** (§5.1) — zero cost is the *cheap redemption* face;
-- **verification criterion** (§3.1) and **source / destination is a business error** (§3.2) — verification is the *faithful correspondence* face;
-- **finite set of execution forms** (§1.2) — physics is organized into a finite choice set so the correspondence stays verifiable;
-- **explicit over implicit** (§4.2) — the blueprint declares its physical needs so the correspondence is checkable.
-
----
-
 ## 1. Abstraction and Physics: The Precise Boundary of What and How
 
 ### 1.1 The Two Layers of Existence (Recap)
@@ -280,8 +229,6 @@ per-level virtual call (see [foundations.md §15.3](foundations.md)).
 ## Appendix: Design Principle Index
 
 The principles in this document, unnumbered:
-
-- **Blueprint–redemption isomorphism** — the blueprint is the product, execution is its redemption, validation is the isomorphism guarantee; reject any feature that serves neither the blueprint's truthfulness nor the redemption's verifiability. (§0)
 
 - **Finite set of execution forms** — the physical process is a finite set of standard execution forms (data-flow × concurrency × resource), chosen at deployment time. (§1.2)
 - **Classify performance gaps first** — in-shape redundancy (patch) vs shape difference (execution-model innovation). (§2.3)
