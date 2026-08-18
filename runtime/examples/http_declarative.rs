@@ -1,30 +1,45 @@
-//! http_declarative — `http_tutorial` 拓扑的**声明式验收**。
+//! http_declarative — declarative acceptance of the `http_tutorial` topology.
 //!
-//! 同一张图（Receiver → Calculator → Persister），这次不再手写
-//! `MachineHandle` 驱动循环，而是交给 `axiom-runtime`：
+//! The same graph (Receiver → Calculator → Persister), but instead of hand-writing a
+//! `MachineHandle` drive loop, the graph is handed to `axiom-runtime`:
 //!
 //! ```text
-//!   register 三个机器类型 ──► materialize(DynamicTopology) ──► tick(输入序列)
+//!   register the three machine types ─► materialize(DynamicTopology) ─► tick(inputs)
 //! ```
 //!
-//! 验证：
-//! 1. `Sequential` 模式：注入 3 个请求，终端输出 = 3 条 status
-//!    （`balance=10/5/8`）——Calculator 的 status 观察端口无下游，
-//!    被收集为终端输出；balance 数据端口路由到 Persister。
-//! 2. `Parallel(4)` 模式：同一 spec 产出相同结果（R001 确定性）。
+//! This example also demonstrates the **deployment guard**: before any physics is
+//! created, the topology is audited twice —
 //!
-//! 运行：cargo run --manifest-path runtime/Cargo.toml --example http_declarative
+//! 1. `DynamicTopology::validate_deep` — port existence, type/flow compatibility,
+//!    the FlowKind×carrier materialization matrix, cycle safety, edge-degree
+//!    constraints (S3-1/S3-2);
+//! 2. `RuntimeContract::check_spec` — the runtime declares its capabilities
+//!    (link kinds, backpressure actions, execution modes), and a topology that
+//!    demands something the runtime cannot honor is rejected *before* deploy.
+//!
+//! Verified:
+//! 1. `Sequential` mode: 3 injected requests → 3 terminal statuses
+//!    (`balance=10/5/8`) — Calculator's `status` observation port has no
+//!    downstream, so it is collected as a terminal output; the `balance` data
+//!    port is routed to Persister.
+//! 2. `Parallel(4)` mode: the same spec yields the same result (R001 determinism).
+//! 3. A deliberately incompatible spec (a machine demanding subprocess execution)
+//!    is rejected by `check_spec` — the guard is not decorative.
+//!
+//! Run: cargo run --manifest-path runtime/Cargo.toml --example http_declarative
 
+use axiom::compat::HashMap;
 use axiom::declare_ports;
-use axiom::deploy::{DynamicTopology, MachineInstance};
+use axiom::deploy::{DynamicTopology, MachineInstance, ValidationReport};
 use axiom::link::{LinkKind, LinkSpec};
 use axiom::machine::{CleanupError, InitError, Machine, SingleOutput, TupleOutput};
-use axiom::port::{ConfigSchema, MachineContext};
-use axiom::resource::MachinePhysicalSpec;
+use axiom::port::{ConfigSchema, MachineContext, PortSchema};
+use axiom::resource::{MachinePhysicalSpec, RestartPolicy, SubprocessSpec};
+use axiom::runtime_contract::RuntimeContract;
 use axiom_runtime::{ProcessResult, Runtime, RuntimeConfig};
 
 // ════════════════════════════════════════════════════════════════════════
-// 数据类型（与 axiom 的 examples/http_tutorial.rs 相同）
+// Data types (identical to axiom's examples/http_tutorial.rs)
 // ════════════════════════════════════════════════════════════════════════
 
 #[derive(Debug, Clone, PartialEq)]
@@ -44,7 +59,7 @@ pub struct Balance {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 1：Receiver —— 接收 + 解析
+// Module 1: Receiver — receives + parses
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -85,7 +100,7 @@ impl Machine for Receiver {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 2：Calculator —— 核心逻辑，状态随数据变化
+// Module 2: Calculator — core logic, state changes with data
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -130,7 +145,7 @@ impl Machine for Calculator {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 模块 3：Persister —— 持久化（内存历史）
+// Module 3: Persister — persistence (in-memory history)
 // ════════════════════════════════════════════════════════════════════════
 
 declare_ports! {
@@ -140,7 +155,7 @@ declare_ports! {
             save [Data] => Balance,
         }
         output type PersisterOutput {
-            // 纯汇：无输出端口
+            // pure sink: no output ports
         }
     }
 }
@@ -171,7 +186,7 @@ impl Machine for Persister {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// 拓扑 + 驱动
+// Topology + drive
 // ════════════════════════════════════════════════════════════════════════
 
 fn topology() -> DynamicTopology {
@@ -199,12 +214,39 @@ fn topology() -> DynamicTopology {
         ))
 }
 
+/// Per-machine port schemas — the type information `validate_deep` needs.
+fn schemas() -> HashMap<&'static str, PortSchema> {
+    let mut m = HashMap::new();
+    m.insert("receiver", Receiver::port_schema());
+    m.insert("calc", Calculator::port_schema());
+    m.insert("persist", Persister::port_schema());
+    m
+}
+
+/// The deployment guard: audit the topology before creating any physics.
+///
+/// Returns the guard report so the caller can assert on it.
+fn guard(topo: &DynamicTopology, rt: &Runtime) -> ValidationReport {
+    let schemas = schemas();
+    // S3-1/S3-2: port existence, type/flow compatibility, FlowKind×carrier
+    // matrix, cycle safety, edge-degree constraints.
+    topo.validate_deep(&schemas).expect("deep validation must pass");
+    // RuntimeContract: the runtime declares what it can honor; the topology
+    // must fit inside that before materialization.
+    let report = rt.check_spec(topo, &schemas);
+    assert!(report.is_ok(), "topology incompatible with runtime: {:?}", report.violations);
+    report
+}
+
 fn run(cfg: RuntimeConfig) -> Vec<String> {
     let mut rt = Runtime::new(cfg);
     rt.register::<Receiver>("receiver");
     rt.register::<Calculator>("calculator");
     rt.register::<Persister>("persister");
-    rt.materialize(&topology()).expect("materialize");
+
+    let topo = topology();
+    guard(&topo, &rt);
+    rt.materialize(&topo).expect("materialize");
 
     let requests = vec![
         RawRequest { delta: 10, src: "client-1".into() },
@@ -217,7 +259,8 @@ fn run(cfg: RuntimeConfig) -> Vec<String> {
         .collect();
 
     let out = rt.tick(inputs).expect("tick");
-    // 终端输出 = status 观察端口（无下游）；balance 路由到 Persister（Idle）。
+    // Terminal outputs = the `status` observation port (no downstream);
+    // `balance` is routed to Persister (Idle).
     out.into_iter()
         .filter_map(|r| match r {
             ProcessResult::Yield { value, .. } => value.downcast::<String>().ok().map(|b| *b),
@@ -237,5 +280,29 @@ fn main() {
     assert_eq!(seq, expected, "Sequential must yield the 3 statuses in order");
     assert_eq!(par, expected, "Parallel(4) must yield the same statuses (R001 determinism)");
 
+    // The guard is not decorative: a topology demanding subprocess execution is
+    // rejected by check_spec before materialization.
+    let rt = Runtime::default();
+    let hostile = DynamicTopology::new().with_machine(MachineInstance::new(
+        "worker",
+        "receiver",
+        MachinePhysicalSpec {
+            execution: axiom::resource::ExecutionHint::Subprocess(SubprocessSpec {
+                executable: "isolated-worker".into(),
+                args: vec![],
+                restart: RestartPolicy::Never,
+            }),
+            ..MachinePhysicalSpec::default()
+        },
+    ));
+    let report = rt.check_spec(&hostile, &schemas());
+    assert!(!report.is_ok(), "subprocess execution must be rejected");
+    assert!(
+        report.violations.iter().any(|v| v.rule_id == "runtime-exec-mode"),
+        "expected a runtime-exec-mode violation, got {:?}",
+        report.violations,
+    );
+
     println!("✓ http_tutorial declared declaratively: Sequential == Parallel, statuses correct");
+    println!("✓ deployment guard: validate_deep + check_spec pass for the valid topology, reject the incompatible one");
 }

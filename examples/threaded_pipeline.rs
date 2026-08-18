@@ -13,9 +13,10 @@
 //! What it verifies:
 //! 1. **Data integrity across threads** — exactly 2N values arrive (Tee
 //!    fan-out duplicates), with the right sums (no loss, no duplication).
-//! 2. **Backpressure propagation** — bounded channels + `try_send` +
-//!    retry (the physical realisation of `BlockPolicy`); a slow worker
-//!    stalls the whole chain, measured as blocked-send counts.
+//! 2. **Backpressure propagation** — bounded channels driven by the
+//!    `BlockPolicy` backpressure contract (`BackpressureCtx` → `decide` →
+//!    execute the action); a slow worker stalls the whole chain, measured
+//!    as blocked-send counts.
 //! 3. **Multi-instance parallelism** — two worker machines run on separate
 //!    threads; each `&mut State` is per-instance serial, instances run
 //!    concurrently (measured as max concurrent workers).
@@ -34,6 +35,9 @@ use axiom::prelude_all::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::time::Instant;
+
+/// Channel capacity shared by every bounded link in the topology.
+const CHAN_CAP: usize = 16;
 
 // ════════════════════════════════════════════════════════════════════════════
 // Machines
@@ -153,18 +157,39 @@ impl Machine for Collector {
 // Hand-written driver helpers
 // ════════════════════════════════════════════════════════════════════════════
 
-/// Blocking send with backpressure measurement: `try_send`, count failures,
-/// retry. This is the physical realisation of `BlockPolicy` on a bounded
-/// channel (the runtime-adapter contract `BackpressurePolicy::decide`
-/// abstracts exactly this decision).
+/// Blocking send driven by the `BlockPolicy` backpressure contract.
+///
+/// This is the runtime side of the algebra/physics split: probe the concrete
+/// channel, snapshot its state into a [`BackpressureCtx`], let the policy
+/// [`BackpressurePolicy::decide`] return an action, then execute that action
+/// on the channel. `BlockPolicy` on a full channel returns
+/// [`BackpressureAction::Block`]; the sender yields and retries when space
+/// frees. The policy↔carrier correspondence (S3-3) is asserted via
+/// [`BackpressurePolicy::required_action`].
 fn blocking_send(tx: &SyncSender<i64>, v: i64, blocked: &AtomicUsize) {
+    let policy = BlockPolicy::new();
+    debug_assert_eq!(policy.required_action(), BackpressureAction::Block);
     loop {
+        // Probe the channel: `Full` means fill == capacity (the channel is
+        // at its bound, so the policy must decide).
         match tx.try_send(v) {
-            Ok(()) => return,
-            Err(_) => {
-                blocked.fetch_add(1, Ordering::Relaxed);
-                std::thread::yield_now();
+            Ok(()) => return, // space existed → the policy's Proceed path
+            Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                let ctx = BackpressureCtx {
+                    fill: CHAN_CAP,
+                    capacity: CHAN_CAP,
+                    closed: false,
+                    credits: policy.credits(), // u64::MAX: stateless policy
+                };
+                match policy.decide(ctx) {
+                    BackpressureAction::Block => {
+                        blocked.fetch_add(1, Ordering::Relaxed);
+                        std::thread::yield_now(); // retry once the consumer drains
+                    }
+                    _ => unreachable!("BlockPolicy decides Block on a full channel"),
+                }
             }
+            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return, // EOF
         }
     }
 }
@@ -258,7 +283,6 @@ fn collector_thread(rx: Receiver<i64>) -> (u64, i64) {
 
 fn main() {
     const N: usize = 20_000;
-    const CHAN_CAP: usize = 16;
 
     println!("=== threaded_pipeline: Source → Tee → 2×Worker → Collector ===");
     println!("N = {}, channel capacity = {}\n", N, CHAN_CAP);

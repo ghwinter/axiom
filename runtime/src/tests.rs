@@ -111,9 +111,9 @@ fn runtime_materialize_single_machine() {
 
 #[test]
 fn runtime_materialize_rejects_dangling_port() {
-    // validate_endpoint fix: when a link references a nonexistent port, materialization
-    // reports DanglingRef (rather than inject silently returning Idle at tick time and
-    // swallowing the message).
+    // The deployment contract (validate_deep, wired into materialize) catches a link
+    // referencing a nonexistent port at the blueprint level — before any physics is
+    // created — rather than the endpoint check firing after machines are built.
     // Two machines are used to avoid triggering DynamicTopology::validate's SelfLoop check —
     // this specifically tests the runtime's port-existence validation, not the core's cycle
     // check.
@@ -127,14 +127,15 @@ fn runtime_materialize_rejects_dangling_port() {
 
     let err = rt.materialize(&spec).unwrap_err();
     assert!(
-        matches!(err, RuntimeError::DanglingRef { ref machine, ref port } if machine == "d1" && port == "nonexistent"),
-        "expected DanglingRef for nonexistent port, got {err:?}"
+        matches!(err, RuntimeError::ContractViolation { contract: "validate_deep", .. }),
+        "expected ContractViolation for nonexistent port, got {err:?}"
     );
 }
 
 #[test]
 fn runtime_materialize_rejects_wrong_port_direction() {
-    // validate_endpoint fix: the src port must be an output port (PortDir::Out).
+    // The deployment contract (validate_deep) rejects an input port used as a link's out
+    // end at the blueprint level.
     // DoublerInput::x is an input port — it should be rejected as a link's out end.
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
@@ -146,8 +147,8 @@ fn runtime_materialize_rejects_wrong_port_direction() {
 
     let err = rt.materialize(&spec).unwrap_err();
     assert!(
-        matches!(err, RuntimeError::DanglingRef { ref machine, ref port } if machine == "d1" && port == "x"),
-        "expected DanglingRef for input port used as source, got {err:?}"
+        matches!(err, RuntimeError::ContractViolation { contract: "validate_deep", .. }),
+        "expected ContractViolation for input port used as source, got {err:?}"
     );
 }
 
@@ -1009,30 +1010,43 @@ fn runtime_parallel_cycle_terminates_via_tick_limit() {
 }
 
 #[test]
-fn runtime_parallel_cycle_matches_sequential() {
-    // The cyclic topology must terminate under both Sequential and Parallel (Sequential via
-    // max_ticks, Parallel via stop_signal). Verifies both produce a result.
+fn cycle_rule_is_mode_aware() {
+    // The runtime-aware cycle rule must match the selected driver's physics
+    // (declaration ↔ redemption correspondence, design principle §0.4).
+    // The same non-Moore cycle a → b → a:
+    // - under `Sequential` (direct moves, zero per-link delay) the runtime
+    //   declares `LinkDelay::Zero` → `CycleRule::RequireMoore` → the
+    //   blueprint is rejected at materialize (a zero-delay cycle is an
+    //   unbounded recursion within a tick);
+    // - under `Parallel(n)` (real channels, one-tick per hop) it declares
+    //   `LinkDelay::OneTick` → `CycleRule::AnyDelay` → the same blueprint is
+    //   accepted and actually runs to a fixed point (the Counter reaches its
+    //   Done threshold and quiesces).
     let spec = DynamicTopology::new()
         .with_machine(MachineInstance::new("a", "counter", MachinePhysicalSpec::default()))
         .with_machine(MachineInstance::new("b", "counter", MachinePhysicalSpec::default()))
         .with_link(LinkSpec::new(("a", "val"), ("b", "tick"), LinkKind::Channel { capacity: 8, drop_when_full: false }))
         .with_link(LinkSpec::new(("b", "val"), ("a", "tick"), LinkKind::Channel { capacity: 8, drop_when_full: false }));
 
-    let run = |cfg: RuntimeConfig| -> usize {
-        let mut rt = Runtime::new(cfg);
-        rt.register::<Counter>("counter");
-        rt.materialize(&spec).expect("materialize");
-        rt.tick(vec![("a".to_string(), "tick".to_string(), Box::new(1i64))])
-            .expect("tick").len()
-    };
+    // Sequential: zero-delay driver → RequireMoore → the cycle is refused at
+    // deployment, before any physics exists.
+    let mut seq = Runtime::new(RuntimeConfig::sequential());
+    seq.register::<Counter>("counter");
+    let err = seq.materialize(&spec).unwrap_err();
+    assert!(
+        matches!(err, RuntimeError::ContractViolation { contract: "validate_deep", .. }),
+        "Sequential must reject a non-Moore cycle (zero link delay → RequireMoore), got {err:?}"
+    );
 
-    // Neither hangs — the key check. The result lengths may differ (Sequential BFS order vs
-    // Parallel thread interleaving), but both must terminate.
-    let seq_len = run(RuntimeConfig::sequential());
-    let par_len = run(RuntimeConfig::parallel(2));
-    // Both must be finite (no hang).
-    assert!(seq_len < 100, "Sequential cycle must terminate");
-    assert!(par_len < 100, "Parallel cycle must terminate");
+    // Parallel: channel driver → OneTick → AnyDelay → the same cycle is
+    // accepted and terminates (no hang).
+    let mut par = Runtime::new(RuntimeConfig::parallel(2));
+    par.register::<Counter>("counter");
+    par.materialize(&spec).expect("Parallel must accept a non-Moore cycle (channel delay breaks it)");
+    let results = par
+        .tick(vec![("a".to_string(), "tick".to_string(), Box::new(1i64))])
+        .expect("tick");
+    assert!(results.len() < 100, "Parallel cycle must terminate, got {} terminal outputs", results.len());
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1595,8 +1609,8 @@ fn composite_unknown_type_fails_at_build() {
 #[test]
 fn composite_internal_dangling_port() {
     // The composite's input_map points at a nonexistent sub-machine "nonexistent" — after
-    // expansion the external link's into end becomes "comp.nonexistent.x", but machines has
-    // no "comp.nonexistent" → validate_endpoint reports DanglingRef.
+    // expansion the external link's into end becomes "comp.nonexistent.x", but the schema
+    // map has no "comp.nonexistent" → the deployment contract (validate_deep) reports it.
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
 
@@ -1614,9 +1628,8 @@ fn composite_internal_dangling_port() {
 
     let err = rt.materialize(&spec).unwrap_err();
     assert!(
-        matches!(err, RuntimeError::DanglingRef { ref machine, ref port }
-                 if machine == "comp.nonexistent" && port == "x"),
-        "expected DanglingRef for comp.nonexistent.x, got {err:?}"
+        matches!(err, RuntimeError::ContractViolation { contract: "validate_deep", .. }),
+        "expected ContractViolation for comp.nonexistent.x, got {err:?}"
     );
 }
 
@@ -1624,7 +1637,8 @@ fn composite_internal_dangling_port() {
 fn composite_external_link_to_undefined_port() {
     // The external link points at the composite's undefined port "undefined_port" (not in
     // input_map); after expansion the port name stays unchanged and the machine name "comp"
-    // no longer exists (expanded into comp.d1/d2) → validate_endpoint reports DanglingRef.
+    // no longer exists (expanded into comp.d1/d2) → the deployment contract (validate_deep)
+    // reports the dangling endpoint.
     let mut rt = Runtime::default();
     rt.register::<Doubler>("doubler");
     rt.register_composite("doubler_pair", doubler_pair_composite());
@@ -1636,9 +1650,8 @@ fn composite_external_link_to_undefined_port() {
 
     let err = rt.materialize(&spec).unwrap_err();
     assert!(
-        matches!(err, RuntimeError::DanglingRef { ref machine, ref port }
-                 if machine == "comp" && port == "undefined_port"),
-        "expected DanglingRef for comp.undefined_port, got {err:?}"
+        matches!(err, RuntimeError::ContractViolation { contract: "validate_deep", .. }),
+        "expected ContractViolation for comp.undefined_port, got {err:?}"
     );
 }
 
