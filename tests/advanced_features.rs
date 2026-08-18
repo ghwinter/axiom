@@ -1,5 +1,6 @@
 use axiom::prelude_all::*;
 use axiom::builtin::{IdentityInput, IdentityOutput};
+use axiom::hybrid::{HybridDriver, HybridMachine, Jump};
 use axiom::session::{is_consistent, project, GlobalOp, GlobalType, LocalOp};
 use axiom::topology::{TopologyMutation, TopologyOp};
 
