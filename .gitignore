@@ -53,3 +53,12 @@ packets.pcap
 
 redis_like_aof_writer_*.aof
 reasonix.toml
+
+# Node.js / TypeScript tooling (used for ad-hoc blueprint TS workflows; not part
+# of the Rust crate). Node_modules and lockfiles would otherwise pollute the repo.
+node_modules/
+**/node_modules/
+package.json
+package-lock.json
+*.tsbuildinfo
+

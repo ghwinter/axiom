@@ -10,7 +10,9 @@ extern crate alloc;
 
 use axiom::deploy::{DynamicTopology, MachineInstance, FuncBinding};
 use axiom::link::{LinkKind, LinkSpec, WritePolicy, ReadPolicy};
-use axiom::resource::{ExecutionHint, MachinePhysicalSpec, ThreadPoolSpec};
+use axiom::resource::{
+    CpuAffinity, ExecutionHint, HugePages, MachinePhysicalSpec, SimdRequirement, ThreadPoolSpec,
+};
 
 /// Build a complete DynamicTopology to use in the roundtrip tests
 fn make_spec() -> DynamicTopology {
@@ -26,6 +28,12 @@ fn make_spec() -> DynamicTopology {
                     deterministic: true,
                     max_cleanup_latency_us: 5000,
                     per_message_latency_us: 0,
+                    cpu_affinity: CpuAffinity::Exclusive(vec![0, 1]),
+                    numa_node: Some(0),
+                    huge_pages: HugePages::Size2MiB,
+                    simd: Some(SimdRequirement {
+                        features: vec![alloc::borrow::Cow::Borrowed("avx2")],
+                    }),
                 },
             )
             .moore(),
@@ -67,6 +75,14 @@ fn e60_1_full_roundtrip() {
         assert_eq!(o.name, r.name, "machine name mismatch");
         assert_eq!(o.machine_type, r.machine_type, "machine_type mismatch");
         assert_eq!(o.is_moore, r.is_moore, "is_moore mismatch");
+        // Physical spec must survive the roundtrip (incl. B2 deep budget:
+        // CPU affinity / NUMA / huge pages / SIMD). MachinePhysicalSpec does
+        // not derive PartialEq, so compare Debug strings.
+        assert_eq!(
+            format!("{:?}", o.physical),
+            format!("{:?}", r.physical),
+            "physical spec mismatch",
+        );
     }
     // Link count and endpoints
     assert_eq!(original.links.len(), restored.links.len());
@@ -197,4 +213,42 @@ fn e60_6_link_kind_variants_roundtrip() {
     }
 
     println!("E60.6 LinkKind variant roundtrip ✓");
+}
+
+#[test]
+fn e60_7_deep_physical_budget_roundtrip() {
+    // B2: the deep physical budget fields (CPU affinity / NUMA / huge pages /
+    // SIMD) must survive a JSON roundtrip, and a config file that omits them
+    // must still deserialize (serde(default) backward compatibility).
+    let spec = MachinePhysicalSpec {
+        execution: ExecutionHint::CpuBoundN(2),
+        state_heap_bytes: 16384,
+        cache_line_align: true,
+        deterministic: true,
+        max_cleanup_latency_us: 1000,
+        per_message_latency_us: 12,
+        cpu_affinity: CpuAffinity::Allowed(vec![2, 3, 4]),
+        numa_node: Some(1),
+        huge_pages: HugePages::Size1GiB,
+        simd: Some(SimdRequirement {
+            features: vec![
+                alloc::borrow::Cow::Borrowed("avx2"),
+                alloc::borrow::Cow::Borrowed("fma"),
+            ],
+        }),
+    };
+
+    let json = serde_json::to_string(&spec).expect("serialize");
+    let restored: MachinePhysicalSpec = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(format!("{:?}", spec), format!("{:?}", restored), "deep budget roundtrip mismatch");
+
+    // Legacy config file (no deep-budget fields) must deserialize with defaults.
+    let legacy = r#"{"execution":"CpuBound","state_heap_bytes":4096,"cache_line_align":false,"deterministic":false,"max_cleanup_latency_us":10000,"per_message_latency_us":0}"#;
+    let from_legacy: MachinePhysicalSpec = serde_json::from_str(legacy).expect("deserialize");
+    assert_eq!(from_legacy.cpu_affinity, CpuAffinity::None, "legacy cpu_affinity default");
+    assert_eq!(from_legacy.numa_node, None, "legacy numa_node default");
+    assert_eq!(from_legacy.huge_pages, HugePages::None, "legacy huge_pages default");
+    assert_eq!(from_legacy.simd, None, "legacy simd default");
+
+    println!("E60.7 deep physical budget roundtrip ✓");
 }

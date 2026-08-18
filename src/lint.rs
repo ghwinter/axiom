@@ -34,7 +34,7 @@ use crate::deploy::{DynamicTopology, RuleViolation, ValidationReport};
 use crate::flow::FlowKind;
 use crate::link::LinkKind;
 use crate::port::PortSchema;
-use crate::resource::ExecutionHint;
+use crate::resource::{CpuAffinity, ExecutionHint, HugePages};
 
 #[cfg(not(feature = "std"))]
 use alloc::format;
@@ -292,11 +292,19 @@ fn check_default_physical(
     }
     let all_default = spec.machines.iter().all(|m| {
         // MachinePhysicalSpec has no PartialEq; compare field-by-field.
+        // Includes the B2 deep-budget fields: a machine that pins cores,
+        // requests NUMA / huge pages, or requires SIMD has made a physical
+        // decision and must not be linted as "default".
         matches!(m.physical.execution, ExecutionHint::Async)
             && m.physical.state_heap_bytes == 4096
             && !m.physical.cache_line_align
             && !m.physical.deterministic
             && m.physical.max_cleanup_latency_us == 10_000
+            && m.physical.per_message_latency_us == 0
+            && matches!(m.physical.cpu_affinity, CpuAffinity::None)
+            && m.physical.numa_node.is_none()
+            && matches!(m.physical.huge_pages, HugePages::None)
+            && m.physical.simd.is_none()
     });
     if all_default {
         vec![RuleViolation::new(

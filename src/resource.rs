@@ -54,6 +54,54 @@ pub enum ResourceClass {
 
 // ── Physical spec (deploy-time) ───────────────────────────────────────────────
 
+/// CPU core affinity request — deploy-time declaration, honored by the runtime.
+///
+/// Hard real-time deployments (architecture.md §"Hard real-time") pin a
+/// `CpuBound` machine to specific cores. The runtime declares whether it can
+/// honor pinning ([`crate::runtime_contract::PhysicalBudget::cpu_affinity`] /
+/// `cpu_exclusive`); a blueprint that requests affinity the runtime cannot
+/// provide is rejected by
+/// [`crate::runtime_contract::RuntimeContract::check_spec`] before deployment.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+pub enum CpuAffinity {
+    /// No affinity request — the OS scheduler decides (default).
+    #[default]
+    None,
+    /// Run on any of the listed cores, shared with other threads.
+    Allowed(Vec<u32>),
+    /// Run exclusively on the listed cores — no other thread may be
+    /// scheduled there for the machine's lifetime.
+    Exclusive(Vec<u32>),
+}
+
+/// Huge-page requirement for the machine's working memory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+pub enum HugePages {
+    /// No huge-page requirement (default).
+    #[default]
+    None,
+    /// 2 MiB pages (x86-64 `MAP_HUGETLB` 2 MiB, ARM64 2 MiB).
+    Size2MiB,
+    /// 1 GiB pages (x86-64 1 GiB hugepages).
+    Size1GiB,
+}
+
+/// Required SIMD instruction-set features for the machine's hot path.
+///
+/// Feature names follow LLVM / Rust `target_feature` naming (e.g. `"avx2"`,
+/// `"sse4.2"`, `"neon"`). The runtime declares the features its build target
+/// provides ([`crate::runtime_contract::PhysicalBudget::simd_features`]); a
+/// machine requiring a feature the runtime cannot provide is rejected by
+/// `check_spec`.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "serialize", derive(serde::Serialize, serde::Deserialize))]
+pub struct SimdRequirement {
+    /// Required instruction sets (e.g. `["avx2", "fma"]`).
+    pub features: Vec<Cow<'static, str>>,
+}
+
 /// Physical resource requirements for a `Machine` instance.
 ///
 /// This is specified by the **deployer** in the `DynamicTopology`, not by the
@@ -85,6 +133,26 @@ pub struct MachinePhysicalSpec {
     /// `#[serde(default)]`: when omitted in a config file, treated as undeclared (`0`).
     #[cfg_attr(feature = "serialize", serde(default))]
     pub per_message_latency_us: u64,
+
+    /// CPU core affinity request (hard real-time deployments).
+    ///
+    /// `#[serde(default)]`: omitted in a config file → [`CpuAffinity::None`].
+    #[cfg_attr(feature = "serialize", serde(default))]
+    pub cpu_affinity: CpuAffinity,
+
+    /// Preferred NUMA node (0-based) for the machine's memory.
+    /// `None` = no preference. Honored only when the runtime declares
+    /// [`crate::runtime_contract::PhysicalBudget::numa`].
+    #[cfg_attr(feature = "serialize", serde(default))]
+    pub numa_node: Option<u32>,
+
+    /// Huge-page requirement for `State` / working memory.
+    #[cfg_attr(feature = "serialize", serde(default))]
+    pub huge_pages: HugePages,
+
+    /// Required SIMD instruction sets for the hot path.
+    #[cfg_attr(feature = "serialize", serde(default))]
+    pub simd: Option<SimdRequirement>,
 }
 
 impl Default for MachinePhysicalSpec {
@@ -96,6 +164,10 @@ impl Default for MachinePhysicalSpec {
             deterministic: false,
             max_cleanup_latency_us: 10_000,
             per_message_latency_us: 0,
+            cpu_affinity: CpuAffinity::None,
+            numa_node: None,
+            huge_pages: HugePages::None,
+            simd: None,
         }
     }
 }

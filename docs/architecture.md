@@ -181,7 +181,7 @@ The same `Machine` implementation, zero modifications.
 | **Async IO runtime** | Async IO, networking, HTTP, WS | CPU-bound work on async workers | `Async` for IO, `CpuBound` for compute |
 | **Worker pool** | Data parallelism, batch processing | Async IO, low-latency interactive | `CpuBoundN(n)` over instances |
 | **Embedded async runtime** | no_std embedded | Heap-heavy workloads | `Async` with no_std |
-| **Dedicated thread** | Hard real-time, CPU affinity | Complex IO multiplexing | `CpuBound` + core affinity |
+| **Dedicated thread** | Hard real-time, CPU affinity | Complex IO multiplexing | `CpuBound` + `CpuAffinity` |
 
 ### axiom-runtime: the bundled reference runtime
 
@@ -346,11 +346,25 @@ let outputs = feedback::<Doubler, Sum>(inputs, 0)?;
 Hard real-time is a deployment question, not a runtime question:
 
 1. Deploy as `CpuBound` on a dedicated OS thread
-2. Pin to a specific core via core affinity
-3. Pre-allocate all working memory in `init()`
-4. Use `CasFreeRing` links (lock-free)
+2. Pin to specific cores via `MachinePhysicalSpec::cpu_affinity` —
+   `CpuAffinity::Allowed(cores)` (shared) or `CpuAffinity::Exclusive(cores)`
+   (no other thread scheduled there, the "exclusive core" scenario)
+3. Optionally place the machine's memory on a NUMA node
+   (`MachinePhysicalSpec::numa_node`) and require huge pages
+   (`MachinePhysicalSpec::huge_pages`: `Size2MiB` / `Size1GiB`)
+4. Require SIMD instruction sets for the hot path
+   (`MachinePhysicalSpec::simd` → `SimdRequirement`)
+5. Pre-allocate all working memory in `init()`
+6. Use `CasFreeRing` links (lock-free)
 
 These constraints live in `MachinePhysicalSpec`. No Machine code changes.
+Whether the runtime can honor them is a **declared capability**, not an
+assumption: the adapter reports its physical budget (`PhysicalBudget`: core
+pinning / exclusive cores / NUMA / huge pages / SIMD features) in its
+`RuntimeContract::guarantees`, and `check_spec` rejects a blueprint that
+demands more than the runtime can physically deliver — *before* deployment
+(`runtime-resource-affinity` / `-affinity-exclusive` / `-numa` /
+`-hugepages` / `-simd` rule violations).
 
 ### Backpressure
 

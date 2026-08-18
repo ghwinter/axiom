@@ -210,7 +210,7 @@ preference (`Observe` → non-blocking, `Control` → droppable), enforced by th
 | **AI Blueprint** | `axiom::blueprint` *(serialize)* | JSON Schema export of `DynamicTopology` + strict reverse parser: an AI writes JSON, gets structured errors, iterates |
 | **Structured Validation** | `axiom::deploy` | `validate_report`: collects **all** violations as `RuleViolation {rule_id, path, expected, actual}` (not fail-fast) |
 | **Architecture Lint** | `axiom::lint` | Anti-narrowing axioms as executable rules: `no-observation`, `default-physical`, `uniform-link-kind`, … |
-| **Runtime Contract** | `axiom::runtime_contract` | `RuntimeContract` trait + `Guarantees` (link carriers / exec modes / memory order / IO / delay) — audit a blueprint against an adapter's physical capabilities |
+| **Runtime Contract** | `axiom::runtime_contract` | `RuntimeContract` trait + `Guarantees` (link carriers / exec modes / memory order / IO / delay / **physical budget**) — audit a blueprint against an adapter's physical capabilities: link carriers, exec modes, and deep physical budget (CPU affinity / exclusive cores / NUMA / huge pages / SIMD) are checked *before* deployment |
 
 ### Static-first worldview
 
