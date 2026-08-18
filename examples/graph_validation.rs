@@ -4,10 +4,10 @@
 //! graph network, not a linear pipeline):
 //!
 //! 1. **Valid complex graph** (kernel-style): syscall fan-out + storage/network dual paths
-//!    + 3 feedback loops + an observation stream — `validate_deep` passes + structural
-//!    analysis report
+//!    + 3 feedback loops + an observation stream on a non-blocking carrier — `validate_deep`
+//!    passes + structural analysis report
 //! 2. **Invalid variants**: each one is detected (flow-type mismatch / Inline loop /
-//!    all-Moore loop)
+//!    all-Moore loop / Observe-on-blocking-carrier)
 //!
 //! Run with: `cargo run --example graph_validation`
 //!
@@ -42,8 +42,19 @@ fn buf(capacity: usize) -> LinkKind {
     }
 }
 
+/// Non-blocking observation carrier: best-effort, never back-pressures the
+/// source (the S3-1 materialization-preference for `Observe` flow).
+fn observe_buf(capacity: usize) -> LinkKind {
+    LinkKind::Channel {
+        capacity,
+        drop_when_full: true,
+    }
+}
+
 /// Kernel-style complex graph: syscall fan-out + dual paths + 3 feedback loops + observation.
-/// All machines are non-Moore (stateful, can break loop latency) → loops are legal.
+/// Loop-legality: every cycle needs ≥1 Moore machine (its output depends only on
+/// pre-update state, breaking the algebraic loop). scheduler is Moore and sits on
+/// every loop, so the single marker makes all loops legal.
 fn kernel_graph() -> (DynamicTopology, HashMap<&'static str, PortSchema>) {
     let mut s = HashMap::new();
     s.insert(
@@ -146,8 +157,9 @@ fn kernel_graph() -> (DynamicTopology, HashMap<&'static str, PortSchema>) {
         // loop ③: process → syscall → scheduler → process (big loop)
         .with_link(LinkSpec::new(("process", "req"), ("syscall", "req"), buf(8)))
         .with_link(LinkSpec::new(("syscall", "sched"), ("scheduler", "wakeup"), buf(8)))
-        // observation: syscall.events (Observe stream) → perf
-        .with_link(LinkSpec::new(("syscall", "events"), ("perf", "events"), buf(8)));
+        // observation: syscall.events (Observe stream) → perf, on a non-blocking
+        // carrier (an Observe edge must not back-pressure its source — S3-1)
+        .with_link(LinkSpec::new(("syscall", "events"), ("perf", "events"), observe_buf(8)));
     (spec, s)
 }
 
@@ -155,10 +167,13 @@ fn check(label: &str, spec: &DynamicTopology, schemas: &HashMap<&'static str, Po
     match spec.validate_deep(schemas) {
         Ok(_) => println!("    {label}: ✓ passed"),
         Err(ValidationError::UnsafeCycle { cycle }) => {
-            println!("    {label}: ✗ UnsafeCycle {cycle:?} (no stateful machine in loop to break latency)")
+            println!("    {label}: ✗ UnsafeCycle {cycle:?} (cycle with no Moore machine — an algebraic loop)")
         }
         Err(ValidationError::InlineCycle { cycle }) => {
             println!("    {label}: ✗ InlineCycle {cycle:?} (synchronous-call deadlock)")
+        }
+        Err(ValidationError::CarrierViolatesSemantics { out, flow, carrier, .. }) => {
+            println!("    {label}: ✗ CarrierViolatesSemantics {out:?} is {flow} but carrier {carrier} back-pressures the producer")
         }
         Err(e) => println!("    {label}: ✗ {e:?}"),
     }
@@ -173,7 +188,7 @@ fn main() {
     check("validate_deep", &spec, &schemas);
 
     let loops = analysis::feedback_loops(&spec);
-    println!("    feedback loops: {} (legal: every loop contains a non-Moore state machine)", loops.len());
+    println!("    feedback loops: {} (legal: every loop contains ≥1 Moore machine — scheduler breaks the algebraic loop)", loops.len());
     for l in &loops {
         println!("      - machines={:?}, all_moore={}", l.machines, l.all_moore);
     }
@@ -275,9 +290,20 @@ fn main() {
         "gateway is the SPOF dominating all sinks"
     );
 
+    // 2e. Observe flow on a blocking carrier: the S3-1 matrix rejects it (an
+    // observation edge must not back-pressure its source). Same schema as the
+    // legal graph, but the observation edge uses a blocking BoundedBuf.
+    let (_, schemas_obs) = kernel_graph();
+    let observe_blocking = DynamicTopology::new()
+        .with_machine(MachineInstance::new("syscall", "t", MachinePhysicalSpec::default()))
+        .with_machine(MachineInstance::new("perf", "t", MachinePhysicalSpec::default()))
+        .with_link(LinkSpec::new(("syscall", "events"), ("perf", "events"), buf(8)));
+    check("Observe flow on a blocking carrier", &observe_blocking, &schemas_obs);
+
     // ── 3. Conclusion ──
     println!("\n[3] Conclusion");
-    println!("    axiom's default model is an arbitrary directed graph: legal loops (non-Moore breaks latency),");
-    println!("    fan-out multi-port, fan-in port separation, Observe streams — all pass");
-    println!("    validate_deep; structural analysis (loops/SPOFs/degree/reachability) reports before deploy.");
+    println!("    axiom's default model is an arbitrary directed graph: legal loops (≥1 Moore machine in each),");
+    println!("    fan-out multi-port, fan-in port separation, Observe streams on non-blocking carriers — all pass");
+    println!("    validate_deep; the S3-1 matrix rejects an Observe edge on a blocking carrier;");
+    println!("    structural analysis (loops/SPOFs/degree/reachability) reports before deploy.");
 }

@@ -228,6 +228,40 @@ pub struct DynamicTopology {
 // (blueprint = unified topology declaration language).
 impl Topology for DynamicTopology {}
 
+/// Whether the Moore-on-every-cycle rule applies during deep validation.
+///
+/// A cycle of machines whose outputs depend on current inputs is an algebraic
+/// loop. Two kinds of runtime can break it:
+///
+/// - a **Moore machine** on the cycle (output depends only on pre-update
+///   state) — the blueprint-level guarantee that [`validate_deep`](crate::deploy::DynamicTopology::validate_deep)
+///   enforces by default;
+/// - a **per-link delay** — a channel-based runtime where every link is a
+///   one-tick buffer *is* the delay element, so a cycle is safe without Moore
+///   machines. That runtime passes [`CycleRule::AnyDelay`].
+///
+/// A runtime adapter chooses the rule from its declared physics (its
+/// [`LinkDelay`](crate::runtime_contract::LinkDelay)) and calls
+/// [`DynamicTopology::validate_deep_for`] at materialization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CycleRule {
+    /// Every cycle must pass through ≥1 Moore machine (strict, runtime-agnostic).
+    RequireMoore,
+    /// Per-link delay breaks cycles — no Moore requirement (channel-based runtime).
+    AnyDelay,
+}
+
+impl CycleRule {
+    /// Map a runtime's declared link-delay fact onto the cycle rule: zero delay
+    /// requires Moore machines; a one-tick (or greater) delay allows any cycle.
+    pub fn from_link_delay(delay: crate::runtime_contract::LinkDelay) -> Self {
+        match delay {
+            crate::runtime_contract::LinkDelay::Zero => CycleRule::RequireMoore,
+            crate::runtime_contract::LinkDelay::OneTick => CycleRule::AnyDelay,
+        }
+    }
+}
+
 impl DynamicTopology {
     /// Create an empty deployment spec.
     pub fn new() -> Self {
@@ -393,6 +427,14 @@ impl DynamicTopology {
     /// runtime type information (`PortSchema`). The caller provides a map of
     /// machine_name → PortSchema, typically obtained from `M::port_schema()`.
     ///
+    /// This is the **strict, runtime-agnostic** variant: it requires a Moore
+    /// machine on every cycle (the safe default for an unknown runtime). A
+    /// runtime that knows its own physics — e.g. a channel-based runtime whose
+    /// every link carries a one-tick delay and can therefore break algebraic
+    /// cycles without Moore machines — should call
+    /// [`validate_deep_for`](Self::validate_deep_for) with its declared
+    /// [`CycleRule`].
+    ///
     /// # What it checks
     ///
     /// 1. All checks from [`validate()`](Self::validate) (structural integrity).
@@ -405,8 +447,7 @@ impl DynamicTopology {
     /// 5. **Cycle safety**: every cycle in the topology must pass through at
     ///    least one Moore machine (`MachineInstance::is_moore == true`).
     ///    A cycle with no Moore machine is an algebraic loop — rejected as
-    ///    [`ValidationError::UnsafeCycle`]. (Channel-based runtimes where every
-    ///    link has delay can mark all machines Moore, or ignore this check.)
+    ///    [`ValidationError::UnsafeCycle`].
     /// 6. **Edge-degree constraints**: per-port limits for constrained
     ///    `LinkKind` variants (Inline outdeg ≤ 1, Channel indeg ≤ 1,
     ///    CasFreeRing SPSC). Rejected as [`ValidationError::DegreeConstraintViolated`].
@@ -430,6 +471,22 @@ impl DynamicTopology {
     ///   implementing [`crate::machine::Moore`] — that needs type information
     ///   and is checked at deploy/materialize time by the runtime registry.
     pub fn validate_deep(&self, schemas: &HashMap<&str, PortSchema>) -> Result<(), ValidationError> {
+        self.validate_deep_for(schemas, CycleRule::RequireMoore)
+    }
+
+    /// Deep validation with a runtime-aware cycle rule.
+    ///
+    /// Identical to [`validate_deep`](Self::validate_deep) except that the
+    /// Moore-on-every-cycle requirement is applied only when `rule` is
+    /// [`CycleRule::RequireMoore`]. A runtime whose links carry delay (a
+    /// channel-based runtime: each link is a one-tick buffer) can break
+    /// algebraic cycles without Moore machines, and passes
+    /// [`CycleRule::AnyDelay`].
+    pub fn validate_deep_for(
+        &self,
+        schemas: &HashMap<&str, PortSchema>,
+        rule: CycleRule,
+    ) -> Result<(), ValidationError> {
         // 1. Run structural validation first.
         self.validate()?;
 
@@ -540,7 +597,10 @@ impl DynamicTopology {
             });
         }
 
-        // 4. Cycle safety: every cycle must pass through ≥1 Moore machine.
+        // 4. Cycle safety: every cycle must pass through ≥1 Moore machine —
+        //    but only when the runtime cannot break cycles itself (its links
+        //    have no delay). A channel-based runtime (each link a one-tick
+        //    buffer) declares `CycleRule::AnyDelay` and is exempt.
         //
         // A cycle with no Moore machine is an algebraic loop (each machine's
         // output depends on its current input, which depends on another's
@@ -553,8 +613,10 @@ impl DynamicTopology {
         //
         // Self-loops are already rejected by `validate()`. Func bindings are
         // not graph nodes (they have no output edges).
-        if let Some(cycle) = self.find_non_moore_cycle() {
-            return Err(ValidationError::UnsafeCycle { cycle });
+        if rule == CycleRule::RequireMoore {
+            if let Some(cycle) = self.find_non_moore_cycle() {
+                return Err(ValidationError::UnsafeCycle { cycle });
+            }
         }
 
         // 5. Edge-degree constraints (per-port limits for Inline/Channel/CasFreeRing).
