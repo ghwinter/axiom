@@ -19,6 +19,21 @@ reference adapter (`axiom-runtime`). Third parties may provide adapters that
 target different physical worlds, such as asynchronous runtimes, IO
 multiplexing, embedded targets, or WASM.
 
+### The reference adapter is a catalogue, not a monolith
+
+`axiom-runtime` is positioned as a **collection of replaceable physical
+modules** ("how data flows" designs — stack-passed `Inline` calls, heap
+`Channel`/`BoundedBuf` queues, single-slot `Latest`/`SharedState`, bounded FIFO
+`CasFreeRing`), each usable standalone. A deployer selects the subset its
+blueprint needs (`LinkKind` per edge) rather than accepting a single mandated
+execution shape. This mirrors the adapter ecosystem rule below: adapters are
+replaceable physical implementations, and the reference runtime is itself the
+largest such composition. Its `Guarantees` (via `RuntimeContract`) enumerate
+exactly which physical modules it provides, so an application can rely on the
+subset it declares and swap the rest. The modularization of the reference
+runtime into standalone composable units is an active direction
+(`docs/internal/runtime-modularization-design-notes.md`).
+
 ### Dependency Direction
 
 > Adapters depend on core contracts, never on each other's providers.

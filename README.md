@@ -228,7 +228,25 @@ rationale and the three legitimate dynamic-topology use cases.
 
 ## axiom-runtime
 
-`Runtime` executes a `DynamicTopology` with explicit physics:
+`Runtime` executes a `DynamicTopology` with explicit physics.
+
+**Positioning: a catalogue of physical data-flow designs, not a mandated executor.**
+Axiom's core is a constraint system: it declares *what* flows between modules and
+exposes each choice for verification, but does not dictate *how* the physical
+layer moves data. `axiom-runtime` is the seed of that physical layer — its
+carriers are a **catalogue of replaceable physical designs** for "how data
+flows": stack-passed direct calls (`Inline`), heap queues (`Channel`, `BoundedBuf`),
+single-slot overwrite (`Latest`/`SharedState`), bounded FIFO (`CasFreeRing`). How
+a developer composes them is a blueprint decision (`LinkKind` per edge); the
+runtime's job is to provide each design and to **verify it can honor the
+blueprint** (`check_spec` at `materialize`) rather than to impose one execution
+shape. The bundled `Runtime`'s unified drive loop is **one way to use these
+modules** (the reference configuration for deterministic single-process
+systems), not the only form — modularization so that each carrier/driver is a
+standalone composable unit is the current direction (see
+`docs/internal/runtime-modularization-design-notes.md`).
+
+Capabilities of the current reference runtime:
 
 - **Execution modes**: `Inline` / `Sequential` (BFS direct delivery) / `Parallel(n)` (thread-per-machine, channel carriers)
 - **Carrier matrix**: `Blocking` (backpressure) / `Dropping` (drop new) / `Overwriting` (ring) / `Latest`-`SharedState` (single slot) — the *physical realization* of a `LinkKind`

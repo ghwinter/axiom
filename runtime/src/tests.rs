@@ -729,6 +729,75 @@ fn fusion_fused_chain_matches_non_fused_result() {
     assert_eq!(fv, 24, "fused chain must produce same result");
 }
 
+/// A two-stage FusedPipeline where the second stage returns Done on its 2nd
+/// process. Injecting twice must yield the 1st value then a `ProcessResult::Done`
+/// (shutdown signal) — NOT an Idle (which would leave the driver's
+/// `mark_stopped` unfired and let the completed chain keep processing).
+#[test]
+fn fused_stage_done_propagates_shutdown_signal() {
+    use crate::erasure::{RunningMachine, ScratchMachine};
+    use crate::fusion::FusedPipeline;
+    use axiom::machine::{CleanupError, InitError, SingleOutput};
+    use axiom::port::{ConfigSchema, MachineContext};
+
+    declare_ports! {
+        #[derive(Debug, Clone, PartialEq)]
+        pub struct FuseStopPorts {
+            input type FuseStopInput { x [Data] => i32 }
+            output type FuseStopOutput { y [Data] => i32 }
+        }
+    }
+    pub struct FuseStop;
+    impl Machine for FuseStop {
+        type State = u64;
+        type Input = FuseStopInput;
+        type Output = FuseStopOutput;
+        type Ports = FuseStopPorts;
+        type ProcessOutput = SingleOutput<FuseStopOutput>;
+        fn name() -> &'static str { "fuse_stop" }
+        fn config_schema() -> ConfigSchema { ConfigSchema::new() }
+        fn init(_: &MachineContext) -> Result<u64, InitError> { Ok(0) }
+        #[inline]
+        fn process(state: &mut u64, _: &MachineContext, input: FuseStopInput)
+            -> SingleOutput<FuseStopOutput> {
+            let FuseStopInput::x(n) = input;
+            *state += 1;
+            if *state >= 2 {
+                SingleOutput::Done
+            } else {
+                SingleOutput::Yield(FuseStopOutput::y(n))
+            }
+        }
+        fn cleanup(_: u64, _: &MachineContext) -> Result<(), CleanupError> { Ok(()) }
+    }
+    impl axiom::machine::FusedInline for FuseStop {}
+
+    // d1 (Doubler) → d2 (FuseStop), fused into a single FusedPipeline.
+    let s1: Box<dyn RunningMachine> =
+        Box::new(ScratchMachine::<Doubler>::new(MachineContext::new("d1"), true).expect("d1"));
+    let s2: Box<dyn RunningMachine> =
+        Box::new(ScratchMachine::<FuseStop>::new(MachineContext::new("d2"), true).expect("d2"));
+    let mut pipe = FusedPipeline::new(vec![s1, s2], vec![("y", "x".to_string())], "d1".to_string());
+
+    // 1st inject: d1 10→20 → d2 (1st) yields 20 → chain tail 20.
+    let r1 = pipe.inject(0, Box::new(10i32));
+    assert!(
+        matches!(&r1, ProcessResult::Yield { value, .. }
+            if *value.downcast_ref::<i32>().unwrap() == 20),
+        "1st fused inject must yield 20, got {r1:?}",
+    );
+
+    // 2nd inject: d1 20→40 → d2 (2nd) Done → the pipeline must signal Done so the
+    // driver propagates the shutdown cascade (mark_stopped).
+    let r2 = pipe.inject(0, Box::new(20i32));
+    assert!(
+        matches!(&r2, ProcessResult::Done),
+        "fused stage Done must propagate as ProcessResult::Done, got {r2:?}",
+    );
+    // The chain must now be marked done (a later input must never reach a stage).
+    assert!(pipe.is_done(), "pipeline must report done after a stage returned Done");
+}
+
 #[test]
 fn fusion_reduces_machine_count() {
     // The machine count in the fused topology should decrease (3 machines → 1 FusedPipeline).

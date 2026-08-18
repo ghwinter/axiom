@@ -13,6 +13,23 @@ use axiom::portset::HasPortInfo;
 
 use crate::error::RuntimeError;
 
+/// Free a raw-pointer allocation produced by [`crate::typed_slot::take_input`]
+/// when no output is written back (Idle/Done/early-return).
+///
+/// # Safety
+///
+/// `raw_ptr` must come from `take_input::<Raw>` (i.e. `Box::<Raw>::into_raw`). The
+/// content was bit-copied out and moved into the machine — the memory is
+/// uninitialized and must NOT be dropped; the allocation is freed with the exact
+/// `Layout::new::<Raw>()`, matching the intended dealloc.
+fn free_raw<Raw: 'static>(raw_ptr: *mut Raw) {
+    // SAFETY: `raw_ptr` is the allocation of a `Box<Raw>` (see take_input); the
+    // content is uninitialized (bit-copied out), so `dealloc` never drops anything.
+    unsafe {
+        alloc::alloc::dealloc(raw_ptr as *mut u8, core::alloc::Layout::new::<Raw>());
+    }
+}
+
 /// A running Machine after type erasure — the runtime holds `Box<dyn RunningMachine>`,
 /// so it does not need to know the concrete `M` type.
 ///
@@ -238,6 +255,9 @@ where
             return ScratchResult::Idle;
         };
         // Take the input raw value (the unsafe encapsulation point: bit copy + preserve allocation).
+        // Invariant: on EVERY exit after this point the `raw_ptr` allocation must be either
+        // written back via `put_output` (Yield) or freed (Idle/Done/early-return) — otherwise the
+        // inter-stage Box (whose slot was taken) leaks one heap allocation per message.
         let (raw_in, raw_ptr) = match crate::typed_slot::take_input::<<M::Input as axiom::portset::Pack>::Raw>(b) {
             Ok(pair) => pair,
             Err(b) => {
@@ -247,6 +267,8 @@ where
         };
         let input = <M::Input as axiom::portset::Pack>::pack(raw_in);
         let Some(handle) = self.inner.handle.as_mut() else {
+            // Machine already ended: no output is possible; free the input allocation.
+            free_raw::<<M::Input as axiom::portset::Pack>::Raw>(raw_ptr);
             return ScratchResult::Idle;
         };
         let output = handle.process(input);
@@ -264,11 +286,21 @@ where
                 *slot = Some(boxed);
                 ScratchResult::Yield(port)
             }
-            // FusedInline single-output machine: multi-output is impossible (SingleOutput).
-            axiom::machine::ProcessOutput::YieldMulti(_) => ScratchResult::Idle,
-            axiom::machine::ProcessOutput::Idle => ScratchResult::Idle,
+            // `M::Output: Unpack` is single-valued, so a fused stage cannot reach YieldMulti;
+            // this arm exists so a future widened `FusedCompatible` cannot silently drop outputs.
+            // The input allocation is freed, and Idle reports "no single output" to the driver.
+            axiom::machine::ProcessOutput::YieldMulti(_) => {
+                free_raw::<<M::Input as axiom::portset::Pack>::Raw>(raw_ptr);
+                ScratchResult::Idle
+            }
+            axiom::machine::ProcessOutput::Idle => {
+                // Input consumed, no output: free the input allocation.
+                free_raw::<<M::Input as axiom::portset::Pack>::Raw>(raw_ptr);
+                ScratchResult::Idle
+            }
             axiom::machine::ProcessOutput::Done => {
                 self.inner.done = true;
+                free_raw::<<M::Input as axiom::portset::Pack>::Raw>(raw_ptr);
                 ScratchResult::Done
             }
         }
