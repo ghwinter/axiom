@@ -102,6 +102,9 @@ pub use axiom_derive::ports;
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── stable: the stable core ────────────────────────────────────────────────
+// 新主轴线：四构件编译期核心（开放系统/因果数据流/组合/静态性声明）。
+// 旧模块逐步迁移/删除（见 refactor-plan-compile-time-core.md）。
+pub mod cell_core;
 pub mod analysis;
 pub mod compat;
 pub mod deploy;
@@ -138,6 +141,7 @@ pub mod config;
 
 /// Core prelude for typical use.
 pub mod prelude_all {
+    pub use crate::cell_core::{CellChain, Link, PortCell, Static, drive};
     pub use crate::backpressure::{
         BackpressurePolicy, BackpressureAction, BackpressureCtx,
         BlockPolicy, DropPolicy, OverwritePolicy, CreditPolicy,
