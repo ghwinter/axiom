@@ -1,28 +1,19 @@
 [package]
 name = "axiom-runtime"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
-description = "Unified runtime for axiom: materialises DynamicTopology into live MachineHandles, drives the process loop, manages lifecycle. Single-threaded and multi-threaded modes via configuration, not via separate types. // axiom 的统一运行时：将 DynamicTopology 物化为活跃的 MachineHandle，驱动 process 循环，管理生命周期。单线程与多线程通过配置区分，而非通过独立类型。"
+description = "axiom 的物理层实现用例（载体 Carrier）：为四构件编译期核心（cell_core）提供'值如何跨连接流动'的多种可替换物理方案——栈上函数传(Inline)、堆队列/通道(Queue)、编译期展开(Direct)。模块化、可替换，作为未来 axiom-tokio 等第三方物理适配器的模板。"
 license = "MIT"
 repository = "https://github.com/ghwinter/axiom"
 homepage = "https://github.com/ghwinter/axiom"
 documentation = "https://docs.rs/axiom-runtime"
-keywords = ["actor-model", "runtime", "topology", "concurrency", "execution"]
-categories = ["concurrency", "rust-patterns"]
+keywords = ["dataflow", "carrier", "zero-cost", "compile-time", "execution"]
+categories = ["concurrency", "rust-patterns", "embedded"]
 
 [dependencies]
-axiom = { path = "..", version = "0.2.0" }
-
-[dev-dependencies]
-# Keep test dependencies minimal.
+axiom = { path = "..", version = "0.3.0" }
 
 [features]
 default = ["std"]
 std = []
-
-
-[[bench]]
-name = "dynamic"
-harness = false
-
