@@ -301,40 +301,6 @@ impl PortDecl {
     }
 }
 
-// ── Port registry (runtime) ───────────────────────────────────────────────────
-
-#[derive(Debug, Default)]
-pub struct PortRegistry {
-    entries: Vec<PortEntry>,
-}
-
-#[derive(Debug)]
-pub struct PortEntry {
-    pub name: &'static str,
-    pub dir: PortDir,
-    pub flow: FlowKind,
-    pub type_name: &'static str,
-    pub schema_ver: u32,
-}
-
-impl PortRegistry {
-    pub fn new() -> Self { Self::default() }
-
-    pub fn register(&mut self, decl: &PortDecl) {
-        self.entries.push(PortEntry {
-            name: decl.name,
-            dir: decl.dir,
-            flow: decl.flow,
-            type_name: decl.type_name,
-            schema_ver: decl.schema_ver,
-        });
-    }
-
-    pub fn entries(&self) -> &[PortEntry] { &self.entries }
-    pub fn len(&self) -> usize { self.entries.len() }
-    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
-}
-
 // ── Config schema ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]

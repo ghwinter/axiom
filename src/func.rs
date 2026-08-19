@@ -76,12 +76,6 @@ pub enum CostEstimate {
     VeryExpensive,
 }
 
-impl CostEstimate {
-    pub fn is_unknown(&self) -> bool {
-        matches!(self, CostEstimate::Unknown)
-    }
-}
-
 // ════════════════════════════════════════════════════════════
 // FuncWithScratch — reused scratch space for hot-path Funcs
 // ════════════════════════════════════════════════════════════

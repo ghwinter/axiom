@@ -169,7 +169,7 @@ pub mod prelude_all {
     #[cfg(feature = "std")]
     pub use crate::migrate::{SchemaMigrate, MigrateFn, MigrateRegistry};
     pub use crate::port::{
-        PortDir, PortDecl, PortSchema, PortRegistry, ConfigDecl, ConfigSchema, MachineContext,
+        PortDir, PortDecl, PortSchema, ConfigDecl, ConfigSchema, MachineContext,
         LinkCompat, Lifecycle, SystemSignal,
     };
     pub use crate::portset::{
