@@ -10,6 +10,14 @@
 *.bin
 *.csv
 
+# General test/run byproducts (must never be tracked)
+*.aof
+*.pcap
+*.log
+*.out
+*.profraw
+*.profdata
+
 # IDE / editor
 .idea/
 .vscode/
