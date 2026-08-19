@@ -24,3 +24,9 @@ categories = ["concurrency", "rust-patterns", "embedded"]
 [features]
 default = ["std"]
 std = []
+
+# ── 性能基准（构建用例，保留）───────────────────────────────────────────────
+# 用内置最小计时 harness（零外部 dev-deps，符合零依赖哲学）。
+[[bench]]
+name = "chain"
+harness = false
