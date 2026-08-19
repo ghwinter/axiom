@@ -90,3 +90,13 @@ fn channel_carrier_crosses_threads() {
     let out = axiom_runtime::carrier::spawned_flow::<Inc, Scaler>(&mut sa, || (), 5);
     assert_eq!(out, 12);
 }
+
+#[test]
+fn wire_macro_compile_time_inline() {
+    // wire! 宏：Inc -> Scaler 一条因果流，编译期展开为内联调用（零宏运行时开销）。
+    let mut sa = ();
+    let mut sb = ();
+    let flow = axiom_runtime::wire!(Inc => Scaler);
+    let out = flow(&mut sa, &mut sb, 4); // 4 -> 5 -> 10
+    assert_eq!(out, 10);
+}
