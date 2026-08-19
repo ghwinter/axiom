@@ -3,215 +3,54 @@
 //! **四构件编译期核心：开放系统 + 因果数据流 + 组合 + 静态性声明。**
 //!
 //! Zero-dependency computation primitives for observable, controllable systems.
-//! 新主轴线 [`cell_core`](crate::cell_core) —— 一个**编译期模型**：蓝图用 Rust
-//! 代码/类型定义（无 JSON/值形态中间层），核心能力到编译期耗尽用于分析、验证，
-//! 编译后等价手写普通 Rust、零运行时对象。
+//! axiom 是一个**编译期模型**：蓝图用 Rust 代码/类型定义（无 JSON/值形态中间层），
+//! 核心能力到编译期耗尽用于分析、验证，编译后等价手写普通 Rust、零运行时对象。
 //!
 //! - **开放系统（端口体）** [`PortCell`](crate::cell_core::PortCell)：有边界的计算体，
 //!   类型化输入/输出/状态，`step` 纯且内联。
 //! - **因果数据流** [`Link`](crate::cell_core::Link)：`A.out -> B.in`，类型层对偶配对，
-//!   非法连接编译失败（T1）。多对多 [`Broadcast`](crate::cell_core::Broadcast)、
+//!   非法连接编译失败（T1）。多对多 [`Broadcast`](crate::cell_core::Broadcast)
+//!   （fan-out）、[`Merge`](crate::cell_core::Merge)（fan-in）、
 //!   环 [`Feedback`](crate::cell_core::Feedback) 亦是类型层表达。
 //! - **组合** [`CellChain`](crate::cell_core::CellChain)：组合子仍是端口体，任意层级嵌套。
 //! - **静态性** [`Static`](crate::cell_core::Static) / 编译期验证
-//!   [`DoesWire`](crate::cell_core::DoesWire)/[`assert_wiring`](crate::cell_core::assert_wiring)。
+//!   [`DoesWire`](crate::cell_core::DoesWire) / [`assert_wiring`](crate::cell_core::assert_wiring)。
 //!
-//! > **移出抽象层的旧语义（归物理载体）**：FlowKind（Data/Control/Observe）三分、时序/
-//! > Delay、线程/同步异步、值形态/JSON —— 见 `docs/internal/theory` 理论文档。
+//! > **编译期核心承诺**：
+//! > - 蓝图即类型：零大小、运行时无对象（`size_of::<Blueprint<T>>() == 0`）；
+//! > - 验证在编译期（类型判定/宏），运行期零开销；
+//! > - 编译后等价手写普通 Rust（见 `examples/cell_demo.rs`）。
 //!
-//! ## 编译期核心承诺
+//! > **移出抽象层的旧语义（归物理载体，见 `docs/internal/theory`）**：
+//! > FlowKind（Data/Control/Observe）三分、时序/Delay、线程/同步异步、值形态/JSON。
 //!
-//! - 蓝图即类型：零大小、运行时无对象（`size_of::<Blueprint<T>>() == 0`）。
-//! - 验证在编译期（类型判定/宏），运行期零开销。
-//! - 编译后等价手写普通 Rust（见 `examples/cell_demo.rs`）。
+//! # 安全与 no_std
 //!
-//! ## 旧核心（过渡：legacy，将逐步迁移/删除）
-//!
-//! 以下旧模块在新核心确立后处于**过渡**地位：部分代表已被移出的抽象语义
-//! （[`flow`](crate::flow) 已标 DEPRECATED），部分将映射进四构件或删除：
-//! [`Machine`]/[`machine`](crate::machine)、[`func`](crate::func)、[`port`](crate::port)、
-//! [`portset`](crate::portset)、[`link`](crate::link)、[`deploy`](crate::deploy)、
-//! [`static_exec`](crate::static_exec)、[`composite`](crate::composite) 等。
-//!
-//! ## Features
-//!
-//! | Feature | Default | What it enables |
-//! |---------|---------|-----------------|
-//! | `std` | yes | `std::error::Error` impls, `ConfigCell`/`MigrateRegistry` (RwLock-backed), `RealClock` wall-clock |
-//! | `serialize` | no | `serde::Serialize`/`Deserialize` on pure-data enums & structs |
-//!
-//! Build with `--no-default-features` for a `no_std + alloc` configuration
-//! (embedded/WASM): the pure-data + `alloc` subset compiles without std.
-//! Collection types come from `crate::compat` so the crate stays
-//! zero-dependency in both configurations.
-//!
-//! ## Module maturity (legacy tiers; 新核心为 cell_core 主轴)
-//!
-//! The 31 legacy modules are grouped into three maturity tiers; 在新核心
-//! 主导下它们整体视为**过渡代码**。各 tier 含义（历史保留）：
-//!
-//! | Tier | Modules |
-//! |----|------|
-//! | **stable** (stable core) | [`func`](crate::func) / [`machine`](crate::machine) / [`port`](crate::port) / [`portset`](crate::portset) / [`link`](crate::link) / [`deploy`](crate::deploy) / [`flow`](crate::flow) / [`resource`](crate::resource) / [`static_exec`](crate::static_exec) / [`topology`](crate::topology) / [`analysis`](crate::analysis) / [`compat`](crate::compat) / [`time`](crate::time) |
-//! | **experimental** (extensions, advanced as core) | [`session`](crate::session) / [`hybrid`](crate::hybrid) / [`projection`](crate::projection) / [`stream`](crate::stream) / [`composite`](crate::composite) / [`entity`](crate::entity) / [`migrate`](crate::migrate) / [`shared`](crate::shared) / [`backpressure`](crate::backpressure) / [`builtin`](crate::builtin) |
-//! | **tool** (tooling) | [`lint`](crate::lint) / [`runtime_contract`](crate::runtime_contract) / [`config`](crate::config) / [`blueprint`](crate::blueprint) |
-//!
-//! **Experimental extensions are not part of the default export surface.**
-//! The `hybrid`, `stream`, and `shared` modules stay `pub mod` (reachable by
-//! explicit path, `axiom::hybrid::…`) but are **deliberately excluded from
-//! `prelude_all`**: a machine morphology that does not map 1:1 to a blueprint
-//! decision adds neither blueprint truthfulness nor redemption verifiability
-//! (design principle §0.5.1 in `docs/design-principles.md`), so it must be
-//! opted into explicitly rather than appearing in the default vocabulary.
-//!
-//! [`Func`]: crate::func::Func
-//! [`Port`]: crate::port
-//! [`Flow`]: crate::flow
-//! [`Session`]: crate::session
-//! [`Topology`]: crate::topology
-//! [`Lifecycle`]: crate::machine
-//! [`Machine`]: crate::machine::Machine
+//! - `axiom` 核心无任何 `unsafe`（`#![forbid(unsafe_code)]`——编译期承诺）。
+//! - 支持 `no_std + alloc`（`--no-default-features`）：cell_core 只用 `core`/`alloc`。
 
-// Enable `#[doc(cfg)]` rendering on docs.rs (nightly-only, gated so stable
-// builds are unaffected).
 #![cfg_attr(docsrs, feature(doc_cfg))]
-
-// axiom core contains no `unsafe` — make that a compile-time promise (an
-// ecosystem precedent). The runtime's lock-free ring (`CarFreeRing`) and replay entries
-// live in `axiom-runtime`, outside this crate.
+// axiom core contains no `unsafe` — make that a compile-time promise.
 #![forbid(unsafe_code)]
 
-// axiom supports a `no_std + alloc` build. With the default `std` feature the
-// crate uses `std::collections`/`std::sync::RwLock`/`std::time`; without it,
-// the pure-data + `alloc` subset compiles on embedded/WASM targets. The
-// `std::error::Error` impls, the RwLock-backed `ConfigCell`/`MigrateRegistry`,
-// and `RealClock` are gated behind `#[cfg(feature = "std")]`. Collection types
-// come from `crate::compat` so they map to `BTreeMap`/`BTreeSet` under `no_std`.
+// axiom supports a `no_std + alloc` build.
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-// Code generated by the procedural macro references core types via the
-// absolute `::axiom::` path. Inside the axiom crate itself, `extern crate
-// self` makes that path available. This is only needed when the `derive`
-// feature is enabled (only then does macro-generated code exist).
-#[cfg(feature = "derive")]
-extern crate self as axiom;
-
-// Procedural-macro entry point — when the `derive` feature is enabled,
-// `#[axiom::ports]` becomes available. The procedural macro runs at compile
-// time and the generated code references `::axiom::` paths, so it is
-// compatible with no_std.
-#[cfg(feature = "derive")]
-pub use axiom_derive::ports;
-
-// axiom core targets `std` by default. A `no_std` + `alloc` configuration is
-// available for embedded/edge use — the error types below gate their
-// `std::error::Error` impls behind `#[cfg(feature = "std")]`.
-
 // ═══════════════════════════════════════════════════════════════════════════
-// Module maturity tiers (T2, see "Module maturity" in the crate docs)
-//   stable          — the stable core (main subject of the current refactor)
-//   experimental    — extensions (advanced as part of the core, not dropped,
-//                     marked experimental)
-//   tool            — development-time tooling / runtime-adapter constraints
+// 核心主轴线：cell_core（四构件编译期模型）。
+//
+// 旧核心（v0：machine/port/link/deploy/FlowKind/值形态等）已移出 src
+// （见 src/_legacy_v0/），将与 runtime 一起逐步重建为"物理层实现用例"
+// （载体 / 宏 / 编译期展开）——见 docs/internal/theory 理论文档。
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ── stable: the stable core ────────────────────────────────────────────────
-// 新主轴线：四构件编译期核心（开放系统/因果数据流/组合/静态性声明）。
-// 旧模块逐步迁移/删除（见 refactor-plan-compile-time-core.md）。
 pub mod cell_core;
-pub mod analysis;
-pub mod compat;
-pub mod deploy;
-pub mod flow;
-pub mod func;
-pub mod link;
-pub mod machine;
-pub mod port;
-pub mod portset;
-pub mod resource;
-pub mod static_exec;
-pub mod time;
-pub mod topology;
 
-// ── experimental: extensions (advanced as core, not dropped) ───────────────
-pub mod backpressure;
-pub mod builtin;
-pub mod composite;
-pub mod entity;
-pub mod hybrid;
-pub mod migrate;
-pub mod projection;
-pub mod session;
-pub mod shared;
-pub mod stream;
-
-// ── tool: development-time tooling / runtime-adapter constraints ───────────
-pub mod lint;
-pub mod runtime_contract;
-#[cfg(feature = "serialize")]
-pub mod blueprint;
-#[cfg(feature = "std")]
-pub mod config;
-
-/// Core prelude for typical use.
+/// 核心 prelude：四构件主轴线的默认导出面。
 pub mod prelude_all {
     pub use crate::cell_core::{
         Blueprint, Broadcast, CellChain, DoesWire, Feedback, Link, Merge, PortCell, Static,
         assert_wiring, blueprint_is_zero_sized, drive, wired,
     };
-    pub use crate::backpressure::{
-        BackpressurePolicy, BackpressureAction, BackpressureCtx,
-        BlockPolicy, DropPolicy, OverwritePolicy, CreditPolicy,
-    };
-    pub use crate::builtin::{
-        Identity, Sink, Tee, Latch, Collector, EntityRoot, FuncMachine,
-    };
-    pub use crate::composite::{CompositeSpec, CompositeError, expand_composites};
-    pub use crate::deploy::{DynamicTopology, DeploySettings, MachineInstance, FuncBinding, Patch, ValidationError, CycleRule};
-    #[cfg(feature = "std")]
-    pub use crate::config::{ConfigCell, ConfigError};
-    pub use crate::entity::{Entity, EntityRestoreError};
-    pub use crate::flow::FlowKind;
-    pub use crate::func::{Func, FuncRef, FuncWithScratch, FuncScratchPipeline, Scratched, CostEstimate};
-    pub use crate::link::{LinkKind, LinkSpec, WritePolicy, ReadPolicy, MemoryRegion};
-    pub use crate::machine::{
-        Machine, Moore, ProcessOutput, InitError, CleanupError,
-        MachineHandle, LifecycleState,
-        Init, Running, Stopping, Stopped,
-        SingleOutput, MultiOutput, TupleOutput, MachineOutput, FusedInline, FusedCompatible,
-    };
-    #[cfg(feature = "std")]
-    pub use crate::migrate::{SchemaMigrate, MigrateFn, MigrateRegistry};
-    pub use crate::port::{
-        PortDir, PortDecl, PortSchema, ConfigDecl, ConfigSchema, MachineContext,
-        LinkCompat, Lifecycle, SystemSignal,
-    };
-    pub use crate::portset::{
-        PortSet, HasPortInfo,
-        In, Out, SinglePorts,        // single-port convenience
-        NoInput, NoOutput,           // empty-port convenience
-    };
-    pub use crate::projection::Projection;
-    pub use crate::resource::{MachinePhysicalSpec, ExecutionHint, ResourceClass, ThreadPoolSpec};
-    pub use crate::session::{
-        SessionType, SessionOp, SessionState, SessionProtocol, SessionError, is_dual,
-        GlobalType, GlobalOp, LocalType, LocalOp, Role, project, is_consistent,
-    };
-    pub use crate::static_exec::{
-        StaticExecError,
-        StraightMachine, StraightLink, StraightId, StraightSplit, StraightClone, StraightMerge,
-        Chain, Diamond, Composite, StaticChain, FlowThrough, run_parallel,
-    };
-    pub use crate::time::{TimeTick, Clock, RealClock, ReplayClock};
-    pub use crate::topology::{
-        Topology, StaticTopology, TopologyMutation, TopologyOp, TopologyDelta, AppliedOp,
-        TopologyError,
-    };
-    pub use crate::analysis::{
-        TopologyWarning, FeedbackLoop, SinglePointOfFailure, TopologyReport,
-    };
-
-    /// The port declaration macro for multi-port Machines.
-    pub use crate::declare_ports;
 }
