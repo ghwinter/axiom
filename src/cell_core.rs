@@ -204,6 +204,43 @@ pub fn drive<C: PortCell>(state: &mut C::State, input: C::In) -> C::Out {
     C::step(state, input)
 }
 
+// ── 5. 编译期验证（能力到编译期耗尽）────────────────────────────
+
+/// 编译期布线判定：`A` 的输出能否布到 `B` 的输入（因果数据流对偶配对）。
+///
+/// 这是一个**编译期的验证产物**：若 `DoesWire<A,B>` 可构造（impl 存在），
+/// 则这条布线在该类型对偶下合法——与运行时验证无关，纯类型层（T1）。
+pub trait DoesWire<A, B> {
+    /// 编译期证据：一条合法的因果数据流 A -> B（零大小、运行时无对象）。
+    const WIRES: bool = true;
+}
+
+impl<A, B> DoesWire<A, B> for ()
+where
+    A: PortCell,
+    B: PortCell<In = A::Out>,
+{
+}
+
+/// 断言一条布线合法：编译期成立则产生零大小证据；若类型不配对则该 impl 不存在 → 编译错误。
+/// 这是"用于分析与验证"的入口——验证在编译期完成，运行期零开销。
+pub fn assert_wiring<A, B>()
+where
+    A: PortCell,
+    B: PortCell<In = A::Out>,
+{
+    let _: bool = <() as DoesWire<A, B>>::WIRES;
+}
+
+/// 将一条编译期验证的布线冻结为一个零大小值（合并"验证产物"与"类型即蓝图"）。
+pub fn wired<A, B>()
+where
+    A: PortCell,
+    B: PortCell<In = A::Out>,
+{
+    let _ = assert_wiring::<A, B>;
+}
+
 // ──────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -293,5 +330,15 @@ mod tests {
         type Top = CellChain<Inc, CellChain<Scaler, Inc>>;
         assert!(blueprint_is_zero_sized::<Top>());
         assert_eq!(core::mem::size_of::<Blueprint<Top>>(), 0);
+    }
+
+    #[test]
+    fn compile_time_wiring_verification() {
+        // 编译期布线判定：Inc.out(i32) 布到 Scaler.in(i32) 合法（DoesWire 可构造）。
+        // 这是"能力到编译期耗尽用于验证"的入口——运行期零开销。
+        assert_wiring::<Inc, Scaler>();
+        assert_wiring::<CellChain<Inc, Scaler>, Scaler>();
+        // 一条合法布线的编译期证据存在（关联常量）。
+        let _: bool = <() as DoesWire<Inc, Scaler>>::WIRES;
     }
 }
