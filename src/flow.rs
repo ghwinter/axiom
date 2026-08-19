@@ -1,6 +1,15 @@
+/// **DEPRECATED (rework/compile-time-core)** — FlowKind 从抽象层移出，归物理载体。
+///
 /// **Maturity: stable** (the stable core, main subject of the current refactor).
 ///
 /// FlowKind — semantic dimension of a port, orthogonal to direction.
+///
+/// ⚠️ **弃用方向（本分支）**：依据理论收敛（axiom-theory-foundations §4.4），
+/// Data/Control/Observe 三分**不是抽象层语义**——内存/CPU 中没有"丢弃"，
+/// Observe 只是物理层决定看多少、Control 只是变量/地址变化；丢弃/阻塞/同步/异步
+/// 都是物理载体属性。蓝图只声明"带类型的因果数据流"（cell_core 的 `Link`），
+/// 类型对偶取代了 FlowKind 的语义约束。本模块仅因旧核心（port/portset/deploy/builtin）
+/// 的 `HasPortInfo::flow_kind()` 接口层仍在使用而保留，作为**过渡**；新核心不使用它。
 ///
 /// In the physical layer, all flows are the same: data moving between memory
 /// addresses. The distinction between "data", "control", and "observation" is
