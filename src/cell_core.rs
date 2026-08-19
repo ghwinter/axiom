@@ -173,6 +173,29 @@ impl<SUB> Static<SUB> {
     }
 }
 
+// ── 4b. 蓝图即类型（无 JSON / 值形态中间层；无运行时对象）──────
+
+/// 一张蓝图 = 一个**零大小、编译期定型**的类型（类型参数集合）。
+///
+/// 与"值形态蓝图/JSON"相反：这里蓝图不是一个运行时对象，而是一个类型参数
+/// 集合（§4.1）。`TOP` 承载整个拓扑（端口体 + 连接 + 组合 + 静态性），
+/// `size_of::<Blueprint<TOP>>() == 0` —— 运行时没有任何蓝图对象，只有编译器
+/// 据类型生成的业务代码。
+pub struct Blueprint<TOP>(core::marker::PhantomData<TOP>);
+
+impl<TOP> Blueprint<TOP> {
+    /// 定义/冻结一张蓝图（编译期定型，运行时零对象）。
+    pub fn define() -> Self {
+        Blueprint(core::marker::PhantomData)
+    }
+}
+
+/// 编译期证明：任何蓝图都是零大小，运行时零对象。
+/// 这是"无值形态/无 JSON/无运行时蓝图"（§4.1）的常量级证据。
+pub const fn blueprint_is_zero_sized<TOP>() -> bool {
+    core::mem::size_of::<Blueprint<TOP>>() == 0
+}
+
 // ── 驱动辅助 ──────────────────────────────────────────────────────
 
 /// 驱动一个端口体：构造状态并单步，返回输出。
@@ -262,5 +285,13 @@ mod tests {
         // tick(external=1): Body 1->2->4; feed Inc 4->5; Body 5->6->12
         let out = Feedback::<Body, Inc>::tick(&mut sb, &mut sf, 1);
         assert_eq!(out, 12);
+    }
+
+    #[test]
+    fn blueprint_is_zero_sized_zero_runtime_object() {
+        // 蓝图是零大小类型 → 运行时无对象（该"蓝图即类型"，无 JSON/值形态中间层）。
+        type Top = CellChain<Inc, CellChain<Scaler, Inc>>;
+        assert!(blueprint_is_zero_sized::<Top>());
+        assert_eq!(core::mem::size_of::<Blueprint<Top>>(), 0);
     }
 }
