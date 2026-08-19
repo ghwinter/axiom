@@ -129,3 +129,64 @@ where
         B::step(sb, mid)
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ChannelCarrier（std）—— 真正的跨线程通道载体
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// 跨线程通道载体（`std`）：把 `A` 的输出经 `mpsc` 投到一个**独立线程**上，
+/// 由持有 `B::State` 的工作线程执行 `B::step`，结果经 `oneshot` 送回调用线程。
+///
+/// 这是"堆队列/通道、跨线程"作为可替换物理方案（对应未来 axiom-tokio 的异步载体）。
+/// 因 `Carrier::flow` 签名是 `&mut B::State`（无法跨线程借用），跨线程形态由
+/// [`spawned_flow`](fn@spawned_flow) 提供独立入口——它把 `B::State` 移入工作线程，
+/// 体现"线程是物理层"（T9/T3）。
+#[cfg(feature = "std")]
+pub struct ChannelCarrier;
+
+/// 跨线程执行 `B::step`：`A` 在调用线程产出输出，经 mpsc 投到专用线程，
+/// 该线程持有 `B::State` 并执行 `B::step`，输出经另一 mpsc 传回调用线程。
+///
+/// 这是"通道/堆队列、跨线程"物理方案的直接证明——`B` 的状态被保护在专用线程中，
+/// 与调用线程隔离；换此载体即把一条因果流移到独立线程上执行（T6 多物理实现）。
+#[cfg(feature = "std")]
+pub fn spawned_flow<A, B>(
+    sa: &mut A::State,
+    init_b: impl FnOnce() -> B::State + Send + 'static,
+    input: A::In,
+) -> B::Out
+where
+    A: PortCell,
+    B: PortCell<In = A::Out> + Send + 'static,
+    A::In: Send + 'static,
+    A::Out: Send + 'static,
+    B::Out: Send + 'static,
+{
+    use std::sync::mpsc;
+
+    // ① A 在调用线程产出输出。
+    let mid = A::step(sa, input);
+
+    // ② 建两条通道：调用线程 → 工作线程（输入），工作线程 → 调用线程（输出）。
+    let (tx, rx) = mpsc::channel::<A::Out>();
+    let (reply_tx, reply_rx) = mpsc::channel::<B::Out>();
+
+    // ③ 工作线程持有 B::State，收到输入即执行 B::step，结果回传。
+    let worker = std::thread::spawn(move || {
+        let mut sb = init_b();
+        match rx.recv() {
+            Ok(v) => {
+                let out = B::step(&mut sb, v);
+                let _ = reply_tx.send(out);
+            }
+            Err(_) => {}
+        }
+    });
+
+    // ④ 投一条输入并取结果。
+    tx.send(mid).expect("worker alive");
+    let out = reply_rx.recv().expect("worker replied");
+    worker.join().expect("worker finished");
+    out
+}
+

@@ -40,11 +40,9 @@ pub mod static_path;
 
 /// 核心 prelude。
 pub mod prelude_all {
-    pub use crate::carrier::{
-        Carrier, CarrierCost, DirectCarrier, InlineCarrier,
-    };
+    pub use crate::carrier::{Carrier, CarrierCost, DirectCarrier, InlineCarrier};
     #[cfg(feature = "std")]
-    pub use crate::carrier::QueueCarrier;
+    pub use crate::carrier::{ChannelCarrier, QueueCarrier, spawned_flow};
     pub use crate::flow::{drive_link, drive_wired};
     pub use crate::static_path::{run_declared_static, run_static};
 }
