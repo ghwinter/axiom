@@ -48,6 +48,10 @@ pub mod flow;
 /// 静态路径：声明为静态的子图在编译期内联展开（零运行时对象）。
 pub mod static_path;
 
+/// `wire!` 声明宏：编译期展开的"连线 + 载体 + 验证"一次完成（宏/编译期技巧）。
+#[macro_use]
+pub mod macros;
+
 /// 核心 prelude。
 pub mod prelude_all {
     pub use crate::carrier::{Carrier, CarrierCost, DirectCarrier, InlineCarrier};
@@ -55,4 +59,5 @@ pub mod prelude_all {
     pub use crate::carrier::{ChannelCarrier, QueueCarrier, spawned_flow};
     pub use crate::flow::{drive_link, drive_wired};
     pub use crate::static_path::{run_declared_static, run_static};
+    pub use crate::wire;
 }
