@@ -142,8 +142,8 @@ pub mod config;
 /// Core prelude for typical use.
 pub mod prelude_all {
     pub use crate::cell_core::{
-        Blueprint, Broadcast, CellChain, Feedback, Link, PortCell, Static,
-        blueprint_is_zero_sized, drive,
+        Blueprint, Broadcast, CellChain, DoesWire, Feedback, Link, PortCell, Static,
+        assert_wiring, blueprint_is_zero_sized, drive, wired,
     };
     pub use crate::backpressure::{
         BackpressurePolicy, BackpressureAction, BackpressureCtx,
