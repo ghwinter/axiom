@@ -1,17 +1,37 @@
 //! # axiom
 //!
-//! **Func + Machine: typed ports, explicit topology, deploy-time physics.**
+//! **四构件编译期核心：开放系统 + 因果数据流 + 组合 + 静态性声明。**
 //!
 //! Zero-dependency computation primitives for observable, controllable systems.
-//! `Func` (stack, stateless) and `Machine` (heap, stateful) are organized around
-//! seven core primitives — [`Func`], [`Port`], [`Flow`], [`Session`], [`Topology`],
-//! [`Lifecycle`], [`Machine`] — with typed I/O, explicit link topology,
-//! deployment specs, and resource classification.
+//! 新主轴线 [`cell_core`](crate::cell_core) —— 一个**编译期模型**：蓝图用 Rust
+//! 代码/类型定义（无 JSON/值形态中间层），核心能力到编译期耗尽用于分析、验证，
+//! 编译后等价手写普通 Rust、零运行时对象。
 //!
-//! axiom is a **pure contract layer**: it defines typed ports, flow semantics,
-//! session protocols, and deployment specs — the vocabulary a runtime adapter
-//! interprets. The core crate carries no runtime, no executor, no async, and
-//! (outside the optional `serialize` feature) no dependencies.
+//! - **开放系统（端口体）** [`PortCell`](crate::cell_core::PortCell)：有边界的计算体，
+//!   类型化输入/输出/状态，`step` 纯且内联。
+//! - **因果数据流** [`Link`](crate::cell_core::Link)：`A.out -> B.in`，类型层对偶配对，
+//!   非法连接编译失败（T1）。多对多 [`Broadcast`](crate::cell_core::Broadcast)、
+//!   环 [`Feedback`](crate::cell_core::Feedback) 亦是类型层表达。
+//! - **组合** [`CellChain`](crate::cell_core::CellChain)：组合子仍是端口体，任意层级嵌套。
+//! - **静态性** [`Static`](crate::cell_core::Static) / 编译期验证
+//!   [`DoesWire`](crate::cell_core::DoesWire)/[`assert_wiring`](crate::cell_core::assert_wiring)。
+//!
+//! > **移出抽象层的旧语义（归物理载体）**：FlowKind（Data/Control/Observe）三分、时序/
+//! > Delay、线程/同步异步、值形态/JSON —— 见 `docs/internal/theory` 理论文档。
+//!
+//! ## 编译期核心承诺
+//!
+//! - 蓝图即类型：零大小、运行时无对象（`size_of::<Blueprint<T>>() == 0`）。
+//! - 验证在编译期（类型判定/宏），运行期零开销。
+//! - 编译后等价手写普通 Rust（见 `examples/cell_demo.rs`）。
+//!
+//! ## 旧核心（过渡：legacy，将逐步迁移/删除）
+//!
+//! 以下旧模块在新核心确立后处于**过渡**地位：部分代表已被移出的抽象语义
+//! （[`flow`](crate::flow) 已标 DEPRECATED），部分将映射进四构件或删除：
+//! [`Machine`]/[`machine`](crate::machine)、[`func`](crate::func)、[`port`](crate::port)、
+//! [`portset`](crate::portset)、[`link`](crate::link)、[`deploy`](crate::deploy)、
+//! [`static_exec`](crate::static_exec)、[`composite`](crate::composite) 等。
 //!
 //! ## Features
 //!
@@ -25,15 +45,10 @@
 //! Collection types come from `crate::compat` so the crate stays
 //! zero-dependency in both configurations.
 //!
-//! ## Module maturity (T2)
+//! ## Module maturity (legacy tiers; 新核心为 cell_core 主轴)
 //!
-//! The 31 public modules are grouped into three maturity tiers to help
-//! users tell the "stable core" apart from "experimental extensions".
-//! Each tier's meaning: **stable** = the stable core, the main subject of
-//! the current refactor; **experimental** = extensions (advanced as part of
-//! the core, not feature-gated, not dropped); **tool** = development-time
-//! tooling / runtime-adapter constraints, hardened according to a unified
-//! convention.
+//! The 31 legacy modules are grouped into three maturity tiers; 在新核心
+//! 主导下它们整体视为**过渡代码**。各 tier 含义（历史保留）：
 //!
 //! | Tier | Modules |
 //! |----|------|
