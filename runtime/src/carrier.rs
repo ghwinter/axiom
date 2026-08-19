@@ -174,12 +174,9 @@ where
     // ③ 工作线程持有 B::State，收到输入即执行 B::step，结果回传。
     let worker = std::thread::spawn(move || {
         let mut sb = init_b();
-        match rx.recv() {
-            Ok(v) => {
-                let out = B::step(&mut sb, v);
-                let _ = reply_tx.send(out);
-            }
-            Err(_) => {}
+        if let Ok(v) = rx.recv() {
+            let out = B::step(&mut sb, v);
+            let _ = reply_tx.send(out);
         }
     });
 
