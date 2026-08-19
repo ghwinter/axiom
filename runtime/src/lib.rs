@@ -1,112 +1,46 @@
 //! # axiom-runtime
 //!
-//! The unified runtime of axiom: materializes a `DynamicTopology` into live `MachineHandle`s,
-//! drives the `process` loop, and manages the lifecycle.
+//! **axiom 的物理层实现用例（载体 Carrier）**：为四构件编译期核心（[axiom::cell_core]）
+//! 提供"值如何跨连接流动"的多种可替换物理方案。
 //!
-//! ## Design principles
+//! 定位：axiom 核心（cell_core）只声明**因果数据流**（`A.out -> B.in`）；不提供任何物理
+//! 实现。**runtime 回答唯一一个问题**——这条流的值怎么从 `A.out` 到 `B.in`，以何种
+//! 时空成本。每个答案（载体）是独立的可替换单元；换载体不改拓扑（多物理实现，T6）。
 //!
-//! - **Unified runtime, modes configured, not separate types**: single-threaded and multi-threaded
-//!   are not two independent types but different values of the same `Runtime` on
-//!   `RuntimeConfig::mode`.
-//!   `Inline` → inlined execution on the caller's thread;
-//!   `Sequential` → single-threaded sequential loop;
-//!   `Parallel(n)` → N worker threads scheduled in parallel.
-//! - **The native loop cannot bootstrap itself**: the runtime's driver loop is not itself a
-//!   Machine; it is a C-style `loop { pull; process; route }`.
-//! - **process stays synchronous**: the synchronous signature of `Machine::process` is unchanged.
-//!   IO multiplexing and thread-pool management are the runtime's responsibility and do not pollute
-//!   core's pure contract layer.
-//! - **Static topology first**: once the runtime materializes a `DynamicTopology`, the topology is
-//!   fixed in memory; machines cannot be added or removed at runtime. Behavior that needs to "look
-//!   dynamic" (elasticity, routing) is expressed with a static topology + Machine-internal State
-//!   changes.
+//! ## 载体（Carrier）
 //!
-//! ## Scope
+//! | 载体 | 物理方案 | 时空成本 | 模块 |
+//! |---|---|---|---|
+//! | [`InlineCarrier`](crate::carrier::InlineCarrier) | 栈上函数直接传（`B::step(A::step(x))`） | 零分配、内联、单线程 | carrier/inline.rs |
+//! | [`QueueCarrier`](crate::carrier::QueueCarrier) | 堆队列/通道，跨线程传输 | 每消息分配 + 同步 | carrier/queue.rs |
+//! | [`DirectCarrier`](crate::carrier::DirectCarrier) | 编译期展开（静态链内联为调用图） | 零运行时对象 | carrier/direct.rs |
 //!
-//! - Single-threaded sequential driver loop (`Sequential` mode, direct move delivery)
-//! - Multi-threaded driving (`Parallel(n)` mode: one OS thread per machine; links materialize per
-//!   `LinkKind` as `mpsc::channel` / `mpsc::sync_channel` / custom bounded overwrite / single-slot
-//!   overwrite carriers; channel disconnection cascades shutdown)
-//! - `RegisterFn` registry + type-erased `RunningMachine`
-//! - `materialize` / `tick` / `shutdown` lifecycle
-//! - **output → input routing** (tick delivers outputs downstream per `LinkSpec`, propagating
-//!   level by level in BFS order, including Tee fan-out)
-//! - **shutdown propagation** (`Done` = stop signal: the machine stops, backlog is dropped, and the
-//!   stop cascades to every downstream whose in-edge sources are all stopped; a Parallel thread
-//!   exits immediately upon receiving `Done`)
-//! - **fan-in support** (in Parallel mode, multiple in-edges are merged and consumed via a forward
-//!   thread, injected in arrival order)
-//! - **Tier-B carriers**: `Overwriting` bounded overwrite (overwrites the oldest when full),
-//!   `Latest`/`SharedState` single-slot overwrite, `ReadPolicy::NonBlocking` polling
-//! - **pipelineN fusion**: `materialize` automatically recognizes Inline chains of adjacent
-//!   `FusedInline` machines and replaces them with a `FusedPipeline` — eliminating the per-hop
-//!   route lookup (2 String clones), bringing each hop from +4 down to +2 allocs (R003)
-//! - **Composite Machine**: `register_composite` wraps a sub-topology + port mapping as a single
-//!   `machine_type`; `materialize` expands it recursively (namespaced sub-machines + redirected
-//!   external links), and expansion happens before fusion — so `FusedPipeline` can fuse across
-//!   original composite boundaries
+//! 蓝图声明"这条流用哪个载体"（如 `Static<Chain<A,B>>` 走 `InlineCarrier`），
+//! 运行时按声明兑现——"部署期物理"。
 //!
-//! Not covered (later increments):
-//! - Multi-reader semantics of `SharedState` (currently a single-consumer approximation)
-//! - IOCP completion model for large-scale Windows IO (the current WSAEventSelect readiness model
-//!   supports ≤64 sources; production-scale thousands of connections need IOCP)
-//! - Bulk-injection shapes that rebuild the thread scope per tick (parallel gains depend on a
-//!   sustained stream of commands arriving, not a one-off bulk injection)
+//! ## 模块化与可替换
 //!
-//! ## Module structure
+//! 每个载体独立、可单独引用。第三方物理适配器（未来 `axiom_tokio`、`axiom_io_uring`）通过
+//! 实现 [`Carrier`](crate::carrier::Carrier) trait 挂入，不改 cell 拓扑。
 //!
-//! - [`config`] — `ExecMode` / `RuntimeConfig`
-//! - [`contract`] — `RuntimeContract for Runtime` (capability declaration + `check_spec` guard)
-//! - [`erasure`] — `RunningMachine` trait + `ProcessResult` + `MachineWrapper`
-//! - [`registry`] — `RegisterFn` + `Registry`
-//! - [`topology`] — `LiveTopology` + `PhysicalLink`
-//! - [`carrier`] — Parallel link carriers (`ChanSender`/`ChanReceiver` + overwrite/single-slot implementations)
-//! - [`routing`] — routing + shutdown propagation + endpoint validation + cycle detection
-//! - [`fusion`] — pipelineN fusion (`FusedPipeline` + chain recognition + `apply_fusion`)
-//! - [`io`] — IO multiplexing (`IoReactor` trait + epoll/kqueue/WSAEventSelect platform implementations)
-//! - [`runtime`] — the `Runtime` core (`materialize`/`tick`/`shutdown`/`run_io`)
+//! `#![forbid(unsafe_code)]`：runtime 核心无 unsafe。
 
+#![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), no_std)]
-
-#[cfg(not(feature = "std"))]
-compile_error!("axiom-runtime currently requires the `std` feature (std::sync::mpsc, std::thread)");
-
 extern crate alloc;
 
-mod carrier;
-mod config;
-mod contract;
-mod erasure;
-mod error;
-mod fusion;
-mod io;
-mod registry;
-mod replay;
-mod routing;
-mod scheduler;
-mod runtime;
-mod static_path;
-mod topology;
-mod typed_slot;
+/// 载体：cell_core 因果数据流的物理实现（值如何流动）。
+pub mod carrier;
 
-#[cfg(test)]
-mod tests;
+/// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。
+pub mod flow;
 
-pub use axiom::composite::{CompositeSpec, CompositeError, expand_composites};
-pub use axiom::static_exec::{
-    Chain, Composite, Diamond, FlowThrough, run_parallel, StaticChain, StaticExecError,
-    StraightClone, StraightId, StraightLink, StraightMachine, StraightMerge, StraightSplit,
-};
-pub use axiom::topology::{Topology, StaticTopology};
-pub use replay::{ReplayJournal, Replayer};
-pub use config::{ExecMode, RuntimeConfig};
-pub use erasure::{ProcessResult, RunningMachine};
-pub use error::RuntimeError;
-pub use io::{
-    IoError, IoEvent, IoInterest, IoReactor, IoToken, ManualReactor, RawIo, DefaultReactor,
-    default_reactor,
-};
-pub use registry::{RegisterFn, Registry};
-pub use runtime::Runtime;
-pub use static_path::{diamond, feedback, pipeline_chain};
-pub use topology::{LiveTopology, PhysicalLink};
+/// 核心 prelude。
+pub mod prelude_all {
+    pub use crate::carrier::{
+        Carrier, CarrierCost, DirectCarrier, InlineCarrier,
+    };
+    #[cfg(feature = "std")]
+    pub use crate::carrier::QueueCarrier;
+    pub use crate::flow::{drive_link, drive_wired};
+}
