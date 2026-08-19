@@ -17,3 +17,8 @@ axiom = { path = "..", version = "0.3.0" }
 [features]
 default = ["std"]
 std = []
+
+# ── 性能基准（构建用例，保留）：衡量不同载体的时空成本 ──────────────
+[[bench]]
+name = "carrier"
+harness = false
