@@ -78,6 +78,84 @@ where
 /// 别名：新主轴线上的组合子默认名。
 pub type Chain<A, B> = CellChain<A, B>;
 
+// ── 3b. 多对多：广播 / 扇出（因果数据流到多个兼容接收者）─────────
+
+/// 广播：把 `SRC` 的输出同时布线到多个接收者（`R1`, `R2`）。
+///
+/// 这是多对多连接（fan-out）的**编译期静态**表达——在类型层强制所有接收者
+/// 输入类型与源输出类型一致；无 `Box<dyn>`、无运行时对象（T1 对偶配对）。
+/// fan-out 到多个接收者是**因果数据流的多对多**，无需 Tee 树。
+///
+/// 源输出 `SRC::Out` 要求 `Clone`：多路分发在物理层本质是复制/分发——这正是
+/// "物理载体"的事，抽象层只是在类型层声明"这一个值流向多个接收者"。
+pub struct Broadcast<SRC, R1, R2>
+where
+    SRC: PortCell,
+    SRC::Out: Clone,
+{
+    _src: core::marker::PhantomData<SRC>,
+    _r1: core::marker::PhantomData<R1>,
+    _r2: core::marker::PhantomData<R2>,
+}
+
+impl<SRC, R1, R2> Broadcast<SRC, R1, R2>
+where
+    SRC: PortCell,
+    SRC::Out: Clone,
+    R1: PortCell<In = SRC::Out>,
+    R2: PortCell<In = SRC::Out>,
+{
+    /// 单步广播：SRC 产出一个输出，分别喂给两个接收者。
+    #[inline(always)]
+    pub fn fire(
+        ssrc: &mut SRC::State,
+        sr1: &mut R1::State,
+        sr2: &mut R2::State,
+        input: SRC::In,
+    ) -> (R1::Out, R2::Out) {
+        let mid = SRC::step(ssrc, input);
+        let o1 = R1::step(sr1, mid.clone());
+        let o2 = R2::step(sr2, mid);
+        (o1, o2)
+    }
+}
+
+// ── 3c. 环：反馈（因果闭合，编译期类型层表达，时序归物理载体）────
+
+/// 反馈环：`BODY` 的输出回喂到 `BODY` 的输入，形成因果闭合。
+///
+/// 抽象层**只声明环的存在**（因果闭合，T3）；环是否良定义、是否需要缓冲，
+/// 是物理载体的事（Kahn 通道 ⟹ 环安全；内联 ⟹ 需 Moore）。这里在类型层表达
+/// 闭合：回喂经过 `FEED`（可改变值），`FEED` 的输入来自 `BODY` 输出、
+/// 输出回到 `BODY` 输入 —— 编译期保证这条因果闭合合法。
+pub struct Feedback<BODY, FEED>
+where
+    BODY: PortCell,
+    FEED: PortCell<In = BODY::Out, Out = BODY::In>,
+{
+    _body: core::marker::PhantomData<BODY>,
+    _feed: core::marker::PhantomData<FEED>,
+}
+
+impl<BODY, FEED> Feedback<BODY, FEED>
+where
+    BODY: PortCell,
+    FEED: PortCell<In = BODY::Out, Out = BODY::In>,
+{
+    /// 一拍：外部输入经 BODY，输出经 FEED 成为"下一拍输入"的形态。
+    ///
+    /// 真实循环调度（何时用回喂值、是否需要缓冲）是物理载体职责（T3）；
+    /// 本方法仅演示因果闭合在类型层成立——无运行时对象，无 Box<dyn>。
+    #[inline(always)]
+    pub fn tick(sbody: &mut BODY::State, sfeed: &mut FEED::State, external: BODY::In) -> BODY::Out {
+        let out = BODY::step(sbody, external);
+        // 回喂：out 作为 FEED 输入，产出下一次的 BODY 输入形态。
+        let next_in: BODY::In = FEED::step(sfeed, out);
+        // 为演示闭合，再驱动一拍（用回喂值）。真实环由载体驱动；这里类型已闭合。
+        BODY::step(sbody, next_in)
+    }
+}
+
 
 // ── 4. 静态性声明 ─────────────────────────────────────────────────
 
@@ -155,5 +233,34 @@ mod tests {
     fn static_declaration_compiles() {
         // 静态性声明是可编译的、编译期定型的标记。
         let _ = Static::<CellChain<Inc, Scaler>>::declare();
+    }
+
+    #[test]
+    fn broadcast_fans_out_to_multiple_receivers() {
+        // Inc.out(i32) 同时 -> Inc 与 Scaler（多对多 fan-out，无 Tee 树）。
+        let (mut ss, mut sr1, mut sr2) = ((), (), ());
+        // fire: src Inc(5->6); r1 Inc(6->7); r2 Scaler(6->12)
+        let (o1, o2) = Broadcast::<Inc, Inc, Scaler>::fire(&mut ss, &mut sr1, &mut sr2, 5);
+        assert_eq!((o1, o2), (7, 12));
+    }
+
+    #[test]
+    fn feedback_closes_causally_in_types() {
+        // 环：BODY=Inc, FEED=Inc，类型闭合（i32->i32 -> i32->i32）。
+        // tick(external=8): Inc 8->9; feed Inc 9->10; 再 Inc 10->11
+        let (mut sb, mut sf) = ((), ());
+        let out = Feedback::<Inc, Inc>::tick(&mut sb, &mut sf, 8);
+        assert_eq!(out, 11);
+    }
+
+    #[test]
+    fn chained_relay_loop_in_types() {
+        // 一个更真实的环：BODY 是一个两段链 Chain<Inc,Scaler>(i32->i32)，
+        // FEED 是 Inc —— 展示"组合出的端口体仍旧可入环"，任意嵌套 + 环。
+        type Body = CellChain<Inc, Scaler>;
+        let (mut sb, mut sf) = (<Body as PortCell>::State::default(), ());
+        // tick(external=1): Body 1->2->4; feed Inc 4->5; Body 5->6->12
+        let out = Feedback::<Body, Inc>::tick(&mut sb, &mut sf, 1);
+        assert_eq!(out, 12);
     }
 }
