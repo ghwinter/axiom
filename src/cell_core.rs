@@ -120,6 +120,49 @@ where
     }
 }
 
+// ── 3b₂. 多对多：汇合 / fan-in（多个相容源合入一个接收者）─────────
+
+/// 汇合：`S1` 与 `S2` 的输出（类型须一致）合入一个 `DST` 接收者。
+///
+/// 多对多连接的 fan-in 侧：两个源的类型经类型层强制与接收者输入一致（T1），
+/// 无 Box<dyn>/运行时对象。汇合的"顺序"（谁先到）是物理载体的事（T3/Kahn）——
+/// 抽象层只声明"多个源可布入同一接收者"这一因果形态。
+pub struct Merge<S1, S2, DST>
+where
+    S1: PortCell,
+    S2: PortCell,
+    DST: PortCell<In = S1::Out>,
+    S2::Out: Into<DST::In>,
+{
+    _s1: core::marker::PhantomData<S1>,
+    _s2: core::marker::PhantomData<S2>,
+    _dst: core::marker::PhantomData<DST>,
+}
+
+impl<S1, S2, DST> Merge<S1, S2, DST>
+where
+    S1: PortCell,
+    S2: PortCell,
+    DST: PortCell<In = S1::Out>,
+    S2::Out: Into<DST::In>,
+{
+    /// 两步汇合：先驱动 S1，再驱动 S2，各输出进同一 DST 接收者（fan-in）。
+    /// 因果顺序由调用决定；物理顺序/仲裁归载体（T3）。DST 状态在两 step 间保持。
+    #[inline(always)]
+    pub fn join(
+        ss1: &mut S1::State,
+        ss2: &mut S2::State,
+        sdst: &mut DST::State,
+        in1: S1::In,
+        in2: S2::In,
+    ) -> DST::Out {
+        let o1 = S1::step(ss1, in1);
+        DST::step(sdst, o1);
+        let o2: DST::In = S2::step(ss2, in2).into();
+        DST::step(sdst, o2)
+    }
+}
+
 // ── 3c. 环：反馈（因果闭合，编译期类型层表达，时序归物理载体）────
 
 /// 反馈环：`BODY` 的输出回喂到 `BODY` 的输入，形成因果闭合。
@@ -340,5 +383,26 @@ mod tests {
         assert_wiring::<CellChain<Inc, Scaler>, Scaler>();
         // 一条合法布线的编译期证据存在（关联常量）。
         let _: bool = <() as DoesWire<Inc, Scaler>>::WIRES;
+    }
+
+    #[test]
+    fn merge_fans_in_multiple_sources() {
+        // 两个计数器源合入一个加法接收者（fan-in 多对多）。
+        // S1=Inc, S2=Scaler, DST=Accumulator-ish: 用 Counter 求和语义。
+        struct Accum;
+        impl PortCell for Accum {
+            type In = i32;
+            type Out = i32;
+            type State = i32;
+            #[inline(always)]
+            fn step(s: &mut i32, x: i32) -> i32 {
+                *s += x;
+                *s
+            }
+        }
+        // S1=Inc(5->6), S2=Scaler(5->10); Accum 累加: 6 -> 16
+        let (mut s1, mut s2, mut sdst) = ((), (), 0i32);
+        let out = Merge::<Inc, Scaler, Accum>::join(&mut s1, &mut s2, &mut sdst, 5, 5);
+        assert_eq!(out, 16);
     }
 }
