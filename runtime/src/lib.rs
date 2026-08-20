@@ -45,6 +45,14 @@ pub mod carrier;
 /// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。
 pub mod flow;
 
+/// 装载槽的运行期存在化（∃ 装载，物理侧）。
+#[cfg(feature = "std")]
+pub mod slot;
+
+/// 有界缓冲 / 背压原语（§9.1，std）。
+#[cfg(feature = "std")]
+pub mod buffer;
+
 /// 静态路径：声明为静态的子图在编译期内联展开（零运行时对象）。
 pub mod static_path;
 
@@ -56,8 +64,14 @@ pub mod macros;
 pub mod prelude_all {
     pub use crate::carrier::{Carrier, CarrierCost, DirectCarrier, InlineCarrier};
     #[cfg(feature = "std")]
-    pub use crate::carrier::{ChannelCarrier, QueueCarrier, spawned_flow};
-    pub use crate::flow::{drive_link, drive_wired};
+    pub use crate::buffer::BoundedQueue;
+    #[cfg(feature = "std")]
+    pub use crate::carrier::{BoundedCarrier, ChannelCarrier, QueueCarrier, spawned_flow};
+    pub use crate::flow::{drive_link, drive_try, drive_wired, TryChain};
+    #[cfg(feature = "std")]
+    pub use crate::flow::{bounded_pump, bounded_pump_try, drive_seq};
+    #[cfg(feature = "std")]
+    pub use crate::slot::SlotDrive;
     pub use crate::static_path::{run_declared_static, run_static};
     pub use crate::wire;
 }

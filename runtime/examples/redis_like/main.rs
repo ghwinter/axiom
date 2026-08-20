@@ -12,19 +12,20 @@ use axiom::cell_core::PortCell;
 use axiom_runtime::carrier::{InlineCarrier, spawned_flow};
 use axiom_runtime::flow::drive_link;
 
-use cells::{Cmd, DataStore, LineSplit, RespEncode};
+use std::collections::HashMap;
+
+use cells::{Cmd, Config, DataStore, LineSplit, RespEncode};
 
 fn main() {
     println!("=== redis_like: cell_core + Carrier KV 服务器管线 ===\n");
 
     // ── A. 单线程：InlineCarrier 驱动管线各步（零分配）──
     let mut split_state = <LineSplit as PortCell>::State::default();
-    let mut parse_state = <cells::CmdParse as PortCell>::State::default();
     let mut store_state = <DataStore as PortCell>::State::default();
-    let mut enc_state = <RespEncode as PortCell>::State::default();
 
-    // 模拟一段连接输入（带换行的命令批次）。
-    let input = "SET foo 10\nGET foo\nINCR foo\nDEL foo\nNOPE x\n".to_string();
+    // 模拟一段连接输入（带换行，含/含错：协议错误、值过大、未知命令）。
+    let input = "SET foo 10\nGET foo\nINCR foo\nSET big 999999999999999999\nSET foo notanumber\nGET\nDEL foo\nNOPE x\n"
+        .to_string();
     let lines = LineSplit::step(&mut split_state, input);
 
     let mut aof_log: Vec<String> = Vec::new();
@@ -32,9 +33,9 @@ fn main() {
         if line.is_empty() {
             continue;
         }
-        let cmd = cells::CmdParse::step(&mut parse_state, line.clone());
+        let cmd = cells::CmdParse::step(&mut (), line.clone());
         let (reply, log) = DataStore::step(&mut store_state, cmd);
-        let resp = RespEncode::step(&mut enc_state, (reply, log.clone()));
+        let resp = RespEncode::step(&mut (), (reply, log.clone()));
         if let Some(entry) = &log {
             aof_log.push(entry.clone());
         }
@@ -42,12 +43,19 @@ fn main() {
     }
     println!("  AOF 日志: {aof_log:?}");
 
+    // ── 配置/资源边界演示：受限服务器拒绝超限（键数、值大小）──
+    let mut bounded: <DataStore as PortCell>::State =
+        (HashMap::new(), Vec::new(), Config { max_keys: 1, max_value: 1_000 });
+    let (r1, _) = DataStore::step(&mut bounded, Cmd::Set("a".into(), 1));
+    let (r2, _) = DataStore::step(&mut bounded, Cmd::Set("b".into(), 2));       // 超键数 → 拒
+    let (r3, _) = DataStore::step(&mut bounded, Cmd::Set("c".into(), 999_999)); // 值过大 → 拒
+    println!("  受限(max_keys=1,max_val=1000): SET a={r1:?} SET b={r2:?} SET c={r3:?}");
+
     // ── B. 单个 GET/SET 经 Carrier 载体驱动（drive_link + InlineCarrier）──
     // 展示用 runtime Carrier 驱动"皮层对"（DataStore -> RespEncode）作为独立链路。
     let mut sstore = <DataStore as PortCell>::State::default();
-    let mut senc = <RespEncode as PortCell>::State::default();
     let r = drive_link::<DataStore, RespEncode, InlineCarrier>(
-        &mut sstore, &mut senc, Cmd::Get("missing".into()));
+        &mut sstore, &mut (), Cmd::Get("missing".into()));
     println!("  Carrier GET missing => {r}");
 
     // ── C. 跨线程（spawned_flow）：把 RespEncode 放到工作线程 ──

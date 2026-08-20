@@ -21,7 +21,7 @@
 //! > - 验证在编译期（类型判定/宏），运行期零开销；
 //! > - 编译后等价手写普通 Rust（见 `examples/cell_demo.rs`）。
 //!
-//! > **移出抽象层的旧语义（归物理载体，见 `docs/internal/theory`）**：
+//! > **移出抽象层的旧语义（归物理载体）**：
 //! > FlowKind（Data/Control/Observe）三分、时序/Delay、线程/同步异步、值形态/JSON。
 //!
 //! # 安全与 no_std
@@ -40,9 +40,8 @@ extern crate alloc;
 // ═══════════════════════════════════════════════════════════════════════════
 // 核心主轴线：cell_core（四构件编译期模型）。
 //
-// 旧核心（v0：machine/port/link/deploy/FlowKind/值形态等）已移出 src
-// （见 src/_legacy_v0/），将与 runtime 一起逐步重建为"物理层实现用例"
-// （载体 / 宏 / 编译期展开）——见 docs/internal/theory 理论文档。
+// 旧核心（v0：machine/port/link/deploy/FlowKind/值形态等）已移出 src；
+// 物理实现（载体/宏/编译期展开）由 runtime 承担（axiom-runtime crate）。
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub mod cell_core;
@@ -50,7 +49,8 @@ pub mod cell_core;
 /// 核心 prelude：四构件主轴线的默认导出面。
 pub mod prelude_all {
     pub use crate::cell_core::{
-        Blueprint, Broadcast, CellChain, DoesWire, Feedback, Link, Merge, PortCell, Static,
-        assert_wiring, blueprint_is_zero_sized, drive, wired,
+        Blueprint, Broadcast, CellChain, Choice, ChoiceIn, ChoiceOut, Conforms, DoesWire, Feedback,
+        Link, Merge, Opt, PortCell, Rep, Slot, Static, assert_conforms, assert_wiring,
+        blueprint_is_zero_sized, drive, wired,
     };
 }

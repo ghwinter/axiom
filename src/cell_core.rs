@@ -10,7 +10,7 @@
 //! 4. **静态性声明**（[`Staticity`]）：标记哪些子图要求零成本（单态化，无 `Box<dyn>`）。
 //!
 //! 已移出抽象层的旧语义（归物理载体/实例层）：FlowKind 三分、LinkKind 载体/背压/时序、
-//! 值形态/JSON、线程/同步异步/时序（见 refactor-plan 与 theorem T3/T9/§4.1/§4.4）。
+//! 值形态/JSON、线程/同步异步/时序（定理 T3/T9 与文档 `docs/foundations.md`）。
 
 // ── 1. 开放系统（端口体）──────────────────────────────────────────
 
@@ -200,6 +200,195 @@ where
 }
 
 
+// ── 3d. 统一模型：正则 / 星（同一 cell 的 N 次自组合）──────────────
+
+/// 正则 / 星：同一端口体 `C` 的 `N` 次**自组合**（有界计数、编译期定型）。
+///
+/// `Rep<N, C>` 表示"把 `C` 重复作用 N 次"——Kleene 星 `C*` 的编译期有界片段：
+/// 种类（`C` 的接口）在类型平面封闭，计数 N 是类型层面常量（编译期不变）。
+///
+/// 自组合要求 `C::In` 与 `C::Out` 互相可转换（即 `In == Out` 的同型表达），
+/// 否则无法把输出再喂回自身。语义 = 一遍 `C::step` 的 N 次链接；
+/// `State = [C::State; N]`，零分配、无运行时对象，编译期单态化 / 展开（零成本静态路径）。
+///
+/// > **统一模型衔接**：有界计数 N 是"正则/星"的**静片段**；无界计数（任意 N）属
+/// > 生成/递归层面的运行期实例网（由 runtime/载体驱动）。本构造子表达"种类封闭、
+/// > 计数为类型级常量"的部分，`N=0` 即恒等（`Rep<0,C>` 输出等于输入）。
+pub struct Rep<const N: usize, C>(core::marker::PhantomData<C>);
+
+/// Rep 的状态：`N` 个 `C::State` 的定长序列。
+///
+/// 自定义类型以**手动提供** `Default`（用 `core::array::from_fn`），不依赖原生数组
+/// 对泛型 `N` 的 `Default` 实现（避免编译器边界问题）。
+pub struct RepState<const N: usize, C: PortCell>(pub [C::State; N]);
+
+impl<const N: usize, C> Default for RepState<N, C>
+where
+    C: PortCell,
+{
+    #[inline]
+    fn default() -> Self {
+        RepState(core::array::from_fn(|_| C::State::default()))
+    }
+}
+
+impl<const N: usize, C: PortCell> RepState<N, C> {
+    /// 定长序列长度（编译期常量 `N`）。
+    #[inline(always)]
+    pub const fn len(&self) -> usize {
+        N
+    }
+
+    /// 长度是否为 `0`（编译期常量判定）。
+    #[inline(always)]
+    pub const fn is_empty(&self) -> bool {
+        N == 0
+    }
+}
+
+impl<const N: usize, C> Rep<N, C> {
+    /// 构造零大小的正则/星声明（运行时无对象）。
+    pub fn declare() -> Self {
+        Rep(core::marker::PhantomData)
+    }
+}
+
+impl<const N: usize, C> PortCell for Rep<N, C>
+where
+    C: PortCell,
+    C::In: From<C::Out>,
+    C::Out: From<C::In>,
+{
+    type In = C::In;
+    type Out = C::Out;
+    type State = RepState<N, C>;
+
+    #[inline(always)]
+    fn step(state: &mut RepState<N, C>, input: C::In) -> C::Out {
+        let mut acc: C::In = input;
+        let n = state.0.len();
+        for (i, s) in state.0.iter_mut().enumerate() {
+            let mid: C::Out = C::step(s, acc);
+            if i + 1 == n {
+                // 最后一次：直接返回 Out，避免双移（mid 既作输出又作下一输入）。
+                return mid;
+            }
+            acc = mid.into(); // 非最后一次：喂回自身（C::Out -> C::In）
+        }
+        // N=0：恒等，输出 = 输入（同型转换）。
+        C::Out::from(acc)
+    }
+}
+
+// ── 3e. 统一模型：装载槽（∃ / 定义侧）──────────────────────────────
+
+/// 装载槽：一个"接口固定、占据者运行时可换"的**定义**（∃ 装载，编译期定型）。
+///
+/// `Slot<I, O>` 本身不是可运行的 cell，而是声明"这个位置需要一个 `In=I, Out=O`
+/// 的端口体占据"。它把"未来占据者"约束在一个类型对偶对（T1）——这是统一模型里
+/// ∃（运行时装载）在**定义侧**的锚点；具体的运行期存在化填充由 runtime/载体承担。
+/// 本构造子是零大小、编译期定型的**定义**（不占运行时；定义可永不激活）。
+pub struct Slot<I, O>(core::marker::PhantomData<(I, O)>);
+
+impl<I, O> Slot<I, O> {
+    /// 声明一个装载槽（运行时无对象）。
+    pub fn declare() -> Self {
+        Slot(core::marker::PhantomData)
+    }
+}
+
+/// 编译期"合规"判定：`OCC` 能否填入 `Slot<I, O>`。
+///
+/// 这是 ∃ 装载槽的**参数化 T1 验证**：只要 `OCC: PortCell<In=I, Out=O>`，"未来任何
+/// 符合该接口的占据者都合规"这一规则在编译期成立（对占据者的存在量化表达为类型层
+/// 判定）。与 [`DoesWire`] 同构——只是把"线两端配对(T1)"表述为"槽与占据者配对(T1)"。
+pub trait Conforms<SLOT> {
+    /// 编译期证据：`OCC` 可填充该槽（零大小、运行时无对象）。
+    const OK: bool = true;
+}
+
+impl<I, O, OCC> Conforms<Slot<I, O>> for OCC
+where
+    OCC: PortCell<In = I, Out = O>,
+{
+}
+
+/// 断言一个占据者可填充给定装载槽（编译期）；不满足 T1 则该 impl 不存在 → 编译失败。
+pub fn assert_conforms<SLOT, OCC>()
+where
+    OCC: Conforms<SLOT>,
+{
+    let _: bool = <OCC as Conforms<SLOT>>::OK;
+}
+
+// ── 3f. 统一模型：正则算子（并 / 可选）─────────────────────────────
+
+/// 并（|）的输入标号：选 `A` 或 `B`。
+pub enum ChoiceIn<IA, IB> {
+    /// 派发给 `A` 的内容。
+    A(IA),
+    /// 派发给 `B` 的内容。
+    B(IB),
+}
+
+/// 并（|）的输出标号：哪个分支产出的结果。
+pub enum ChoiceOut<OA, OB> {
+    /// `A` 分支的输出。
+    A(OA),
+    /// `B` 分支的输出。
+    B(OB),
+}
+
+/// 并（|）：两个同处一个接口代数的 cell，作为**类型层的和**。
+///
+/// `Choice<A, B>` 接一个带标号的输入（[`ChoiceIn`]），**由输入标号决定**把内容派发给
+/// `A` 或 `B` 的 `step`，产出对应标号的输出（[`ChoiceOut`]）。纯、确定（无运行时模式
+/// 选择——是输入携带决定），是正则语言算子的 `|` 的**一等 PortCell** 表达；两个分支
+/// 的状态各自独立保存。
+pub struct Choice<A, B>(core::marker::PhantomData<(A, B)>);
+
+impl<A, B> PortCell for Choice<A, B>
+where
+    A: PortCell,
+    B: PortCell,
+{
+    type In = ChoiceIn<A::In, B::In>;
+    type Out = ChoiceOut<A::Out, B::Out>;
+    type State = (A::State, B::State);
+
+    #[inline(always)]
+    fn step(
+        (sa, sb): &mut (A::State, B::State),
+        input: ChoiceIn<A::In, B::In>,
+    ) -> ChoiceOut<A::Out, B::Out> {
+        match input {
+            ChoiceIn::A(i) => ChoiceOut::A(A::step(sa, i)),
+            ChoiceIn::B(i) => ChoiceOut::B(B::step(sb, i)),
+        }
+    }
+}
+
+/// 可选（?）：对可选输入应用或不应用 `C`（正则的 0 或 1 次）。
+///
+/// `Opt<C>` 把 `Option<C::In>` 变换为 `Option<C::Out>`：`None` 恒等（0 次，状态不变），
+/// `Some` 应用一次 `C::step`（1 次）。纯、确定、类型层可组合；正则语言算子的 `?`
+/// 的一等 PortCell 表达。
+pub struct Opt<C>(core::marker::PhantomData<C>);
+
+impl<C> PortCell for Opt<C>
+where
+    C: PortCell,
+{
+    type In = Option<C::In>;
+    type Out = Option<C::Out>;
+    type State = C::State;
+
+    #[inline(always)]
+    fn step(s: &mut C::State, input: Option<C::In>) -> Option<C::Out> {
+        input.map(|i| C::step(s, i))
+    }
+}
+
 // ── 4. 静态性声明 ─────────────────────────────────────────────────
 
 /// 静态性声明：标记"这个子图要求零成本"。
@@ -383,6 +572,116 @@ mod tests {
         assert_wiring::<CellChain<Inc, Scaler>, Scaler>();
         // 一条合法布线的编译期证据存在（关联常量）。
         let _: bool = <() as DoesWire<Inc, Scaler>>::WIRES;
+    }
+
+    #[test]
+    fn rep_repeats_same_cell_n_times() {
+        // Rep<3, Inc>：Inc 3 次自组合，5 -> 6 -> 7 -> 8
+        type R = Rep<3, Inc>;
+        let mut st = <R as PortCell>::State::default();
+        let out = drive::<R>(&mut st, 5);
+        assert_eq!(out, 8);
+    }
+
+    #[test]
+    fn rep_zero_is_identity() {
+        // Rep<0, Inc>：恒等，5 -> 5（输出=输入）
+        type R = Rep<0, Inc>;
+        let mut st = <R as PortCell>::State::default();
+        assert_eq!(drive::<R>(&mut st, 5), 5);
+        assert_eq!(<R as PortCell>::State::default().len(), 0);
+    }
+
+    #[test]
+    fn rep_state_is_fixed_array_of_n() {
+        // State 是 [C::State; N]：长度为 N，不引入运行时对象/N 计数。
+        type R = Rep<4, Inc>;
+        assert_eq!(core::mem::size_of::<R>(), 0); // 类型本身零大小
+        let st = <R as PortCell>::State::default();
+        assert_eq!(st.len(), 4);
+    }
+
+    #[test]
+    fn rep_wires_into_scaler_compile_time() {
+        // Rep<2, Inc>.out(i32) -> Scaler.in(i32)：T1 类型层验证成立。
+        assert_wiring::<Rep<2, Inc>, Scaler>();
+        // 组合 stella：Rep<2,Inc>(5->6->7) 再 Scaler(7->14)
+        type Body = CellChain<Rep<2, Inc>, Scaler>;
+        let mut st = <Body as PortCell>::State::default();
+        assert_eq!(drive::<Body>(&mut st, 5), 14);
+    }
+
+    #[test]
+    fn slot_declares_interface_and_conforms() {
+        // 装载槽定义是可编译的、零大小的（∃ 装载在定义侧）。
+        let _ = Slot::<i32, i32>::declare();
+        // 槽的接口（I=O=i32）可被任意符合该对偶的占据者参数化地填入（T1）。
+        type S = Slot<i32, i32>;
+        assert_conforms::<S, Inc>();
+        // Rep 也是 In=Out=i32 → 仍可填充同一槽（未来占据者的存在量化）。
+        assert_conforms::<S, Rep<3, Inc>>();
+        let _: bool = <Inc as Conforms<S>>::OK;
+    }
+
+    #[test]
+    fn choice_dispatches_by_input_tag() {
+        // Choice<Inc, Scaler>：输入标号决定分支（纯、由输入决定）。
+        // Inc(i32): +1；Scaler(i32): 已是标量语义（此处用其 state 宏）。
+        type C = Choice<Inc, Scaler>;
+        let mut st = <C as PortCell>::State::default();
+        // A 分支：Inc(0).step(5) -> 6
+        assert!(matches!(
+            drive::<C>(&mut st, ChoiceIn::A(5)),
+            ChoiceOut::A(6)
+        ));
+        // B 分支：Scaler 翻倍，Scaler(0).step(2) -> 4
+        assert!(matches!(
+            drive::<C>(&mut st, ChoiceIn::B(2)),
+            ChoiceOut::B(4)
+        ));
+    }
+
+    #[test]
+    fn opt_maps_option_identity_or_apply() {
+        // Opt<Inc>：None 恒等；Some(x) 应用一次 Inc（Opt::State=Inc::State=()，无状态）。
+        assert_eq!(drive::<Opt<Inc>>(&mut (), None), None);
+        assert_eq!(drive::<Opt<Inc>>(&mut (), Some(5)), Some(6));
+    }
+
+    #[test]
+    fn choice_opt_compose_as_port_cells() {
+        // Opt 可链：Opt<Inc>::Out = Option<i32> == Opt<Scaler>::In。
+        type Body = Chain<Opt<Inc>, Opt<Scaler>>;
+        let mut st = <Body as PortCell>::State::default();
+        // None -> 双方均恒等；Some(5) -> Inc(6) -> Scaler(12)
+        assert_eq!(drive::<Body>(&mut st, Some(5)), Some(12));
+        assert_eq!(drive::<Body>(&mut st, None), None);
+    }
+
+    #[test]
+    fn recursive_cell_type_composes_with_t1() {
+        // 代数（递归）schema 的 running 形态：用户自定义**递归** cell（内部可递归、
+        // `step` 仍是全函数），并作为组合子参与既有组合（Chain）与编译期 T1 验证。
+        // 结论（K）：递归/互递归图样无需新的核心组合子——由用户递归类型 + 既有组合子表达；
+        // 无界的**生成性展开**（任意运行时计数）归 ∃/物理侧（见 runtime 的 drive_seq/泵）。
+        struct Sum;
+        impl PortCell for Sum {
+            type In = Vec<i32>;
+            type Out = i32;
+            type State = ();
+            fn step(_: &mut (), xs: Vec<i32>) -> i32 {
+                fn rec(xs: &[i32], i: usize) -> i32 {
+                    if i >= xs.len() { 0 } else { xs[i] + rec(xs, i + 1) }
+                }
+                rec(&xs, 0)
+            }
+        }
+        // 递归 cell 仍是 PortCell：可进 Chain、可做 T1 布线验证。
+        assert_wiring::<Sum, Scaler>();
+        type S = CellChain<Sum, Scaler>;
+        let mut st = <S as PortCell>::State::default();
+        // Sum([1,2,3])=6 -> Scaler(×2)=12
+        assert_eq!(drive::<S>(&mut st, vec![1, 2, 3]), 12);
     }
 
     #[test]

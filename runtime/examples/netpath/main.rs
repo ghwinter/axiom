@@ -19,6 +19,8 @@ fn main() {
         Packet { raw: "aa:bb:06:100:8080.10".into() },
         Packet { raw: "aa:bb:06:200:8080.20".into() },
         Packet { raw: "aa:bb:06:100:9090.30".into() },
+        // 畸形/截断帧：多载体也必须**同样确定地**处理（不破坏确定性/等价性）。
+        Packet { raw: "malformed-garbage".into() },
     ];
 
     println!("=== netpath: 多段解析管线 (Eth→IP→TCP→Deliver) ===\n");

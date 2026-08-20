@@ -1,0 +1,183 @@
+> **Language:** English · [中文版](../zh-cn/unified.md)
+
+# The Unified Model: Substitution, Schemas, and the Definition–Activation Axis
+
+> **Nature**: the **unified-view volume** of axiom's formal specification. It answers "what is the
+> single perspective under which static composition, plugin/loading systems, and driver hot-plug
+> are all one thing", and upgrades the account of what axiom should be, beyond the "static
+> blueprint" of `core.md`. It builds on `foundations.md` (definitions/axioms/theorems) and
+> `runtime.md` (the physical layer).
+>
+> **Authoritativeness**: a self-contained normative spec — depends on nothing outside the crate.
+
+---
+
+## 1. One perspective: substitution over a typed interface algebra
+
+> **Software = a diagram over a typed interface algebra.** Its nodes are *interfaces* with typed
+> slots; its edges are *T1-legal wirings*; *building/running* = substituting each slot with a
+> conforming occupant. The legality of every substitution is a type judgment (T1).
+
+Under this one perspective the apparent opposition "static graph vs dynamic loading" dissolves:
+
+- **Static** = substitution performed at **compile time**, **universally quantified** over the
+  interface (parametric; provable once; zero cost);
+- **Dynamic** (plugins, code loading, driver hot-plug, hot reload) = substitution performed at
+  **runtime**, **existentially instantiated** (a future occupant that conforms to the interface).
+
+They are **two binding modes of the same substitution operation**, not two mechanisms.
+
+**Theoretical correspondence** (this is where the unified view is rigorized):
+- **Operads / symmetric monoidal categories** (Fong–Spivak): composition is associative,
+  well-typed substitution (already axiomatized as W1/W2).
+- **Polynomial functors / containers**: a container F(X) = Σ_{s∈S} X^{P_s} — **shapes S are closed**
+  (interface kinds, sealed at compile time) while **positions P_s are filled by X** (instances,
+  arbitrary). Substitution is the fundamental operation.
+- **Dependent type theory** (D1): binding/instantiation = the judgment "occupant a : interface A".
+
+---
+
+## 2. Two levels and an orthogonal axis
+
+### 2.1 Schema (closed) vs instance (open)
+
+- **Schema / type plane**: interface kinds, protocols, wiring rules — **finite, closed, provable at
+  compile time**.
+- **Instance plane**: **unbounded count** of instances.
+
+A "future system that is legal" is **not a new kind of legality**; it is the *same* T1 legality
+applied to instances **through the schema**. Logical closure is about the schema (shape), instance
+openness is about count — never conflate them.
+
+### 2.2 Definition ↔ activation (the orthogonal axis)
+
+- **Definition** (potential): exists as a well-formed, validated structure — no runtime use, not in
+  time; it lives in the code/type plane. `Blueprint`/`Static`/schemas/slots are **definitions**
+  (zero-sized, compile-time typed, T1-provable).
+- **Activation** (actual): embedding the definition into a run — feeding inputs, making values flow
+  along causal edges ("the connection's time-causality" takes effect), updating state. **Only
+  activation consumes runtime/objects/time/resources.**
+
+The two are **independent**: a graph can be **defined and validated yet never activated**
+(`if param { drive(..) }` skips it → runtime = 0; an engine script never loaded). This makes
+"defined-but-bound-and-not-driven" and "validated-but-not-yet-loaded" **the same thing** under this
+axis: both are *validated potential, not yet started*.
+
+Every concrete system is a point in the 2D space (binding modality) × (activation), and all four
+corners are the **same typed potential graph**:
+
+| | active | inactive |
+|---|---|---|
+| **static** (∀, compile-time) | compiled running graph | `if false` / not driven — runtime 0 |
+| **dynamic** (∃, runtime) | plugin loaded & running | validated but not yet loaded |
+
+> **Consequence**: axiom core is the **algebra of definition (potential)** — it guarantees a
+> well-formed, type-legal, zero-cost-awaiting-activation graph. **Activation is the run/carrier
+> side (actual).** "Definition carries no commitment to activation" is exactly why legality can be
+> proven at compile time for free.
+
+---
+
+## 3. Three forms of substitution; slots constrain kind, not count
+
+| Form | Binding | Meaning | axiom today |
+|---|---|---|---|
+| **① Static combination** | compile-time (∀, parametric) | known interfaces composed into a fixed topology | **core** (Link/Chain/Broadcast/Merge/Static) |
+| **② Loadable slot** (∃) | runtime, one occupant | interface fixed, occupant replaceable | **core** `Slot`/`Conforms` (definition) · runtime `SlotDrive` (∃ activation) |
+| **③ Generative/recursive schema** | schema closed at compile time; instances unbounded | a finite closed schema F yields an unbounded instance net | **core** `Rep<N,C>` (static star, bounded N) · runtime `drive_seq` (unbounded) |
+
+> **Status note**: ② and ③ are embodied. The **definition** side (core `Rep<N,C>` bounded star,
+> `Choice`/`Opt`, `Slot`/`Conforms`, compile-time T1) and the **activation** side (runtime
+> `SlotDrive`, `drive_seq`, `bounded_pump`) are implemented, verified, and green. The *algebraic
+> (mutually recursive)* schema layer needs **no new core combinator**: recursive/mutually-recursive
+> diagrams are realized by user-defined recursive `PortCell` types composed with the existing
+> combinators (all T1-verified and composable); *unbounded generative unrolling* is the
+> ∃/physical side (`drive_seq`/bounded pumps) — see §4.1.
+
+- **② and the wall**: runtime "modification" is *occupancy/content* substitution within a
+  **compile-time-closed interface** (T1 dual pairing + T5 behavioral equivalence + A2 shape–content
+  separation). You can replace *what fills a slot*, never *the interface/shape itself* —
+  **because interfaces, addresses, ABI, and protocols are fixed, dynamic loading is possible**
+  (§5.9 of `foundations.md`).
+- **③ and the "slot implies finite" worry**: a slot constrains **kind**, not **count**.
+  Unbounded count comes from **recursion**: a tree = the fixed point F(F(F(…))) of a finite schema
+  F (a polynomial functor). Every position is still a typed slot; unboundedness is the generator's
+  reach, not a finite slot budget. So "connect arbitrarily many protocol-conforming devices" is
+  expressed by ③, not by multiplying slots.
+
+---
+
+## 4. Schema expressiveness ladder, and the algebraic proof of future conformance
+
+### 4.1 The ladder
+
+| Level | What | Decidable | Place |
+|---|---|---|---|
+| **0 finite** | bounded non-recursive combinations | yes (exhaustive) | pipelines, fixed slot gluing |
+| **1 regular / star (Kleene)** | kinds bounded, counts unbounded | yes (induction/automata) | **regular-tree / free monad / algebraic species**; "regex-like" |
+| **2 algebraic** | mutually recursive node kinds | yes | context-free / algebraic species (AST-like) |
+| **3 general graphs** | arbitrary sharing/loops/dynamic topology | **undecidable (in general)** | graph grammars / transformations |
+
+"Future-conforming module" with unbounded reach lives at **level 1 (regular-tree / Kleene star /
+free monad)** — the "regex-like" intuition, made rigorous: kinds bounded like a finite alphabet,
+counts unbounded like `a*`. Levels beyond regular (algebraic, general graphs) do exist; axiom's
+**compile-time-provable schema classes are capped at regular/algebraic**, and general graphs fall
+to the physical/verification boundary (the explicit exception of T9).
+
+### 4.2 Proving future conformance algebraically
+
+A future module = an **arbitrary derivation** of the schema grammar (whose derivation rules **are**
+the interface/type rules, T1). We prove *all* derivations are well-typed — not each one:
+
+- **Finite unrollings**: **structural induction** over the recursive structure (initial algebra /
+  least fixed point) — well-founded, so no enumeration; validity is a universal argument over depth/
+  length.
+- **Potentially infinite / reactive**: **guarded coinduction / bisimulation** (the T5 side).
+
+> **One statement**: a schema is a grammar whose rules are the interface/type rules; "future
+> modules are legal" = the grammar is a well-typed scheme whose derivability is proven by
+> (co)induction over structure once — **logical closure, not instance closure.**
+
+---
+
+## 5. Precise dynamic tax
+
+The dynamic tax is the physical cost of a **dynamic seam** (any connection whose value must cross a
+compile-time-unknown implementation):
+
+1. **Indirection/erasure** (per touch): erased box / function pointer / vtable + dynamic dispatch,
+   or FFI/ABI symbol resolution. Time: indirect call (no inlining, possible branch-predict miss).
+   Safe-Rust lower bound **≥ 1 alloc + 1 vtable** (T7).
+2. **Load/unload** (one-time amortized): mapping code into the address space (relocations, symbol
+   resolution, PLT/GOT), unloading (refcount to zero, quiesce, deregister).
+3. **Lifecycle/refcount** (persistent): dynamic ownership needs register/deregister, refcount,
+   teardown.
+4. **Forgone optimizations** (implicit time+space): cannot inline/monomorphize across the boundary
+   or dead-code-eliminate unselected implementations; all candidates stay resident.
+5. **Space**: resident candidate implementations + dispatch structures.
+
+**Neutrality (why axiom stays sound)**: the dynamic tax is a function of the **physical boundary
+mechanism**, not of axiom's abstraction. axiom neither creates nor inflates it, and by keeping the
+non-dynamic majority static, **localizes it to the seam**. axiom's zero-cost promise
+(⟦α⟧ ≡ cost of an equivalent hand-written program using the same mechanism) is unaffected.
+
+---
+
+## 6. What this means for axiom ("axiom should be")
+
+- axiom core is the **algebra of definition (potential)**: today it realizes the **static fragment**
+  (finite combinations at compile time) and the physical-binding fragment (runtime/carrier).
+- To realize the **unified design**, add two kinds of core constructors (all still *definitions* —
+  zero-sized, provable; activation by `drive` remains separate):
+  - **② a loadable slot** (`Slot<I,O>` / `Loadable`): interface fixed and sealed; T1 verified
+    parametrically at compile time (`∀ T: Interface`); one occupant existentially filled at runtime.
+  - **③ schema / grammar constructors** (`Choice`, `Opt`, `Star`/`Repeat`, optional mutual
+    recursion): express an unbounded class of instance nets from a finite closed schema, provable by
+    (co)induction. ② and ③ together make static and dynamic **two binding modes of the same
+    substitution inside the core**, rather than static-in-core + dynamic-at-physical.
+- **Boundary**: full general dynamic graphs are not compile-time-provable → physical/verification
+  boundary (the explicit exception).
+- **One sentence**: axiom is not "a system that composes one static graph"; it is **the algebra of
+  definition** — a typed-substitution calculus whose objects range from a single static graph up to
+  *generative schemas and loadable slots*, all provable at compile time and freely activatable or
+  left unactivated at runtime.

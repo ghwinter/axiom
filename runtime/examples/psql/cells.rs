@@ -1,19 +1,18 @@
-//! psql —— SQL REPL 流水线，用 cell_core 四构件 + runtime Carrier 重建。
+//! psql —— SQL REPL 流水线，用 cell_core 四构件 + runtime 错误/短路驱动重建。
 //!
-//! 对应旧 psql（Lexer → Parser → Executor 流水线），但用新核心表达：
-//! - `Lexer`：无状态 `PortCell`（SQL 文本 → Tokens）；
-//! - `Parser`：无状态 `PortCell`（Tokens → Stmt）；
-//! - `Executor`：有状态 `PortCell`（State = Database，执行 Stmt → 结果）。
-//!
-//! 旧 lexer/parser 是无状态 Func、executor 是有状态 Machine；在新核心中三者都是
-//! `PortCell`（轴)，差异只在是否有 `State`——"开放系统"统一了这一区别。
+//! 健壮性设计（现实问题驱动 runtime）：
+//! - `Lexer`/`Parser` 是**会失败**的 cell：`Out = Result<_, PErr>`（词法/语法错误显露，
+//!   而非静默吞掉变成默认语句）；
+//! - `Executor` `Out = Result<ExecOut, PErr>`（执行错误，如表不存在）；
+//! - 主流程用 runtime 的 `drive_try` 对 Lexer→Parser 做**短路**：词法/语法错立即停，
+//!   不流到 Executor。这是"错误/失败通路"（`runtime.md` §9.2）在一个真实 REPL 上的使用。
 
 use std::collections::BTreeMap;
 
 use axiom::cell_core::PortCell;
 
 // ═══════════════════════════════════════════════════════════════
-// Token / Stmt / 结果类型
+// Token / Stmt / 错误 / 结果类型
 // ═══════════════════════════════════════════════════════════════
 
 /// SQL 词法单元。
@@ -38,24 +37,40 @@ pub enum Stmt {
     Select { table: String, cols: Vec<String> },
 }
 
-/// 执行结果。
+/// 词法/语法/执行错误（现实 REPL 的一等失败语义）。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Result {
+pub enum PErr {
+    /// 字符串字面量未闭合（词法）。
+    UnterminatedString,
+    /// 无法识别的字符（词法）。
+    UnexpectedChar(char),
+    /// 以无法识别的语句开头 / 空语句（语法）。
+    UnknownStatement,
+    /// 语句缺少表名（语法）。
+    MissingTable,
+    /// INSERT 缺少 VALUES（语法）。
+    MissingValues,
+    /// 引用了不存在的表（执行）。
+    NoSuchTable(String),
+}
+
+/// 执行成功输出。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecOut {
     Ok(String),
     Rows(Vec<Vec<i64>>),
-    Error(String),
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Lexer —— SQL 文本 → Tokens（无状态）
+// Lexer —— SQL 文本 → Result<Tokens, PErr>（无状态、会失败）
 // ═══════════════════════════════════════════════════════════════
 
 pub struct Lexer;
 impl PortCell for Lexer {
     type In = String;
-    type Out = Vec<Token>;
+    type Out = Result<Vec<Token>, PErr>;
     type State = ();
-    fn step(_: &mut (), sql: String) -> Vec<Token> {
+    fn step(_: &mut (), sql: String) -> Result<Vec<Token>, PErr> {
         let mut toks = Vec::new();
         let mut chars = sql.chars().peekable();
         while let Some(&c) = chars.peek() {
@@ -68,23 +83,26 @@ impl PortCell for Lexer {
                 while let Some(&d) = chars.peek() {
                     if d.is_ascii_digit() { n.push(d); chars.next(); } else { break; }
                 }
-                toks.push(Token::Number(n.parse().unwrap()));
+                toks.push(Token::Number(n.parse().map_err(|_| PErr::UnexpectedChar(c))?));
             } else if c == '\'' {
                 chars.next();
                 let mut s = String::new();
+                let mut closed = false;
                 while let Some(&d) = chars.peek() {
-                    if d == '\'' { chars.next(); break; } else { s.push(d); chars.next(); }
+                    if d == '\'' { chars.next(); closed = true; break; }
+                    else { s.push(d); chars.next(); }
                 }
+                if !closed { return Err(PErr::UnterminatedString); }
                 toks.push(Token::Str(s));
             } else if c == ',' { toks.push(Token::Comma); chars.next(); }
             else if c == '(' { toks.push(Token::LParen); chars.next(); }
             else if c == ')' { toks.push(Token::RParen); chars.next(); }
-            else {
+            else if c == '*' { toks.push(Token::Star); chars.next(); }
+            else if c.is_alphabetic() || c == '_' {
                 let mut w = String::new();
                 while let Some(&d) = chars.peek() {
                     if d.is_alphanumeric() || d == '_' { w.push(d); chars.next(); } else { break; }
                 }
-                let is_empty = w.is_empty();
                 let lw = w.to_lowercase();
                 toks.push(match lw.as_str() {
                     "create" => Token::Create, "table" => Token::Table,
@@ -93,31 +111,32 @@ impl PortCell for Lexer {
                     "from" => Token::From, "star" => Token::Star,
                     _ => Token::Ident(w),
                 });
-                if is_empty { chars.next(); } // 跳过未知字符
+            } else {
+                // 其它不可识别字符：词法错误。
+                return Err(PErr::UnexpectedChar(c));
             }
         }
         toks.push(Token::Semi);
-        toks
+        Ok(toks)
     }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Parser —— Tokens → Stmt（无状态）
+// Parser —— Tokens → Result<Stmt, PErr>（无状态、会失败）
 // ═══════════════════════════════════════════════════════════════
 
 pub struct Parser;
 impl PortCell for Parser {
     type In = Vec<Token>;
-    type Out = Stmt;
+    type Out = Result<Stmt, PErr>;
     type State = ();
-    fn step(_: &mut (), toks: Vec<Token>) -> Stmt {
+    fn step(_: &mut (), toks: Vec<Token>) -> Result<Stmt, PErr> {
         match toks.first() {
             Some(Token::Create) => {
                 // CREATE TABLE name (col, col, ...)
-                let mut name = String::new();
-                for t in &toks {
-                    match t { Token::Ident(n) => { name = n.clone(); break; } _ => {} }
-                }
+                let name = toks.iter().find_map(
+                    |t| if let Token::Ident(n) = t { Some(n.clone()) } else { None });
+                let name = name.ok_or(PErr::MissingTable)?;
                 let mut cols = Vec::new();
                 let mut in_paren = false;
                 for t in &toks {
@@ -128,20 +147,19 @@ impl PortCell for Parser {
                         _ => {}
                     }
                 }
-                Stmt::CreateTable { name, cols }
+                Ok(Stmt::CreateTable { name, cols })
             }
             Some(Token::Insert) => {
                 // INSERT INTO table VALUES (v, v, ...)
-                let mut table = String::new();
-                let mut values = Vec::new();
-                for t in &toks {
-                    match t {
-                        Token::Ident(n) if !n.is_empty() && table.is_empty() => table = n.clone(),
-                        Token::Number(v) => values.push(*v),
-                        _ => {}
-                    }
-                }
-                Stmt::Insert { table, values }
+                let table = toks.iter().find_map(
+                    |t| if let Token::Ident(n) = t { if !n.is_empty()
+                        && n.to_lowercase() != "into" { Some(n.clone()) } else { None } }
+                    else { None });
+                let table = table.ok_or(PErr::MissingTable)?;
+                let values: Vec<i64> = toks.iter().filter_map(
+                    |t| if let Token::Number(v) = t { Some(*v) } else { None }).collect();
+                if values.is_empty() { return Err(PErr::MissingValues); }
+                Ok(Stmt::Insert { table, values })
             }
             Some(Token::Select) => {
                 // SELECT col, ... FROM table
@@ -159,15 +177,16 @@ impl PortCell for Parser {
                         _ => {}
                     }
                 }
-                Stmt::Select { table, cols }
+                if table.is_empty() { return Err(PErr::MissingTable); }
+                Ok(Stmt::Select { table, cols })
             }
-            _ => Stmt::Select { table: String::new(), cols: vec![] },
+            _ => Err(PErr::UnknownStatement),
         }
     }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Database / Executor —— 有状态
+// Database / Executor —— 有状态、会失败
 // ═══════════════════════════════════════════════════════════════
 
 /// 微型数据库：表名 → (列名, 行)。
@@ -181,32 +200,28 @@ pub struct Database {
 pub struct Executor;
 impl PortCell for Executor {
     type In = Stmt;
-    type Out = Result;
+    type Out = Result<ExecOut, PErr>;
     type State = Database;
-    fn step(db: &mut Database, stmt: Stmt) -> Result {
+    fn step(db: &mut Database, stmt: Stmt) -> Result<ExecOut, PErr> {
         match stmt {
             Stmt::CreateTable { name, cols } => {
                 db.tables.insert(name.clone(), (cols.clone(), vec![]));
-                Result::Ok(format!("CREATE TABLE {name} ({} cols)", cols.len()))
+                Ok(ExecOut::Ok(format!("CREATE TABLE {name} ({} cols)", cols.len())))
             }
             Stmt::Insert { table, values } => {
                 let entry = db.tables.get_mut(&table);
                 match entry {
                     Some((_, rows)) => {
-                        rows.push(values.clone());
-                        Result::Ok(format!("INSERT 1 row into {table}"))
+                        rows.push(values);
+                        Ok(ExecOut::Ok(format!("INSERT 1 row into {table}")))
                     }
-                    None => Result::Error(format!("no table {table}")),
+                    None => Err(PErr::NoSuchTable(table)),
                 }
             }
             Stmt::Select { table, cols: _ } => {
                 match db.tables.get(&table) {
-                    Some((_, rows)) => {
-                        // 返回所有行的全部列值（简化）。
-                        let out = rows.iter().map(|r| r.clone()).collect();
-                        Result::Rows(out)
-                    }
-                    None => Result::Error(format!("no table {table}")),
+                    Some((_, rows)) => Ok(ExecOut::Rows(rows.to_vec())),
+                    None => Err(PErr::NoSuchTable(table)),
                 }
             }
         }
