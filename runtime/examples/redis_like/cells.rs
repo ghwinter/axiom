@@ -24,6 +24,8 @@ pub enum Cmd {
     Del(String),
     Incr(String),
     Unknown(String),
+    /// 协议/命令错误（缺参、非法值等）——健壮性：不静默吞成一个 0/空。
+    Protocol(String),
 }
 
 /// 存储操作结果（RESP 风格）。
@@ -33,6 +35,23 @@ pub enum Reply {
     Ok,
     Nil,
     Bytes(String),
+    /// 错误回复（RESP `-ERR ...`）。
+    Err(String),
+}
+
+/// 服务器配置（资源边界/健壮性）：命令/存储层的可调参数。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Config {
+    /// 键数量上限（写满即拒绝新增键 → 资源边界）。
+    pub max_keys: usize,
+    /// 值上限（超过即拒绝 → 值边界）。
+    pub max_value: i64,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config { max_keys: 10_000, max_value: 1_000_000 }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -71,13 +90,18 @@ impl PortCell for CmdParse {
         let mut it = line.split_whitespace();
         match (it.next(), it.next(), it.next()) {
             (Some("GET"), Some(k), _) => Cmd::Get(k.to_string()),
-            (Some("SET"), Some(k), Some(v)) => {
-                Cmd::Set(k.to_string(), v.parse().unwrap_or(0))
-            }
+            (Some("GET"), _, _) => Cmd::Protocol("GET requires a key".into()),
+            (Some("SET"), Some(k), Some(v)) => match v.parse::<i64>() {
+                Ok(n) => Cmd::Set(k.to_string(), n),
+                Err(_) => Cmd::Protocol(format!("SET value must be an integer, got '{v}'")),
+            },
+            (Some("SET"), _, _) => Cmd::Protocol("SET requires key and value".into()),
             (Some("DEL"), Some(k), _) => Cmd::Del(k.to_string()),
+            (Some("DEL"), _, _) => Cmd::Protocol("DEL requires a key".into()),
             (Some("INCR"), Some(k), _) => Cmd::Incr(k.to_string()),
+            (Some("INCR"), _, _) => Cmd::Protocol("INCR requires a key".into()),
             (Some(other), ..) => Cmd::Unknown(other.to_string()),
-            _ => Cmd::Unknown(String::new()),
+            _ => Cmd::Protocol("empty command".into()),
         }
     }
 }
@@ -86,19 +110,31 @@ impl PortCell for CmdParse {
 // DataStore —— KV 存储（有状态）+ 日志输出（AOF 精神）
 // ═══════════════════════════════════════════════════════════════════
 
-/// KV 存储。State = (map, log)。输出 = (回复, 可选日志行)。
+/// KV 存储（有状态，含资源边界配置）。State = (map, log, config)。
+/// 输出 = (回复, 可选日志行)。
 pub struct DataStore;
 impl PortCell for DataStore {
     type In = Cmd;
     type Out = (Reply, Option<String>);
-    type State = (HashMap<String, i64>, Vec<String>);
-    fn step((map, log): &mut (HashMap<String, i64>, Vec<String>), cmd: Cmd) -> (Reply, Option<String>) {
+    type State = (HashMap<String, i64>, Vec<String>, Config);
+    fn step(
+        (map, log, cfg): &mut (HashMap<String, i64>, Vec<String>, Config),
+        cmd: Cmd,
+    ) -> (Reply, Option<String>) {
         match cmd {
             Cmd::Get(k) => {
                 let r = map.get(&k).copied().map(Reply::Int).unwrap_or(Reply::Nil);
                 (r, None)
             }
             Cmd::Set(k, v) => {
+                // 资源边界：值上限 / 键数量上限 → 真实服务器的健壮性。
+                if v > cfg.max_value {
+                    return (Reply::Err(format!("value too large: {v}")), None);
+                }
+                let is_new = !map.contains_key(&k);
+                if is_new && map.len() >= cfg.max_keys {
+                    return (Reply::Err("max keys reached".into()), None);
+                }
                 map.insert(k.clone(), v);
                 log.push(format!("SET {} {}", k, v));
                 (Reply::Ok, log.last().cloned())
@@ -117,6 +153,7 @@ impl PortCell for DataStore {
                 (Reply::Int(*v), None)
             }
             Cmd::Unknown(s) => (Reply::Bytes(format!("ERR unknown: {s}")), None),
+            Cmd::Protocol(e) => (Reply::Err(e), None),
         }
     }
 }
@@ -137,6 +174,7 @@ impl PortCell for RespEncode {
             Reply::Ok => "+OK\r\n".to_string(),
             Reply::Nil => "$-1\r\n".to_string(),
             Reply::Bytes(b) => format!("{b}\r\n"),
+            Reply::Err(e) => format!("-ERR {e}\r\n"),
         }
     }
 }

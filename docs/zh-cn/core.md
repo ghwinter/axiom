@@ -1,0 +1,249 @@
+> **语言：** 中文 · [English](../en-us/core.md)
+
+# axiom 编译期核心：cell_core（axiom 的"应该是什么"·核心卷）
+
+> **性质**：axiom 的**核心架构规范**。回答"axiom 核心应该是什么"：把 `foundations.md`
+> 的公理与定理，落成一个**编译期核心** `src/cell_core.rs`。它描述 axiom 核心的应有
+> 形态，与已收敛的实现（`src/cell_core.rs`、`src/lib.rs`）一致。
+>
+> **规范性**：本卷是自洽的权威规范，专注 axiom 核心自身的定义。
+>
+> **一句话**：axiom 核心层 = **compile-time DSL + 验证器**：它的全部"智能"（分析、
+> 验证、类型约束、图构造）在**编译期**耗尽；产物是**普通 Rust 代码**。axiom 没有
+> "运行时"——只有"编译期"与"编译后"两段。这天然满足零成本承诺（编译后无 axiom
+> 对象）。
+
+---
+
+## 1. 核心命题
+
+> axiom 核心层 = **compile-time DSL + 验证器**：它的全部"智能"在**编译期**耗尽；
+> 产物是**普通 Rust 代码**。axiom 没有"运行时"——只有"编译期"与"编译后"两段。
+
+**含义**：蓝图不再是"运行时值"，而是**编译期构造物**（类型 + const + 宏生成的代码）。
+验证从"运行时对值做"变成"编译期由宏 / 类型 / const 做"——违反蓝图规则 = **编译错误**
+（`compile_error!`）或类型约束失败，而非运行时 `Result`。
+
+---
+
+## 2. 四构件（cell_core 的主轴线）
+
+`cell_core` 承载**四个构件**，对应理论收敛（衔接 `foundations.md`）：
+
+| 构件 | 内容 | Rust 对应 | 编译期性质 |
+|---|---|---|---|
+| **开放系统/端口体** | 有边界、类型化输入/输出/状态，`step` 纯且可内联 | `PortCell` trait（`src/cell_core.rs`） | 类型级，无运行时对象 |
+| **因果数据流** | 带方向的连接：`A.out -> B.in`，类型层对偶配对 | `Link<A,B>` | 非法连接编译失败（T1） |
+| **组合/嵌套** | 组合子仍是端口体，任意层级 | `CellChain<A,B>`（别名 `Chain`） | 操作类结构（T2） |
+| **静态性声明** | 标记哪些子图要求零成本 | `Static<SUB>` / `Blueprint<TOP>` | 单态化，无 `Box<dyn>`（T7/§5.6） |
+
+**多对多通成一等**：`Broadcast`（fan-out）、`Merge`(fan-in)、`Feedback`（环）在类型层表达，
+无 Tee 树（衔接 `foundations.md` §5.3/A2）。
+
+### 2.1 `PortCell`（开放系统/端口体）
+
+```rust
+pub trait PortCell: Sized {
+    type In;                      // 输入端口类型（承载的值类型）
+    type Out;                     // 输出端口类型
+    type State: Default;          // 内部状态
+    fn step(state: &mut Self::State, input: Self::In) -> Self::Out; // 纯转移
+}
+```
+
+- `In`/`Out` 是端口类型（对偶靠它们配对，见 `Link`）；`State` 是内部状态，默认可构造；
+- `step` 是纯转移（`#[inline(always)]` 使内联跨 crate 成立 → Z1 的 (b)）；
+- 纯抽象层——**不掺线程/同步/背压/时序**，那些是物理载体的事（T3 / §5.4）。
+
+### 2.2 `Link`（因果数据流）
+
+```rust
+pub struct Link<A, B>(PhantomData<(A, B)>);
+impl<A, B> Link<A, B>
+where A: PortCell, B: PortCell<In = A::Out>,   // 类型层对偶配对
+{
+    pub fn fire(astate: &mut A::State, bstate: &mut B::State, input: A::In) -> B::Out {
+        let mid = A::step(astate, input);
+        B::step(bstate, mid)
+    }
+}
+```
+
+**布线合法性 = 类型判定（T1）**：要求 `B::In == A::Out`。若类型不匹配，本类型根本无法
+实例化——非法连接在**编译期**被拒绝（不是运行时检查）。
+
+### 2.3 `CellChain`（组合/嵌套）
+
+```rust
+pub struct CellChain<A, B>(PhantomData<(A, B)>);
+impl<A, B> PortCell for CellChain<A, B>
+where A: PortCell, B: PortCell<In = A::Out>,
+{
+    type In = A::In; type Out = B::Out; type State = (A::State, B::State);
+    fn step((sa, sb): &mut (A::State, B::State), input: A::In) -> B::Out {
+        let mid = A::step(sa, input);
+        B::step(sb, mid)
+    }
+}
+pub type Chain<A, B> = CellChain<A, B>;
+```
+
+组合 A -> B（A 输出布线到 B 输入）**仍是端口体**，可再嵌套（任意层级）。命名 `CellChain`
+以避免与旧 `static_exec::Chain` 冲突（分阶段迁移期间共存；后续收敛后恢复为 `Chain`）。
+
+### 2.4 `Broadcast` / `Merge` / `Feedback`（多对多、环）
+
+- **`Broadcast<SRC, R1, R2>`**：源输出同时布线到多个接收者（fan-out）。类型层强制所有
+  接收者输入与源输出一致；无 `Box<dyn>`、无运行时对象。源输出要求 `Clone`——多路分发在
+  物理层本质是复制/分发，这正是"物理载体"的事，抽象层只是在类型层声明"这一个值流向多个
+  接收者"。
+- **`Merge<S1, S2, DST>`**：多个相容源合入一个接收者（fan-in）。汇合的"顺序"（谁先到）
+  是物理载体的事（T3/Kahn）——抽象层只声明"多个源可布入同一接收者"这一因果形态。
+- **`Feedback<BODY, FEED>`**：`BODY` 输出经 `FEED` 回喂到 `BODY` 输入，形成因果闭合。
+  抽象层**只声明环的存在**（因果闭合，T3）；环是否良定义、是否需要缓冲，是物理载体的事
+  （Kahn 通道 ⟹ 环安全；内联 ⟹ 需 Moore）。
+
+### 2.5 `Static` / `Blueprint`（静态性声明 + 蓝图即类型）
+
+```rust
+pub struct Static<SUB>(PhantomData<SUB>);          // 标记子图要求零成本
+pub struct Blueprint<TOP>(PhantomData<TOP>);       // 蓝图 = 零大小类型
+pub const fn blueprint_is_zero_sized<TOP>() -> bool {
+    core::mem::size_of::<Blueprint<TOP>>() == 0
+}
+```
+
+- **`Static<SUB>`**：显式声明一个子图为静态（零成本）。仅对声明为静态的子图，编译期强制
+  单态化 + 内联，验证零成本（Z ⟹ 展开）；未声明的走普通 Rust/载体路径（dynamic 税可
+  接受）——"静态优先 + 显式例外"（衔接 `foundations.md` §5.6）。
+- **`Blueprint<TOP>`**：一张蓝图 = 一个**零大小、编译期定型**的类型（类型参数集合）。
+  与"值形态蓝图/JSON"相反（衔接 `foundations.md` §5.5）：蓝图不是运行时对象，而是类型
+  参数集合；`size_of::<Blueprint<TOP>>() == 0`——运行时没有任何蓝图对象。
+
+---
+
+## 3. 蓝图即类型、无 JSON / 值形态中间层
+
+> **结论（衔接 `foundations.md` §5.5 / 4.1）**：在编译语言（Rust）主流里，"运行时修改代码/
+> 拓扑"没有必要的普遍例子，工程上**明确偏向编译期**。蓝图直接用 Rust 代码定义
+> （类型 / 宏调用刻画静态图结构），**不需要 JSON/值形态作为一等表达**。
+
+**论证**：
+- 动态库加载（dlopen/.so）是"插件"常见形态，但加载的不是新代码——`.so` 是编译期已定型
+  单元，加载只是"连接既有代码 + 符号绑定"，类型平面不变，落实例层。
+- 真正的运行时生成新代码（JIT）才创造新类型——非编译语言主流，工程上几乎不用于可靠性
+  系统。
+- "配置/JSON/序列化导入"唯一价值是"修改程序行为"——而正因运行时不改结构（T9），此价值
+  不存在。JSON 至多是"生成这份 Rust 代码的工具输入"，不是一等形态。
+
+**形式化（蓝图形态）**：蓝图 G = Rust 代码定义的类型化图（开放系统 + 因果数据流 + 端口
+类型），编译期直接展开；无运行时蓝图对象，无中间 JSON 形态。此前"值作为编译前源"的
+保留收回——值形态连编译前中间态都不必要。
+
+---
+
+## 4. 编译期验证（能力到编译期耗尽）
+
+```rust
+pub trait DoesWire<A, B> { const WIRES: bool = true; }
+impl<A, B> DoesWire<A, B> for () where A: PortCell, B: PortCell<In = A::Out> {}
+
+pub fn assert_wiring<A, B>() where A: PortCell, B: PortCell<In = A::Out> {
+    let _: bool = <() as DoesWire<A, B>>::WIRES;
+}
+```
+
+- **编译期布线判定**：若 `DoesWire<A,B>` 可构造（impl 存在），则这条布线在该类型对偶下
+  合法——与运行时验证无关，纯类型层（T1）。
+- **断言一条布线合法**：编译期成立则产生零大小证据；若类型不配对则该 impl 不存在 →
+  **编译错误**。这是"用于分析与验证"的入口——验证在编译期完成，运行期零开销。
+
+---
+
+## 5. 理论 ↔ Rust 的对应
+
+| 理论对象 | Rust 对应 | 代价 |
+|---|---|---|
+| 开放系统/端口体 | `trait`（有输入端/输出端关联类型） | 编译期 |
+| 形状-内容分离 | 泛型（形状=类型参数，内容=具体实现） | 编译期单态化 |
+| 连接一等对象 | 连接类型 + 会话类型（协议对偶） | 编译期；运行期为值 |
+| 类型-项二分 | `Type`（静态）vs `Box<dyn ...>` 或实例（动态） | 静态零 / 动态税 |
+| 组合 | 组合子/嵌套泛型 + 递归 | 编译期展开 |
+| 零成本守恒 | 泛型单态化（monomorphization） | 编译期（体积换速度） |
+| no_std | 无运行时依赖 | — |
+
+**关键对应：泛型单态化 = 零成本的实现机制**
+Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphization）——这正是零成本守恒的
+机制。当拓扑编码在类型参数里（组合子、嵌套泛型），编译器展开为手写等价指令序列；类型
+擦除触发时（`Box<dyn Any>`）才付费。
+
+---
+
+## 6. 移出抽象层的旧语义（归物理载体/实例层）
+
+为保持核心"干净"，以下旧语义被移出抽象层（衔接 `foundations.md` §5.4/5.8）：
+
+- **FlowKind（Data/Control/Observe 三分）**：移出蓝图，是物理载体属性。
+- **LinkKind 的载体/背压/时序语义**：物理载体的事，非抽象层。
+- **值形态蓝图 / JSON / 运行时值验证**：蓝图即代码，无 JSON/值形态中间层。
+- **线程/同步异步/时序**：实例物理层（T9/T3）。
+
+4. 验证在编译期（`DoesWire`/`assert_wiring`，非法布线编译失败）。
+5. **移除出抽象层的旧语义**（§2 表 + §6）不进入核心类型——`cell_core` 清理后仅剩
+   `PortCell` 系 + 驱动 + 编译期验证，零依赖、`#![forbid(unsafe_code)]`、`#![no_std]`。
+
+---
+
+## 6b. 统一模型构造子（加法式）
+
+在四构件之外，`cell_core` **加法式**地新增统一模型构造子（不改写既有类型）：
+
+- **`Rep<N, C>`** —— 正则/星：同一 cell `C` 的 N 次自组合（Kleene `C*`，计数以编译期常量
+  有界）。`State = RepState<N,C>`（手动 `Default`，不依赖原生数组 `Default`）；零成本、
+  单态化；`N=0` 恒等。无界计数（运行期）是生成/物理侧——见 `runtime.md` 的 `drive_seq`。
+- **`Slot<I, O>` + `Conforms` / `assert_conforms`** —— ∃ 装载槽**定义**：编译期固定接口
+  （对偶对 T1）+ 对任何未来占据者的编译期参数化合规判定
+  （`∀ T: PortCell<In=I, Out=O>` ⟹ `Conforms<Slot<I,O>>`，形同 `DoesWire`）。运行期存在化
+  填充为 `SlotDrive`——见 `runtime.md`。
+- **`Choice<A, B>` + `Opt<C>`** —— 正则算子 `|` 与 `?` 的一等纯 `PortCell` 表达。`Choice`
+  （输入标号[和]）由输入的标签派发给 `A` 或 `B`；`Opt<C>` 把 `Option<C::In>` 映射为
+  `Option<C::Out>`（`None` 恒等，`Some` 应用一次 `C::step`）。二者确定、可像普通 cell 一样
+  组合（其 ∃ 分支选择侧仍是 runtime 的 `SlotDrive`）。
+
+这些是**定义**（零大小、无运行时对象），复用同一套 `PortCell` + `DoesWire` 式编译期验证
+——统一模型静片段的优雅加法式实现（见 [`unified.md`](unified.md)）。
+
+---
+
+## 7. 验收基准（核心）
+
+```text
+cargo build --lib        # 零依赖，no_std 支持（--no-default-features）
+cargo test --lib         # 9 测试
+cargo bench --bench chain   # 静态 ≈ 手写（零成本实证）
+```
+
+**已达成（证据链）**：
+- 四构件完整、可编译、有测试；复杂拓扑（环/广播/汇合）在类型层表达，无
+  `Box<dyn>`/JSON/线程/FlowKind。
+- 蓝图即类型：`size_of::<Blueprint<TOP>>()==0`，运行时零对象（const 证明）。
+- 验证在编译期（`DoesWire` 类型判定，非法布线编译失败）。
+- 编译后等价手写普通 Rust（`examples/cell_demo.rs` 实证）。
+- bench：静态 51µs ≈ 手写 49µs（零成本）、type-erasure 1.3ms（~26x 动态税）——实证
+  `foundations.md` T7 的"静态免费、动态必付税"。
+- `#![forbid(unsafe_code)]`、`#![no_std]`（`default=["std"]`），核心零依赖。
+
+---
+
+## 8. 边界与开放问题
+
+- **核心是编译期模型**：能力到编译期耗尽，编译后无 axiom 对象；超出编译期的"智能"
+  （如线性时态/图分析）不属核心默认能力，须另行设计。
+- **全函数假设**：`PortCell::step` 被假定为总转移；"会失败的 cell"未公理化，当前按物理
+  `Result` 约定处理（见 [`runtime.md`](runtime.md) 开放问题）。
+- **静态性声明的覆盖范围**：目前 `Static` 以类型参数标记静态子图；"静态路径从链扩大到
+  任意多子图"后的单态化体积容忍上限是开放问题（`foundations.md` §7）。
+
+> **结论**：axiom 核心 = `cell_core` 四构件（开放系统、因果数据流、组合、静态性声明）
+> 的编译期模型——蓝图即类型、验证在编译期、编译后等价手写普通 Rust。物理实现由
+> runtime（载体）承担，见 [`runtime.md`](runtime.md)。

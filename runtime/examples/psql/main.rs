@@ -1,60 +1,47 @@
-//! psql —— 用 cell_core 四构件 + runtime Carrier 构建的 SQL REPL 流水线。
+//! psql —— 用 cell_core 四构件 + runtime 错误/短路驱动构建的 SQL REPL 流水线。
 //!
-//! 重建旧 psql（Lexer → Parser → Executor），用新核心表达：三者都是 `PortCell`，
-//! 差异在 `State`（Lexer/Parser 无状态、Executor 有 Database）。用 runtime Carrier
-//! 驱动（InlineCarrier 单线程零分配），体现实解析/执行流水线作为真实用例。
+//! 健壮性增强（现实问题驱动 runtime）：`Lexer`/`Parser` 会失败（`Out = Result`），
+//! 主流程把 Lexer→Parser→Executor **串成一个单层可失败链** `TryChain`——词法/语法/执行
+//! 错误都是单层 `Result`，任一环节 `Err` 即短路；整条腐用管线是一个可组合的 `PortCell`。
 //!
 //! 运行：`cargo run --example psql`
 
 mod cells;
 
 use axiom::cell_core::PortCell;
-use axiom_runtime::carrier::{InlineCarrier, spawned_flow};
-use axiom_runtime::flow::drive_link;
+use axiom_runtime::flow::TryChain;
 
-use cells::{Executor, Lexer, Parser, Result};
+use cells::{Executor, ExecOut, Lexer, Parser};
 
 fn main() {
-    println!("=== psql: cell_core + Carrier SQL REPL 流水线 ===\n");
+    println!("=== psql: robust SQL REPL with error short-circuit ===");
 
-    // 一批 SQL（模拟 REPL 输入）。
+    // 一批有对有错的 SQL（健壮性：错误不静默、短路不执行）。
     let sqls = [
         "CREATE TABLE users (id, name)",
         "INSERT INTO users VALUES (1)",
         "INSERT INTO users VALUES (2)",
         "INSERT INTO users VALUES (42)",
         "SELECT * FROM users",
-        "SELECT * FROM missing",
+        "SELECT * FROM missing",          // 有 Stmt，但表不存在 → Executor 报错
+        "INSERT INTO users VALUES",       // 缺 VALUES → Parser 短路
+        "CREATE TABLE",                   // 缺表名 → Parser 短路
+        "SELECT * FROM 'oops",            // 未闭合字符串 → Lexer 短路
     ];
 
-    // 皮层状态（Lexer/Parser 无状态 = ()；Executor 有 Database）。
-    let mut lex_state = <Lexer as PortCell>::State::default();
-    let mut par_state = <Parser as PortCell>::State::default();
-    let mut exe_state = <Executor as PortCell>::State::default();
+    // 整条可失败管线 = 一个单层 Result 的 PortCell：
+    //   In = String（SQL），Out = Result<ExecOut, PErr>（LEX/PARSE/EXEC 三层错误合一短路）。
+    // 内部：Lexer(Result<Tokens>) -> Parser(Result<Stmt>) -> Executor(Result<ExecOut>)。
+    type Pipeline = TryChain<TryChain<Lexer, Parser>, Executor>;
+    let mut pipeline_state = <Pipeline as PortCell>::State::default();
 
     for sql in sqls {
-        let toks = Lexer::step(&mut lex_state, sql.to_string());
-        let stmt = Parser::step(&mut par_state, toks);
-        let res = Executor::step(&mut exe_state, stmt);
-        match &res {
-            Result::Ok(msg) => println!("  {sql:<32} => {msg}"),
-            Result::Rows(rows) => println!("  {sql:<32} => {:?}", rows),
-            Result::Error(e) => println!("  {sql:<32} => ERR {e}"),
+        match <Pipeline as PortCell>::step(&mut pipeline_state, sql.to_string()) {
+            Err(e) => println!("  {sql:<28} => ERROR {e:?}"),
+            Ok(ExecOut::Ok(msg)) => println!("  {sql:<28} => {msg}"),
+            Ok(ExecOut::Rows(rows)) => println!("  {sql:<28} => {:?}", rows),
         }
     }
 
-    // ── 用 runtime Carrier 驱动一条皮层对（Lexer -> Parser）作为链路 ──
-    // 展示 drive_link + InlineCarrier（零分配单线程）。
-    let mut slex = <Lexer as PortCell>::State::default();
-    let mut spar = <Parser as PortCell>::State::default();
-    let stmt = drive_link::<Lexer, Parser, InlineCarrier>(
-        &mut slex, &mut spar, "INSERT INTO t VALUES (7)".to_string());
-    println!("\n  Carrier INSERT 解析 => {stmt:?}");
-
-    // ── 跨线程：把 Parser 放到工作线程 ──
-    let mut slex2 = <Lexer as PortCell>::State::default();
-    let stmt2 = spawned_flow::<Lexer, Parser>(&mut slex2, || (), "SELECT x FROM t".to_string());
-    println!("  跨线程 SELECT 解析 => {stmt2:?}");
-
-    println!("\npsql ok: SQL 解析执行流水线（Lexer→Parser→Executor）基于 cell_core + Carrier");
+    println!("\npsql ok: robust error-handling REPL (Lexer→Parser→Executor) via TryChain");
 }

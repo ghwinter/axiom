@@ -131,6 +131,42 @@ where
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// BoundedCarrier（std）—— 有界/背压载体（§9.1）
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// 有界/背压载体：把 `A` 的输出经一个**有界** FIFO（容量 `CAP`）中转。
+///
+/// 这是 §9.1"有界/背压"的**载体侧**：容量上限 `CAP` 是编译期常量，物理形态为有界通道/队列。
+/// `Carrier::flow` 做单步投递（`CAP >= 1` 时必成功）；真正的多消息**阻塞背压**由
+/// [`bounded_pump`](crate::flow::bounded_pump)（生产端满时阻塞）与
+/// [`BoundedQueue`](crate::buffer::BoundedQueue)（`try_push` 满返回容量信号）承载。
+///
+/// 需要 `std`（有界 `sync_channel`）。安全。
+#[cfg(feature = "std")]
+pub struct BoundedCarrier<const CAP: usize>;
+
+#[cfg(feature = "std")]
+impl<A, B, const CAP: usize> Carrier<A, B> for BoundedCarrier<CAP>
+where
+    A: PortCell,
+    B: PortCell<In = A::Out>,
+    A::Out: Send + 'static,
+{
+    fn cost() -> CarrierCost {
+        CarrierCost::PerMessageAlloc
+    }
+
+    fn flow(sa: &mut A::State, sb: &mut B::State, input: A::In) -> B::Out {
+        // 经容量 CAP 的有界通道中转：体现"容量上限由编译期常量决定"的物理形态。
+        let (tx, rx) = std::sync::mpsc::sync_channel::<A::Out>(CAP);
+        let mid = A::step(sa, input);
+        let _ = tx.send(mid);
+        let v = rx.recv().expect("bounded channel alive");
+        B::step(sb, v)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ChannelCarrier（std）—— 真正的跨线程通道载体
 // ═══════════════════════════════════════════════════════════════════════════
 

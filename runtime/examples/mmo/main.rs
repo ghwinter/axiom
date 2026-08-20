@@ -30,7 +30,6 @@ fn main() {
     // 皮层状态。
     let mut handler_state = <PlayerHandler as PortCell>::State::default();
     let mut world_state = <WorldState as PortCell>::State::default();
-    let mut proj_state = <cells::ViewProject as PortCell>::State::default();
 
     for line in events {
         // ① 解析行事件（有状态：在线表）。
@@ -42,7 +41,7 @@ fn main() {
         let pos_snapshot = world_state.clone();
         let (view_a, view_b) =
             Broadcast::<cells::ViewProject, cells::PlayerA, cells::PlayerB>::fire(
-                &mut proj_state, &mut (), &mut (), (applied, pos_snapshot));
+                &mut (), &mut (), &mut (), (applied, pos_snapshot));
         println!("  {line:<22} => A: {view_a:?} | B: {view_b:?}");
     }
 
