@@ -18,8 +18,8 @@
 
 ## 1. 概念基础（源于 cell_core）
 
-- `cell_core`：开放系统（`PortCell`: In/Out/State/step）+ 因果流（`Link`/`CellChain`/
-  `Broadcast`/`Merge`/`Feedback`）+ 静态性（`Static`）+ 编译期验证（`DoesWire`）。
+- `cell_core`：开放系统（`PortCell`: In/Out/State/step）+ 因果流（`Wire`/`Chain`/
+  `Broadcast`/`Merge`/`Feedback`）+ 静态性（`Static`）+ 编译期验证（统一 `Conforms`）。
 - 蓝图即类型：零大小、零运行时对象、编译期耗尽。
 - **runtime 不重复这些**——它只回答"这条因果流，值怎么从 A.out 到 B.in"。
 
@@ -58,7 +58,7 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 ## 3. 驱动（flow）与静态路径（static_path）
 
 - **`flow`**（`runtime/src/flow.rs`）：`drive_link` / `drive_wired`——编译期布线验证
-  （`DoesWire`）后，用选定载体驱动一条 A→B 因果流；**验证在编译期，运行期零开销**。
+  （统一 `Conforms<Wire>`）后，用选定载体驱动一条 A→B 因果流；**验证在编译期，运行期零开销**。
 - **`static_path`**（`runtime/src/static_path.rs`）：`run_static` / `run_declared_static`——
   把被 `Static<SUB>` 声明为"要求零成本"的子图在**编译期内联展开**（零运行时对象）。
 - **声明宏**（`runtime/src/macros.rs`）：`wire!`——编译期展开的"连线 + 载体 + 验证"
@@ -96,7 +96,7 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 - **确定性与等价性验收**：真实用例（见 §7）在 Inline 与 Queue 等载体上跑出逐位一致的输出，
   并验证确定性（同输入重跑同输出）。这应作为 **carrier 语义等价回归验收**——凡新增载体，
   须先在既有用例上断言输出一致，防止某载体悄悄破坏语义（这是工程守则，源自 netpath 实操）。
-- **编译期 vs 运行时验证**：布线合法性与静态性验证在编译期（T1/DoesWire）；载体的
+- **编译期 vs 运行时验证**：布线合法性与静态性验证在编译期（T1/统一 Conforms）；载体的
   时空成本是可选的量化声明（`CarrierCost`），非性能承诺。
 
 ---

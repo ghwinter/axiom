@@ -57,7 +57,7 @@ fn queue_carrier_per_message_alloc_semantics_equal() {
 
 #[test]
 fn drive_wired_verifies_before_running() {
-    // 显式布线见证（LINK: DoesWire<Inc,Scaler> 用 () 满足）。
+    // 显式布线见证（LINK 由统一 Conforms<Wire> 判定，用 () 满足）。
     let (mut sa, mut sb) = ((), ());
     let out = drive_wired::<Inc, Scaler, (), InlineCarrier>(&mut sa, &mut sb, 10);
     assert_eq!(out, 22); // 10 -> 11 -> 22
@@ -65,11 +65,11 @@ fn drive_wired_verifies_before_running() {
 
 #[test]
 fn static_path_unrolls_declared_static_subgraph() {
-    use axiom::cell_core::{CellChain, Static};
+    use axiom::cell_core::{Chain, Static};
     use axiom_runtime::static_path::{run_declared_static, run_static};
 
     // 静态子图：链 Inc -> Scaler（被 Static 声明为"要求零成本"）。
-    type StaticChain = CellChain<Inc, Scaler>;
+    type StaticChain = Chain<Inc, Scaler>;
     let declared = Static::<StaticChain>::declare();
 
     let mut st = <StaticChain as PortCell>::State::default();

@@ -2,14 +2,14 @@
 //!
 //! 目的：作为**构建用例**保留性能基准，衡量新核心的零成本承诺。
 //! 用内置最小计时（零外部依赖），对比：
-//! - **静态展开**（`CellChain<A,B>` 直接 `step`——全类型参数化、单态化、零分配）：
+//! - **静态展开**（`Chain<A,B>` 直接 `step`——全类型参数化、单态化、零分配）：
 //!   axiom 主张"编译后等价手写普通 Rust"；
 //! - **手写等价循环**（基线）；
 //! - **类型擦除模拟**（`Box<dyn Any>` 每消息装箱）——体现动态税，证明零成本的价值。
 //!
 //! 运行：`cargo bench --bench chain`（`cargo bench` 需要 nightly 或 harness=false + main）。
 
-use axiom::cell_core::{CellChain, PortCell};
+use axiom::cell_core::{Chain, PortCell};
 
 struct Inc;
 impl PortCell for Inc {
@@ -32,12 +32,12 @@ impl PortCell for Scaler {
 fn main() {
     const N: usize = 1_000_000;
 
-    // A. 静态展开：CellChain<Inc, Scaler>（零分配、内联）
-    let mut st = <CellChain<Inc, Scaler> as PortCell>::State::default();
+    // A. 静态展开：Chain<Inc, Scaler>（零分配、内联）
+    let mut st = <Chain<Inc, Scaler> as PortCell>::State::default();
     let t0 = now();
     let mut acc = 0i32;
     for i in 0..N {
-        acc ^= <CellChain<Inc, Scaler> as PortCell>::step(&mut st, i as i32);
+        acc ^= <Chain<Inc, Scaler> as PortCell>::step(&mut st, i as i32);
     }
     let t_static = now() - t0;
     println!("chain: 静态展开(零分配) {N} = {t_static:?} (acc {acc:#x})");

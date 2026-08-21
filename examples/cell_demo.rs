@@ -4,7 +4,7 @@
 //! 定义一个含状态、广播、反馈的小系统，**直接作为普通 Rust 调用运行**。
 //! 没有 Box<dyn>、没有 JSON 蓝图、没有运行时模块对象——蓝图即类型，编译期耗尽。
 
-use axiom::cell_core::{Broadcast, CellChain, Feedback};
+use axiom::cell_core::{Broadcast, Chain, Feedback};
 
 // ── 有状态的开放系统（端口体）────────────────────────────
 
@@ -37,7 +37,7 @@ fn main() {
     // —— 全部是类型，无运行时对象。
 
     // 1. 状态化链：Counter -> Double（Counter 输出放大）。
-    type Stage = CellChain<Counter, Double>;
+    type Stage = Chain<Counter, Double>;
     let mut st_stage = <Stage as axiom::cell_core::PortCell>::State::default();
 
     // 2. 广播：一个内联细胞（Inc-like）的输出同时给两个接收者。

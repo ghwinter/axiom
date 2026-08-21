@@ -1,7 +1,7 @@
 //! redis_like —— 用 cell_core 四构件 + runtime Carrier 构建的 KV 服务器管线。
 //!
 //! 重建旧 redis_like 的核心逻辑（命令管线：解析→分派→存储→编码 + AOF 日志），
-//! 但完全用新核心/runtime。管线 = 一组皮层经 `CellChain` 组合、`InlineCarrier`/
+//! 但完全用新核心/runtime。管线 = 一组皮层经 `Chain` 组合、`InlineCarrier`/
 //! `spawned_flow` 驱动——体现"构建真实多模块程序" + 驱动 runtime 迭代。
 //!
 //! 运行：`cargo run --manifest-path runtime/Cargo.toml --example redis_like`

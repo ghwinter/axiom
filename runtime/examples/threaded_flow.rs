@@ -8,7 +8,7 @@
 //! - 用 InlineCarrier 在调用线程直接跑（栈上函数传递、零分配）；
 //! - 其中一步用 `spawned_flow` 放到独立工作线程（mpsc 通道 + B::State 在线程内）。
 
-use axiom::cell_core::{CellChain, PortCell};
+use axiom::cell_core::{Chain, PortCell};
 use axiom_runtime::carrier::{InlineCarrier, spawned_flow};
 use axiom_runtime::flow::drive_link;
 
@@ -39,7 +39,7 @@ impl PortCell for Normalize {
 
 fn main() {
     // ═══ A. 单线程：InlineCarrier 栈上直接传（零分配、内联）═══
-    type Pipe = CellChain<Sensor, Normalize>; // Sensor(out f64) -> Normalize(in f64)
+    type Pipe = Chain<Sensor, Normalize>; // Sensor(out f64) -> Normalize(in f64)
     let _ = core::marker::PhantomData::<Pipe>; // 类型即蓝图（编译期）
 
     // 用 InlineCarrier 驱动每一步：Sensor(300) -> 3.0；但 drive_link 是一次 A->B。
@@ -54,7 +54,7 @@ fn main() {
     let b = spawned_flow::<Sensor, Normalize>(&mut ss2, || (), 600);
     println!("B. spawned_flow 跨线程: Sensor(600)->归一化 = {b} (通道+独立线程)");
 
-    // ═══ C. 编译期布线验证（drive_link 内含 DoesWire）═══
+    // ═══ C. 编译期布线验证（drive_link 内含 Conforms<Wire>）═══
     assert_eq!(a, 3.0);
     assert_eq!(b, 6.0);
     println!("threaded_flow ok: 同一因果链, Inline(零分配) 与 跨线程通道(独立线程) 语义等价");

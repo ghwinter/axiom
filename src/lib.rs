@@ -8,13 +8,13 @@
 //!
 //! - **开放系统（端口体）** [`PortCell`](crate::cell_core::PortCell)：有边界的计算体，
 //!   类型化输入/输出/状态，`step` 纯且内联。
-//! - **因果数据流** [`Link`](crate::cell_core::Link)：`A.out -> B.in`，类型层对偶配对，
+//! - **因果数据流** [`Wire`](crate::cell_core::Wire)：`A.out -> B.in`，类型层对偶配对，
 //!   非法连接编译失败（T1）。多对多 [`Broadcast`](crate::cell_core::Broadcast)
 //!   （fan-out）、[`Merge`](crate::cell_core::Merge)（fan-in）、
 //!   环 [`Feedback`](crate::cell_core::Feedback) 亦是类型层表达。
-//! - **组合** [`CellChain`](crate::cell_core::CellChain)：组合子仍是端口体，任意层级嵌套。
+//! - **组合** [`Chain`](crate::cell_core::Chain)：组合子仍是端口体，任意层级嵌套。
 //! - **静态性** [`Static`](crate::cell_core::Static) / 编译期验证
-//!   [`DoesWire`](crate::cell_core::DoesWire) / [`assert_wiring`](crate::cell_core::assert_wiring)。
+//!   [`Conforms`](crate::cell_core::Conforms) / [`assert_wiring`](crate::cell_core::assert_wiring)。
 //!
 //! > **编译期核心承诺**：
 //! > - 蓝图即类型：零大小、运行时无对象（`size_of::<Blueprint<T>>() == 0`）；
@@ -49,8 +49,8 @@ pub mod cell_core;
 /// 核心 prelude：四构件主轴线的默认导出面。
 pub mod prelude_all {
     pub use crate::cell_core::{
-        Blueprint, Broadcast, CellChain, Choice, ChoiceIn, ChoiceOut, Conforms, DoesWire, Feedback,
-        Link, Merge, Opt, PortCell, Rep, Slot, Static, assert_conforms, assert_wiring,
+        Blueprint, Broadcast, Chain, Choice, ChoiceIn, ChoiceOut, Conforms, Feedback,
+        Merge, Opt, PortCell, Rep, Slot, Static, Wire, assert_conforms, assert_wiring,
         blueprint_is_zero_sized, drive, wired,
     };
 }
