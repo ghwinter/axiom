@@ -21,7 +21,7 @@
 //!
 //! ## 驱动（flow）与静态路径（static_path）
 //!
-//! - [`flow`](crate::flow)：`drive_link`/`drive_wired` —— 编译期布线验证（`DoesWire`）后，
+//! - [`flow`](crate::flow)：`drive_link`/`drive_wired` —— 编译期布线验证（`Conforms<Wire>`）后，
 //!   用选定载体驱动一条 A→B 因果流；验证在编译期，运行期零开销。
 //! - [`static_path`](crate::static_path)：`run_static`/`run_declared_static` —— 把被
 //!   `Static<SUB>` 声明为"要求零成本"的子图在编译期内联展开（零运行时对象）。

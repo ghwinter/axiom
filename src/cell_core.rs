@@ -5,7 +5,7 @@
 //!
 //! 四构件（corresponding to the theory收敛）：
 //! 1. **开放系统/端口体**（[`PortCell`]）：有边界、输入、输出、状态，`step` 纯且可内联。
-//! 2. **因果数据流**（[`Link`] 的 `A.out -> B.in`）：类型层对偶配对，非法连接编译失败（T1）。
+//! 2. **因果数据流**（[`Wire`] 的 `A.out -> B.in`）：类型层对偶配对，非法连接编译失败（T1）。
 //! 3. **组合/嵌套**（[`Chain`] 等）：组合子仍是端口体，任意层级（A2 操作类）。
 //! 4. **静态性声明**（[`Staticity`]）：标记哪些子图要求零成本（单态化，无 `Box<dyn>`）。
 //!
@@ -16,7 +16,7 @@
 
 /// 开放系统：带类型化输入/输出端口 + 内部状态 + 转移。
 ///
-/// - `In`/`Out` 是端口类型（对偶靠它们配对，见 [`Link`]）；
+/// - `In`/`Out` 是端口类型（对偶靠它们配对，见 [`Wire`]）；
 /// - `State` 是内部状态，默认可构造；
 /// - `step` 是纯转移（`#[inline(always)]` 使内联跨 crate 成立 → Z1 的 (b)）。
 ///
@@ -34,18 +34,22 @@ pub trait PortCell: Sized {
 
 // ── 2. 因果数据流（布线）──────────────────────────────────────────
 
-/// 一条带方向的因果数据流：`A.out -> B.in`。
+/// 一条**线**（带方向的因果数据流）：`A.out -> B.in`。它同时是：
+/// - 一个**类型化位置/接口** `Wire<A,B>`（对偶组合 T1 的统一 `Conforms` 对象），
+///   期望"从 `A.out` 流入 `B.in`"；
+/// - 一个编译期绑定该线的**组合动作**（`fire`：`B::step(A::step(x))`）。
 ///
-/// **布线合法性 = 类型判定（T1）**：要求 `B::In == A::Out`。若类型不匹配，本
-/// 类型根本无法实例化 —— 非法连接在编译期被拒绝（不是运行时检查）。
-pub struct Link<A, B>(core::marker::PhantomData<(A, B)>);
+/// **布线合法性 = 类型判定（T1）**：要求 `B::In == A::Out`。若类型不匹配，本类型根本
+/// 无法实例化 —— 非法连接在编译期被拒绝（不是运行时检查）。这是"代换绑定"概念 4
+/// 的编译期绑定侧（见 `foundations.md` §8）。
+pub struct Wire<A, B>(core::marker::PhantomData<(A, B)>);
 
-impl<A, B> Link<A, B>
+impl<A, B> Wire<A, B>
 where
     A: PortCell,
     B: PortCell<In = A::Out>, // 类型层对偶配对
 {
-    /// 把 A 的当前输出驱动进 B（单次因果步进）。
+    /// 把 A 的当前输出驱动进 B（单次因果步进；编译期绑定、零成本）。
     pub fn fire(astate: &mut A::State, bstate: &mut B::State, input: A::In) -> B::Out {
         let mid = A::step(astate, input);
         B::step(bstate, mid)
@@ -56,11 +60,10 @@ where
 
 /// 组合 A -> B（A 输出布线到 B 输入）。仍是端口体，可再嵌套（任意层级）。
 ///
-/// 命名 `CellChain` 以避免与旧 `static_exec::Chain` 冲突（分阶段迁移期间共存；
-/// 后续收敛后恢复为 `Chain`）。
-pub struct CellChain<A, B>(core::marker::PhantomData<(A, B)>);
+/// 命名 `Chain`：组合子默认名（附统一 `PortCell`，见 §8 概念 3"组合封闭"）。
+pub struct Chain<A, B>(core::marker::PhantomData<(A, B)>);
 
-impl<A, B> PortCell for CellChain<A, B>
+impl<A, B> PortCell for Chain<A, B>
 where
     A: PortCell,
     B: PortCell<In = A::Out>,
@@ -74,9 +77,6 @@ where
         B::step(sb, mid)
     }
 }
-
-/// 别名：新主轴线上的组合子默认名。
-pub type Chain<A, B> = CellChain<A, B>;
 
 // ── 3b. 多对多：广播 / 扇出（因果数据流到多个兼容接收者）─────────
 
@@ -297,13 +297,14 @@ impl<I, O> Slot<I, O> {
     }
 }
 
-/// 编译期"合规"判定：`OCC` 能否填入 `Slot<I, O>`。
+/// 编译期"合规"判定：`OCC` 能否填入一个**类型化位置/接口** `EXPECT`（T1 对偶）。
 ///
-/// 这是 ∃ 装载槽的**参数化 T1 验证**：只要 `OCC: PortCell<In=I, Out=O>`，"未来任何
-/// 符合该接口的占据者都合规"这一规则在编译期成立（对占据者的存在量化表达为类型层
-/// 判定）。与 [`DoesWire`] 同构——只是把"线两端配对(T1)"表述为"槽与占据者配对(T1)"。
-pub trait Conforms<SLOT> {
-    /// 编译期证据：`OCC` 可填充该槽（零大小、运行时无对象）。
+/// 这是 T1 对偶判定的**统一入口**：
+/// - `EXPECT = Slot<I, O>`：`OCC` 能否作为装载槽的占据者（`OCC::In=I, OCC::Out=O`）；
+/// - `EXPECT = Wire<A, B>`：一条布线是否合法（`B::In == A::Out`，见 [`Wire`]）；
+/// - 两种都是"把符合类型的占据者/值放入带类型的位置"，即代换绑定（概念 4，见 §8）的合法性。
+pub trait Conforms<EXPECT> {
+    /// 编译期证据：可放入该位置（零大小、运行时无对象）。
     const OK: bool = true;
 }
 
@@ -313,12 +314,12 @@ where
 {
 }
 
-/// 断言一个占据者可填充给定装载槽（编译期）；不满足 T1 则该 impl 不存在 → 编译失败。
-pub fn assert_conforms<SLOT, OCC>()
+/// 断言一个占据者/线可放入给定类型化位置（编译期）；不满足 T1 则该 impl 不存在 → 编译失败。
+pub fn assert_conforms<EXPECT, OCC>()
 where
-    OCC: Conforms<SLOT>,
+    OCC: Conforms<EXPECT>,
 {
-    let _: bool = <OCC as Conforms<SLOT>>::OK;
+    let _: bool = <OCC as Conforms<EXPECT>>::OK;
 }
 
 // ── 3f. 统一模型：正则算子（并 / 可选）─────────────────────────────
@@ -438,30 +439,24 @@ pub fn drive<C: PortCell>(state: &mut C::State, input: C::In) -> C::Out {
 
 // ── 5. 编译期验证（能力到编译期耗尽）────────────────────────────
 
-/// 编译期布线判定：`A` 的输出能否布到 `B` 的输入（因果数据流对偶配对）。
-///
-/// 这是一个**编译期的验证产物**：若 `DoesWire<A,B>` 可构造（impl 存在），
-/// 则这条布线在该类型对偶下合法——与运行时验证无关，纯类型层（T1）。
-pub trait DoesWire<A, B> {
-    /// 编译期证据：一条合法的因果数据流 A -> B（零大小、运行时无对象）。
-    const WIRES: bool = true;
-}
-
-impl<A, B> DoesWire<A, B> for ()
+/// 布线 T1 判定经统一 `Conforms`：`()` "符合" 一条线 `Wire<A,B>` 当且仅当
+/// `B::In == A::Out`。编译期可构造 → 合法；否则编译失败（非法布线被编译期拒绝）。
+impl<A, B> Conforms<Wire<A, B>> for ()
 where
     A: PortCell,
     B: PortCell<In = A::Out>,
 {
 }
 
-/// 断言一条布线合法：编译期成立则产生零大小证据；若类型不配对则该 impl 不存在 → 编译错误。
-/// 这是"用于分析与验证"的入口——验证在编译期完成，运行期零开销。
+/// 断言一条布线合法（对偶组合 T1）：经统一判据 [`Conforms`]。
+/// 编译期成立则产生零大小证据；类型不配对则该 impl 不存在 → 编译错误。
+/// 验证在编译期完成，运行期零开销。
 pub fn assert_wiring<A, B>()
 where
     A: PortCell,
     B: PortCell<In = A::Out>,
 {
-    let _: bool = <() as DoesWire<A, B>>::WIRES;
+    assert_conforms::<Wire<A, B>, ()>();
 }
 
 /// 将一条编译期验证的布线冻结为一个零大小值（合并"验证产物"与"类型即蓝图"）。
@@ -506,15 +501,15 @@ mod tests {
     fn link_fires_causal_flow() {
         let (mut as_, mut bs) = ((), ());
         // Inc.out(i32) -> Scaler.in(i32)：因果数据流，一次 fire。
-        let out = Link::<Inc, Scaler>::fire(&mut as_, &mut bs, 5);
+        let out = Wire::<Inc, Scaler>::fire(&mut as_, &mut bs, 5);
         assert_eq!(out, 12); // 5 -> 6 -> 12
     }
 
     #[test]
     fn chain_nests_arbitrarily() {
-        // CellChain<Inc, Scaler> 仍是端口体 (In=i32, Out=i32)。
-        // 再链 Scaler：CellChain<CellChain<Inc,Scaler>, Scaler>
-        type Three = CellChain<CellChain<Inc, Scaler>, Scaler>;
+        // Chain<Inc, Scaler> 仍是端口体 (In=i32, Out=i32)。
+        // 再链 Scaler：Chain<Chain<Inc,Scaler>, Scaler>
+        type Three = Chain<Chain<Inc, Scaler>, Scaler>;
         let mut st = <Three as PortCell>::State::default();
         let out = drive::<Three>(&mut st, 2);
         // 2 -> Inc 3 -> Scaler 6 -> Scaler 12
@@ -524,7 +519,7 @@ mod tests {
     #[test]
     fn static_declaration_compiles() {
         // 静态性声明是可编译的、编译期定型的标记。
-        let _ = Static::<CellChain<Inc, Scaler>>::declare();
+        let _ = Static::<Chain<Inc, Scaler>>::declare();
     }
 
     #[test]
@@ -549,7 +544,7 @@ mod tests {
     fn chained_relay_loop_in_types() {
         // 一个更真实的环：BODY 是一个两段链 Chain<Inc,Scaler>(i32->i32)，
         // FEED 是 Inc —— 展示"组合出的端口体仍旧可入环"，任意嵌套 + 环。
-        type Body = CellChain<Inc, Scaler>;
+        type Body = Chain<Inc, Scaler>;
         let (mut sb, mut sf) = (<Body as PortCell>::State::default(), ());
         // tick(external=1): Body 1->2->4; feed Inc 4->5; Body 5->6->12
         let out = Feedback::<Body, Inc>::tick(&mut sb, &mut sf, 1);
@@ -559,19 +554,19 @@ mod tests {
     #[test]
     fn blueprint_is_zero_sized_zero_runtime_object() {
         // 蓝图是零大小类型 → 运行时无对象（该"蓝图即类型"，无 JSON/值形态中间层）。
-        type Top = CellChain<Inc, CellChain<Scaler, Inc>>;
+        type Top = Chain<Inc, Chain<Scaler, Inc>>;
         assert!(blueprint_is_zero_sized::<Top>());
         assert_eq!(core::mem::size_of::<Blueprint<Top>>(), 0);
     }
 
     #[test]
     fn compile_time_wiring_verification() {
-        // 编译期布线判定：Inc.out(i32) 布到 Scaler.in(i32) 合法（DoesWire 可构造）。
+        // 编译期布线判定：Inc.out(i32) 布到 Scaler.in(i32) 合法（统一 Conforms 判据）。
         // 这是"能力到编译期耗尽用于验证"的入口——运行期零开销。
         assert_wiring::<Inc, Scaler>();
-        assert_wiring::<CellChain<Inc, Scaler>, Scaler>();
-        // 一条合法布线的编译期证据存在（关联常量）。
-        let _: bool = <() as DoesWire<Inc, Scaler>>::WIRES;
+        assert_wiring::<Chain<Inc, Scaler>, Scaler>();
+        // 一条合法布线/装载的编译期证据存在（关联常量）。
+        let _: bool = <() as Conforms<Wire<Inc, Scaler>>>::OK;
     }
 
     #[test]
@@ -606,7 +601,7 @@ mod tests {
         // Rep<2, Inc>.out(i32) -> Scaler.in(i32)：T1 类型层验证成立。
         assert_wiring::<Rep<2, Inc>, Scaler>();
         // 组合 stella：Rep<2,Inc>(5->6->7) 再 Scaler(7->14)
-        type Body = CellChain<Rep<2, Inc>, Scaler>;
+        type Body = Chain<Rep<2, Inc>, Scaler>;
         let mut st = <Body as PortCell>::State::default();
         assert_eq!(drive::<Body>(&mut st, 5), 14);
     }
@@ -678,7 +673,7 @@ mod tests {
         }
         // 递归 cell 仍是 PortCell：可进 Chain、可做 T1 布线验证。
         assert_wiring::<Sum, Scaler>();
-        type S = CellChain<Sum, Scaler>;
+        type S = Chain<Sum, Scaler>;
         let mut st = <S as PortCell>::State::default();
         // Sum([1,2,3])=6 -> Scaler(×2)=12
         assert_eq!(drive::<S>(&mut st, vec![1, 2, 3]), 12);

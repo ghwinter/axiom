@@ -2,7 +2,7 @@
 //!
 //! 对应"静态优先 + 编译期展开"（T7 静态路径）。蓝图里用 [`Static<C>`] 声明"这棵
 //! 子图 `C` 要求零成本"，此处驱动时强制走编译期展开（`DirectCarrier` 的精神），
-//! 语义上等价手写 `C::step` 的直接调用——`CellChain`/`Broadcast`/`Feedback` 的
+//! 语义上等价手写 `C::step` 的直接调用——`Chain`/`Broadcast`/`Feedback` 的
 //! `step`/`fire`/`tick` 已 `#[inline(always)]`，编译器把整棵静态子图折叠成一段指令，
 //! 无中间对象、零分配。
 

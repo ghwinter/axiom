@@ -34,7 +34,7 @@
 |---|---|---|---|
 | **开放系统/端口体** | 有边界、类型化输入/输出/状态，`step` 纯且可内联 | `PortCell` trait（`src/cell_core.rs`） | 类型级，无运行时对象 |
 | **因果数据流** | 带方向的连接：`A.out -> B.in`，类型层对偶配对 | `Link<A,B>` | 非法连接编译失败（T1） |
-| **组合/嵌套** | 组合子仍是端口体，任意层级 | `CellChain<A,B>`（别名 `Chain`） | 操作类结构（T2） |
+| **组合/嵌套** | 组合子仍是端口体，任意层级 | `Chain<A,B>` | 操作类结构（T2） |
 | **静态性声明** | 标记哪些子图要求零成本 | `Static<SUB>` / `Blueprint<TOP>` | 单态化，无 `Box<dyn>`（T7/§5.6） |
 
 **多对多通成一等**：`Broadcast`（fan-out）、`Merge`(fan-in)、`Feedback`（环）在类型层表达，
@@ -51,15 +51,15 @@ pub trait PortCell: Sized {
 }
 ```
 
-- `In`/`Out` 是端口类型（对偶靠它们配对，见 `Link`）；`State` 是内部状态，默认可构造；
+- `In`/`Out` 是端口类型（对偶靠它们配对，见 `Wire`）；`State` 是内部状态，默认可构造；
 - `step` 是纯转移（`#[inline(always)]` 使内联跨 crate 成立 → Z1 的 (b)）；
 - 纯抽象层——**不掺线程/同步/背压/时序**，那些是物理载体的事（T3 / §5.4）。
 
-### 2.2 `Link`（因果数据流）
+### 2.2 `Wire`（因果数据流）
 
 ```rust
-pub struct Link<A, B>(PhantomData<(A, B)>);
-impl<A, B> Link<A, B>
+pub struct Wire<A, B>(PhantomData<(A, B)>);
+impl<A, B> Wire<A, B>
 where A: PortCell, B: PortCell<In = A::Out>,   // 类型层对偶配对
 {
     pub fn fire(astate: &mut A::State, bstate: &mut B::State, input: A::In) -> B::Out {
@@ -70,13 +70,15 @@ where A: PortCell, B: PortCell<In = A::Out>,   // 类型层对偶配对
 ```
 
 **布线合法性 = 类型判定（T1）**：要求 `B::In == A::Out`。若类型不匹配，本类型根本无法
-实例化——非法连接在**编译期**被拒绝（不是运行时检查）。
+实例化——非法连接在**编译期**被拒绝（不是运行时检查）。`Wire<A,B>` 是一个**类型化位置**
+（统一 `Conforms` 对象）兼**编译期绑定组合动作**——即"代换绑定"概念 4 的编译期侧
+（`foundations.md` §8）。
 
-### 2.3 `CellChain`（组合/嵌套）
+### 2.3 `Chain`（组合/嵌套）
 
 ```rust
-pub struct CellChain<A, B>(PhantomData<(A, B)>);
-impl<A, B> PortCell for CellChain<A, B>
+pub struct Chain<A, B>(PhantomData<(A, B)>);
+impl<A, B> PortCell for Chain<A, B>
 where A: PortCell, B: PortCell<In = A::Out>,
 {
     type In = A::In; type Out = B::Out; type State = (A::State, B::State);
@@ -85,11 +87,10 @@ where A: PortCell, B: PortCell<In = A::Out>,
         B::step(sb, mid)
     }
 }
-pub type Chain<A, B> = CellChain<A, B>;
 ```
 
-组合 A -> B（A 输出布线到 B 输入）**仍是端口体**，可再嵌套（任意层级）。命名 `CellChain`
-以避免与旧 `static_exec::Chain` 冲突（分阶段迁移期间共存；后续收敛后恢复为 `Chain`）。
+组合 A -> B（A 输出布线到 B 输入）**仍是端口体**，可再嵌套（任意层级）——即
+`foundations.md` §8 概念 3"组合封闭"。命名 `Chain`（组合子默认名，无同义不同名）。
 
 ### 2.4 `Broadcast` / `Merge` / `Feedback`（多对多、环）
 
@@ -145,16 +146,19 @@ pub const fn blueprint_is_zero_sized<TOP>() -> bool {
 ## 4. 编译期验证（能力到编译期耗尽）
 
 ```rust
-pub trait DoesWire<A, B> { const WIRES: bool = true; }
-impl<A, B> DoesWire<A, B> for () where A: PortCell, B: PortCell<In = A::Out> {}
+// 对偶/代换的**统一 T1 判据**：`EXPECT` 是一个类型化位置/接口——
+// - `Wire<A, B>`：一条线（期望从 A.out 流入 B.in，即 `B::In == A::Out`）；
+// - `Slot<I, O>`：一个装载槽（期望 `In=I, Out=O` 的占据者）。
+pub trait Conforms<EXPECT> { const OK: bool = true; }
+impl<A, B> Conforms<Wire<A, B>> for () where A: PortCell, B: PortCell<In = A::Out> {}
 
 pub fn assert_wiring<A, B>() where A: PortCell, B: PortCell<In = A::Out> {
-    let _: bool = <() as DoesWire<A, B>>::WIRES;
+    assert_conforms::<Wire<A, B>, ()>();
 }
 ```
 
-- **编译期布线判定**：若 `DoesWire<A,B>` 可构造（impl 存在），则这条布线在该类型对偶下
-  合法——与运行时验证无关，纯类型层（T1）。
+- **编译期对偶判定（统一）**：若 `Conforms<Wire<A,B>>` 可构造（impl 存在），则这条布线在该
+  类型对偶下合法——纯类型层（T1）。同一个判据也覆盖装载槽合规（`Conforms<Slot<I,O>>`）。
 - **断言一条布线合法**：编译期成立则产生零大小证据；若类型不配对则该 impl 不存在 →
   **编译错误**。这是"用于分析与验证"的入口——验证在编译期完成，运行期零开销。
 
@@ -188,7 +192,7 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 - **值形态蓝图 / JSON / 运行时值验证**：蓝图即代码，无 JSON/值形态中间层。
 - **线程/同步异步/时序**：实例物理层（T9/T3）。
 
-4. 验证在编译期（`DoesWire`/`assert_wiring`，非法布线编译失败）。
+4. 验证在编译期（`Conforms`/`assert_wiring`，非法布线编译失败）。
 5. **移除出抽象层的旧语义**（§2 表 + §6）不进入核心类型——`cell_core` 清理后仅剩
    `PortCell` 系 + 驱动 + 编译期验证，零依赖、`#![forbid(unsafe_code)]`、`#![no_std]`。
 
@@ -203,14 +207,14 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
   单态化；`N=0` 恒等。无界计数（运行期）是生成/物理侧——见 `runtime.md` 的 `drive_seq`。
 - **`Slot<I, O>` + `Conforms` / `assert_conforms`** —— ∃ 装载槽**定义**：编译期固定接口
   （对偶对 T1）+ 对任何未来占据者的编译期参数化合规判定
-  （`∀ T: PortCell<In=I, Out=O>` ⟹ `Conforms<Slot<I,O>>`，形同 `DoesWire`）。运行期存在化
+  （`∀ T: PortCell<In=I, Out=O>` ⟹ `Conforms<Slot<I,O>>`，形同统一 `Conforms`）。运行期存在化
   填充为 `SlotDrive`——见 `runtime.md`。
 - **`Choice<A, B>` + `Opt<C>`** —— 正则算子 `|` 与 `?` 的一等纯 `PortCell` 表达。`Choice`
   （输入标号[和]）由输入的标签派发给 `A` 或 `B`；`Opt<C>` 把 `Option<C::In>` 映射为
   `Option<C::Out>`（`None` 恒等，`Some` 应用一次 `C::step`）。二者确定、可像普通 cell 一样
   组合（其 ∃ 分支选择侧仍是 runtime 的 `SlotDrive`）。
 
-这些是**定义**（零大小、无运行时对象），复用同一套 `PortCell` + `DoesWire` 式编译期验证
+这些是**定义**（零大小、无运行时对象），复用同一套 `PortCell` + `Conforms` 式编译期验证
 ——统一模型静片段的优雅加法式实现（见 [`unified.md`](unified.md)）。
 
 ---
@@ -227,7 +231,7 @@ cargo bench --bench chain   # 静态 ≈ 手写（零成本实证）
 - 四构件完整、可编译、有测试；复杂拓扑（环/广播/汇合）在类型层表达，无
   `Box<dyn>`/JSON/线程/FlowKind。
 - 蓝图即类型：`size_of::<Blueprint<TOP>>()==0`，运行时零对象（const 证明）。
-- 验证在编译期（`DoesWire` 类型判定，非法布线编译失败）。
+- 验证在编译期（`Conforms` 类型判定，非法布线编译失败）。
 - 编译后等价手写普通 Rust（`examples/cell_demo.rs` 实证）。
 - bench：静态 51µs ≈ 手写 49µs（零成本）、type-erasure 1.3ms（~26x 动态税）——实证
   `foundations.md` T7 的"静态免费、动态必付税"。

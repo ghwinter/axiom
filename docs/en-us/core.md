@@ -40,7 +40,7 @@ error** (`compile_error!`) or a failed type constraint, rather than a runtime `R
 |---|---|---|---|
 | **Open system / port body** | Bounded, typed input/output/state, `step` pure and inlinable | `PortCell` trait (`src/cell_core.rs`) | Type-level, no runtime objects |
 | **Causal dataflow** | Directed connections: `A.out -> B.in`, dual pairing at the type layer | `Link<A,B>` | Illegal connections fail to compile (T1) |
-| **Composition / nesting** | Combinators are still port bodies, at arbitrary depth | `CellChain<A,B>` (alias `Chain`) | Operational structure (T2) |
+| **Composition / nesting** | Combinators are still port bodies, at arbitrary depth | `Chain<A,B>` | Operational structure (T2) |
 | **Staticness declaration** | Marks which subgraphs require zero cost | `Static<SUB>` / `Blueprint<TOP>` | Monomorphized, no `Box<dyn>` (T7/§5.6) |
 
 **Many-to-many unified as first-class**: `Broadcast` (fan-out), `Merge` (fan-in), `Feedback`
@@ -58,18 +58,18 @@ pub trait PortCell: Sized {
 }
 ```
 
-- `In`/`Out` are port types (their duality is what pairs them; see `Link`); `State` is the
+- `In`/`Out` are port types (their duality is what pairs them; see `Wire`); `State` is the
   internal state, default-constructible;
 - `step` is a pure transition (`#[inline(always)]` makes inlining hold across crates → (b) of
   Z1);
 - A purely abstract layer — it does **not** incorporate threading/synchronization/backpressure/
   timing; those are the concern of the physical carrier (T3 / §5.4).
 
-### 2.2 `Link` (Causal Dataflow)
+### 2.2 `Wire` (Causal Dataflow)
 
 ```rust
-pub struct Link<A, B>(PhantomData<(A, B)>);
-impl<A, B> Link<A, B>
+pub struct Wire<A, B>(PhantomData<(A, B)>);
+impl<A, B> Wire<A, B>
 where A: PortCell, B: PortCell<In = A::Out>,   // dual pairing at the type layer
 {
     pub fn fire(astate: &mut A::State, bstate: &mut B::State, input: A::In) -> B::Out {
@@ -81,13 +81,15 @@ where A: PortCell, B: PortCell<In = A::Out>,   // dual pairing at the type layer
 
 **Wiring legality = type judgment (T1)**: `B::In == A::Out` is required. If the types do not
 match, this type cannot even be instantiated — an illegal connection is rejected at **compile
-time** (not a runtime check).
+time** (not a runtime check). `Wire<A,B>` is a *typed position* (the unified `Conforms` object)
+and the compile-time-bound composition action — the compile-time side of the substitution/binding
+concept 4 (`foundations.md` §8).
 
-### 2.3 `CellChain` (Composition / Nesting)
+### 2.3 `Chain` (Composition / Nesting)
 
 ```rust
-pub struct CellChain<A, B>(PhantomData<(A, B)>);
-impl<A, B> PortCell for CellChain<A, B>
+pub struct Chain<A, B>(PhantomData<(A, B)>);
+impl<A, B> PortCell for Chain<A, B>
 where A: PortCell, B: PortCell<In = A::Out>,
 {
     type In = A::In; type Out = B::Out; type State = (A::State, B::State);
@@ -96,13 +98,10 @@ where A: PortCell, B: PortCell<In = A::Out>,
         B::step(sb, mid)
     }
 }
-pub type Chain<A, B> = CellChain<A, B>;
 ```
 
 Composing A -> B (A's output wired to B's input) is **still a port body** and can be nested
-again (at arbitrary depth). Named `CellChain` to avoid a conflict with the legacy
-`static_exec::Chain` (coexisting during the phased migration; restored to `Chain` after the
-subsequent convergence).
+again (at arbitrary depth) — the closure of concept 3 (composition closure) in `foundations.md` §8.
 
 ### 2.4 `Broadcast` / `Merge` / `Feedback` (Many-to-Many, Loops)
 
@@ -172,21 +171,23 @@ intermediate state.
 ## 4. Compile-Time Verification (Capability Exhausted at Compile Time)
 
 ```rust
-pub trait DoesWire<A, B> { const WIRES: bool = true; }
-impl<A, B> DoesWire<A, B> for () where A: PortCell, B: PortCell<In = A::Out> {}
+// The unified T1 duality judgment: `EXPECT` is a typed position/interface —
+// - `Wire<A, B>`: a wire (expects flow A.out -> B.in, i.e. `B::In == A::Out`);
+// - `Slot<I, O>`: a load slot (expects an occupant with `In=I, Out=O`).
+pub trait Conforms<EXPECT> { const OK: bool = true; }
+impl<A, B> Conforms<Wire<A, B>> for () where A: PortCell, B: PortCell<In = A::Out> {}
 
 pub fn assert_wiring<A, B>() where A: PortCell, B: PortCell<In = A::Out> {
-    let _: bool = <() as DoesWire<A, B>>::WIRES;
+    assert_conforms::<Wire<A, B>, ()>();
 }
 ```
 
-- **Compile-time wiring judgment**: if `DoesWire<A,B>` is constructible (the impl exists),
-  then this wiring is legal under that type duality — regardless of runtime verification, it
-  is purely type-level (T1).
-- **Asserting a wiring is legal**: if it holds at compile time, a zero-sized witness is
-  produced; if the types do not pair, that impl does not exist → **compile error**. This is
-  the entry point "for analysis and verification" — verification is completed at compile
-  time, with zero overhead at runtime.
+- **Compile-time duality judgment (unified)**: if `Conforms<Wire<A,B>>` is constructible (the
+  impl exists), then that wiring is legal under the type duality — purely type-level (T1). The
+  same one judgment covers slot conformance (`Conforms<Slot<I,O>>`).
+- **Asserting a wiring is legal**: if it holds at compile time, a zero-sized witness is produced;
+  if the types do not pair, that impl does not exist → **compile error**. The entry point "for
+  analysis and verification" — verification is completed at compile time, zero runtime overhead.
 
 ---
 
@@ -224,7 +225,7 @@ layer (bridging to `foundations.md` §5.4/5.8):
   JSON/value-form intermediate layer.
 - **Threading/sync-async/timing**: the instance physical layer (T9/T3).
 
-4. Verification is at compile time (`DoesWire`/`assert_wiring`; illegal wiring fails to
+4. Verification is at compile time (`Conforms`/`assert_wiring`; illegal wiring fails to
    compile).
 5. **Legacy semantics moved out of the abstraction layer** (§2 table + §6) do not enter the
    core types — after `cell_core` is cleaned up, only the `PortCell` family + driving +
@@ -245,7 +246,7 @@ the unified-model constructors:
 - **`Slot<I, O>` + `Conforms` / `assert_conforms`** — ∃ loadable-slot **definition**: a
   compile-time-fixed interface (dual pair, T1) with a compile-time parametrically-quantified
   conformity verdict for any future occupant (`∀ T: PortCell<In=I, Out=O>` ⟹ `Conforms<Slot<I,O>>`,
-  the same shape as `DoesWire`). The runtime existential fill is `SlotDrive` — see `runtime.md`.
+  the same shape as `Conforms`). The runtime existential fill is `SlotDrive` — see `runtime.md`.
 - **`Choice<A, B>` + `Opt<C>`** — the *regular* operators `|` and `?` as first-class pure
   `PortCell`s. `Choice` (input-tagged [sum]) dispatches by the input's label to `A` or `B`;
   `Opt<C>` maps `Option<C::In>` to `Option<C::Out>` (identity on `None`, one `C::step` on `Some`).
@@ -253,7 +254,7 @@ the unified-model constructors:
   runtime `SlotDrive`).
 
 These are **definitions** (zero-sized, no runtime object) and reuse the same `PortCell` +
-`DoesWire`-style compile-time verification — the elegant, additive realization of the unified
+`Conforms`-style compile-time verification — the elegant, additive realization of the unified
 model's static fragment (see [`unified.md`](unified.md)).
 
 ---
@@ -271,7 +272,7 @@ cargo bench --bench chain   # static ≈ hand-written (zero-cost proof)
   (loops/broadcast/merge) are expressed at the type layer, with no
   `Box<dyn>`/JSON/threading/FlowKind.
 - Blueprint-as-type: `size_of::<Blueprint<TOP>>()==0`, zero objects at runtime (const proof).
-- Verification at compile time (`DoesWire` type judgment; illegal wiring fails to compile).
+- Verification at compile time (`Conforms` type judgment; illegal wiring fails to compile).
 - After compilation, equivalent to hand-written ordinary Rust (proven by
   `examples/cell_demo.rs`).
 - bench: static 51µs ≈ hand-written 49µs (zero cost), type-erasure 1.3ms (~26x dynamic

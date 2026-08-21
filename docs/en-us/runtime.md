@@ -22,8 +22,8 @@
 
 ## 1. Conceptual Foundation (Derived from cell_core)
 
-- `cell_core`: open systems (`PortCell`: In/Out/State/step) + causal flows (`Link`/`CellChain`/
-  `Broadcast`/`Merge`/`Feedback`) + staticness (`Static`) + compile-time verification (`DoesWire`).
+- `cell_core`: open systems (`PortCell`: In/Out/State/step) + causal flows (`Wire`/`Chain`/
+  `Broadcast`/`Merge`/`Feedback`) + staticness (`Static`) + compile-time verification (unified `Conforms`).
 - A blueprint is a type: zero size, zero runtime objects, exhausted at compile time.
 - **The runtime does not repeat these** — it only answers "for this causal flow, how does the
   value get from A.out to B.in".
@@ -67,7 +67,7 @@ does not change the topology (T6, multiple physical implementations).
 ## 3. Driving (flow) and Static Path (static_path)
 
 - **`flow`** (`runtime/src/flow.rs`): `drive_link` / `drive_wired` — after compile-time
-  wiring verification (`DoesWire`), drives one A→B causal flow with the selected carrier;
+  wiring verification (unified `Conforms<Wire>`), drives one A→B causal flow with the selected carrier;
   **verification happens at compile time, zero runtime overhead**.
 - **`static_path`** (`runtime/src/static_path.rs`): `run_static` / `run_declared_static` —
   inline-expands at **compile time** the subgraph declared by `Static<SUB>` as "requiring
@@ -117,7 +117,7 @@ seam (see [`unified.md`](unified.md) §5).
   existing use cases, to prevent a carrier from silently breaking semantics (this is an
   engineering convention derived from netpath practice).
 - **Compile-time vs runtime verification**: wiring legality and staticness verification happen
-  at compile time (T1/DoesWire); the carrier's space–time cost is an optional quantitative
+  at compile time (T1/unified `Conforms`); the carrier's space–time cost is an optional quantitative
   declaration (`CarrierCost`), not a performance promise.
 
 ---

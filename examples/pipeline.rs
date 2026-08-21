@@ -2,14 +2,14 @@
 //!
 //! 替代旧 `threaded_pipeline`/`http_tutorial` 的数据流精神，但完全用**新核心**
 //! （开放系统 + 因果数据流 + 组合 + 静态性声明）表达。演示：
-//! - **链路**（CellChain + Link）：传感器 → 归一化 → 累加；
+//! - **链路**（Chain + Wire）：传感器 → 归一化 → 累加；
 //! - **广播**（Broadcast）：主数据流 + 观测旁路（fan-out，无 Tee 树）；
 //! - **反馈**（Feedback）：滑动平均回环（因果闭合）；
-//! - **编译期验证**（DoesWire/assert_wiring）：布线合法性在编译期判定。
+//! - **编译期验证**（统一 Conforms/assert_wiring）：布线合法性在编译期判定。
 //!
 //! 无 Box<dyn>/JSON/FlowKind/线程/运行时模块对象——编译后等价手写普通 Rust。
 
-use axiom::cell_core::{Broadcast, CellChain, Link, PortCell};
+use axiom::cell_core::{Broadcast, Chain, PortCell, Wire};
 
 // ── 开放系统（端口体）────────────────────────────────────────
 
@@ -60,8 +60,8 @@ impl PortCell for Threshold {
 }
 
 fn main() {
-    // ═══ 1. 主链路类型：Sensor -> Normalize -> Accum（CellChain 任意嵌套）═══
-    type Main = CellChain<Sensor, CellChain<Normalize, Accum>>;
+    // ═══ 1. 主链路类型：Sensor -> Normalize -> Accum（Chain 任意嵌套）═══
+    type Main = Chain<Sensor, Chain<Normalize, Accum>>;
     let _ = core::marker::PhantomData::<Main>; // 类型即蓝图（编译期）
 
     // 编译期验证：Sensor.out(f64) 布到 Normalize.in(f64) 合法（失败则编译错误）。
@@ -70,8 +70,8 @@ fn main() {
     // 驱动一条因果流：Sensor -> Normalize（Inline，直接 step）
     let mut ss: u64 = 0; // Sensor::State
     let mut sn = ();
-    let normalized = Link::<Sensor, Normalize>::fire(&mut ss, &mut sn, 200);
-    println!("1. Link(传感器→归一化)(200) = {normalized}"); // 200 -> 200/100 = 2.0
+    let normalized = Wire::<Sensor, Normalize>::fire(&mut ss, &mut sn, 200);
+    println!("1. Wire(传感器→归一化)(200) = {normalized}"); // 200 -> 200/100 = 2.0
 
     // ═══ 2. 广播：主数据同时进入主链路与告警旁路（fan-out）═══
     // 一个 Sensor 输出同时给 Normalize（主路径）与 Threshold（告警观察）。

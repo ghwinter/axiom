@@ -76,6 +76,36 @@ corners are the **same typed potential graph**:
 > side (actual).** "Definition carries no commitment to activation" is exactly why legality can be
 > proven at compile time for free.
 
+### 2.3 Expressing "future-exists" content: interface × conformance × existential holder
+
+"Future content" (a module/piece that is *legal now but present only at* runtime) is **not
+expressed by naming it** — it is expressed by a triple:
+
+1. **The interface (universal ∀)**: the slot's port signature `(In, Out)` and protocol — a
+   *closed* contract that **any** future occupant must satisfy (`∀ T : Interface`). This is the
+   compile-time, parametric part.
+2. **Conformance (T1)**: the rule that only a conforming type may fill the slot
+   (`T : PortCell<In, Out>` ⟹ `Conforms<Slot<I,O>>`) — decided **once at compile time**
+   (logical closure). axiom adds what registry/device-tree-style loading lacks: an occupant that
+   does not conform *cannot even be registered* (compile error / refused at the seam).
+3. **The existential holder (runtime ∃)**: the slot is **held as an existential** (type-erased
+   `Box<dyn …>` / function pointer), so a concrete filler is an **∃-witness bound at runtime** —
+   never a compile-time name.
+
+Algebraically this is **substitution into a variable / hole**: an open term `C[x]` with a hole of
+type `I`, plus the rule "substitute any term of type `I`"; the **hole's type and the rule are
+compile-time**, and the **substitution (which concrete occupant) is the runtime-existential**. The
+kernel/device-tree mechanism has the same shape (fixed ops/ABI + runtime data-match + registration;
+the future driver is never named, only received through the interface); axiom's typed version merely
+adds a compile-time conformance verdict.
+
+> **This is the unification of `Wire` / `Slot` / `SlotDrive`**: they are the *three binding states
+> of one slot-substitution* — `Slot` (the hole, unbound / definition), `Wire` (the hole filled by a
+> compile-time-known occupant → zero cost), `SlotDrive` (the hole filled by a runtime-existential
+> occupant → dynamic tax at the seam). "Future content" = interface(∀) × conformance(T1) ×
+> existential holder(∃); the difference is only *when/with-which-modality* the one substitution
+> binds, never a different operation.
+
 ---
 
 ## 3. Three forms of substitution; slots constrain kind, not count

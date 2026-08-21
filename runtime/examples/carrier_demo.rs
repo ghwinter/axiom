@@ -4,7 +4,7 @@
 //! （链 + 广播），用不同载体（Inline / Direct / Queue）驱动，**语义等价，
 //! 但时空成本不同**（T6 多物理实现）。换载体不改拓扑。
 
-use axiom::cell_core::{Broadcast, CellChain, PortCell};
+use axiom::cell_core::{Broadcast, Chain, PortCell};
 use axiom_runtime::carrier::{Carrier, CarrierCost, DirectCarrier, InlineCarrier, QueueCarrier};
 use axiom_runtime::flow::drive_link;
 
@@ -35,7 +35,7 @@ impl PortCell for Double {
 
 fn main() {
     // === A. 链：Counter -> Double（用 InlineCarrier 驱动，零分配） ===
-    type Chain2 = CellChain<Counter, Double>;
+    type Chain2 = Chain<Counter, Double>;
     let mut sc = <Chain2 as PortCell>::State::default();
     // drive_link 显式用 InlineCarrier：等价手写，零分配。
     let a1 = drive_link::<Counter, Double, InlineCarrier>(&mut sc.0, &mut sc.1, 5);

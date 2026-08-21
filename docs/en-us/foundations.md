@@ -194,7 +194,7 @@ Any "free variable" that does not belong to the internal state of some open syst
 **Necessity**: necessary (a direct consequence of nestable composition).
 **Corollary**: composition forms a symmetric closed structure (an operad); any wiring diagram can be rewritten into a canonical form; composability is a decidable formal language.
 
-> **axiom realization**: the combinator `CellChain<A,B>` is still a port body and can be nested at any depth.
+> **axiom realization**: the combinator `Chain<A,B>` is still a port body and can be nested at any depth.
 
 ### T3. Well-Definedness of Cycles Is Ascribed to the Physical Carrier; the Abstraction Layer Only Declares Causality (Self-Consistency Theorem · Amendment)
 **Premises**: δ: S×Γ_in → S'×Γ_out; wiring consists of directed causal edges (A.out → B.in).
@@ -393,7 +393,7 @@ Runtime freedom over structure is **parameterized** by "the target interface mus
 
 ## 7. Open Questions (Awaiting Convergence)
 
-1. Is a connection a "first-class object" or an "association of a port body"?—the engineering form decided by E already leans toward the latter (`Link` as an associated/dual type), but the two-dimensional semantics can still be re-argued.
+1. Is a connection a "first-class object" or an "association of a port body"?—the engineering form decided by E already leans toward the latter (`Wire` as an associated/dual type), but the two-dimensional semantics can still be re-argued.
 2. Zero-cost of wiring composition: when the static path expands from a chain to multiple arbitrary subgraphs, the acceptable upper bound of monomorphization volume (compile time / code size).
 3. The criterion for behavioral equivalence (A5/E5): whether it is worth implementing, or whether to first document "structural equivalence + declared behavioral consistency."
 4. The relationship between sheaf-theoretic gluing (A6/E6) and existing compile-time verification: progressive composite verification vs full-expansion verification.
@@ -408,6 +408,100 @@ Runtime freedom over structure is **parameterized** by "the target interface mus
    - **Landing layer**: entirely "core's type layer (`Out = Result`) + runtime combinators
      (short-circuit)"; `step` stays `# Total`; see [`runtime.md`](runtime.md) §9.2. This closes
      the "total-function assumption" concern in §6 boundaries.
+
+---
+
+## 8. The Settled Closed Boundary (construction-concept layer)
+
+> This section settles axiom's **construction layer** as one closed boundary: a system is built
+> from **five irreducible construction concepts**; everything else is an *instance* of them —
+> **there is no sixth construction concept**. This is the basis for the code-level refactor
+> (see `core.md`).
+
+### 8.1 The five irreducible construction concepts
+
+1. **Cell (open system)**: an object with an input type `In`, an output type `Out`, an internal
+   state `State`, and a **total transition** `step: (State, In) -> (State, Out)`. This is the sole
+   primitive definition of "what a system is".
+2. **Dual composition (T1 wiring)**: two cells `A`, `B` compose iff `B::In == A::Out` (a type-level
+   judgment, T1). This defines "whether two connect".
+3. **Composition closure**: the composition of `A` and `B` is itself a cell (satisfies 1). This
+   makes "the totality of cells" **closed** under composition — closure lives in the concept, not
+   in code generation.
+4. **Substitution binding**: placing "an occupant of type `X`" into "a position (slot/hole) of
+   type `X`". There is **one** binding action; **compile-time binding** (static; monomorphized;
+   zero cost) and **runtime binding** (dynamic; existential; type-erased) are its **two moments**.
+   Accordingly "static/dynamic", "definition/activation", and "future-exists content" are one
+   concept (see `unified.md` §2.3).
+5. **Activation (run)**: stepping a defined cell through time (feeding inputs, state evolving,
+   causality/timing realized). **Legality / existence** belongs to 2/4 (compile time); **efficacy
+   (ordering / causality / timing)** belongs to this concept (runtime).
+
+### 8.2 Everything is an instance; there is no sixth concept
+
+- Pure transformation = 1 with `State = ()`;
+- Fan-out / fan-in (`Broadcast` / `Merge`) = 3 (fan-out requires a copiable output; ordering is 5);
+- Feedback (`Feedback`) = 3 (self-connection; well-definedness is 5);
+- Repetition (`Rep`) = 3 applied repeatedly (count fixed at compile time is 4; at runtime is 5);
+- Choice / Option (`Choice`/`Opt`) = 1 whose input carries a tag / option (just types);
+- Loading / future content (`Slot`/`SlotDrive`) = 4 (a typed position + runtime placement);
+- Failure-as-value (`Result`) = 1 (`Out = Result`: failure is a value in the output; it does not
+  change the totality of 1).
+
+### 8.3 The closure criterion
+
+> A new capability `C` is legitimate iff it is an instance of 1–5 (an "instance of an existing
+> concept", not a patch). If it cannot be expressed as an instance of 1–5 and would force a
+> **new sixth construction concept**, it must either be rejected or explicitly added by collective
+> ruling — **no implicit new rules** (smuggled in via new types/traits beyond the five).
+
+### 8.4 Layer separation: construction vs property axioms vs run strategy
+
+- **Construction concepts (1–5)**: what a system "consists of" — the code / algebraic layer.
+- **Property axioms (A1–A6 / I1 / B2 / Z1 / M1 / V1; theorems T1–T9)**: what guarantees these
+  concepts satisfy (zero cost, two planes, replaceability, local-global) — the proof / semantic
+  layer; they add no construction capability. The two do not conflict: one is "what can be
+  expressed", the other "what is guaranteed".
+- **Run strategy (scheduling / concurrency / threads, evaluation order)**: **axiom does not
+  legislate it**. It is an external strategy for "activation (5)" — optional (preorder / postorder /
+  parallel / batched / cross-thread carriers), decided by the carrier / run side; axiom only
+  guarantees that the same system under different run strategies is **verifiably semantically
+  equivalent** (T6). Concurrency is not a sixth construction concept — it is the instantiation of
+  (5) by a run strategy.
+
+### 8.5 Conclusion
+
+Accordingly the code layer refactors so: the core is `PortCell` (the cell) with its closed
+composition, one substitution binding (compile-time ∀ / runtime ∃), and activation — everything
+else is an instance. See `core.md` §6b and `unified.md`.
+
+### 8.6 Deepening clarifications (step, connections, dynamic tax, runtime binding)
+
+1. **`step` is a state-machine transition, but not a "runtime state machine"**: `step` is the
+   transition of a deterministic state transducer (a Moore machine), realized as a
+   **compile-time-monomorphized pure function** (`fn step(&mut State, In) -> Out`) — no Machine
+   object, dispatcher, or event loop. "Runtime" appears only at **activation** (repeatedly calling
+   `step` over time), which is still an ordinary function call — hand-written-equivalent and
+   zero-cost.
+2. **A connection is not a function**: the abstract connection is a **type-correct causal flow**
+   (only type + causality), not a function. Both the delivery **mechanism** (function call /
+   buffer / shared variable / value copy / channel) and the delivery **timing** (sync / async) are
+   physical carriers and semantically equivalent (T6). `B::step(A::step(x))` is just the **Inline**
+   carrier realization, not the definition of a connection.
+3. **A non-blocking atomic `step` is the discipline for "any sync/async" decoupling**: `step` must
+   be pure, atomic, non-blocking; any `await`/blocking belongs at the **boundary / carrier**. Under
+   this, the same graph runs under any scheduling (sync / cross-thread / async event loop) with
+   equivalent semantics (T6) — the abstract graph is fully agnostic to whether the physical layer is
+   async.
+4. **The dynamic tax is the tax of a deferred choice, not of creating structure**: runtime does not
+   "create" structure; the tax pays for **not fixing `Which` (∃) at compile time** — the
+   indirection / erasure / residency it entails (T7 lower bound: ≥1 alloc + 1 indirect), even when
+   the occupants are all pre-compiled. The zero-cost promise covers the static path; the dynamic
+   path pays a legitimate tax at the seam per T7.
+5. **Runtime binding = selection + activation, not structure creation**: legality and the set of
+   possible occupants are closed at compile time (logical closure); runtime only "selects which,
+   and activates (runs) it". Hence dynamic loading / hot-plug are real, while "arbitrary topology
+   rewriting" is impossible — the condition acts only on activation, never on legality.
 
 ---
 

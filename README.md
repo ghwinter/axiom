@@ -15,8 +15,8 @@ equivalent to hand-written plain Rust with zero runtime objects.
 | **Causal dataflow** `Link` | `A.out -> B.in`, type-level dual pairing | Illegal wiring fails to compile (T1) |
 | **Many-to-many** `Broadcast` (fan-out) / `Merge` (fan-in) | Broadcast, merge, type-level enforced | No Tee tree |
 | **Loop** `Feedback` | Causal closure of a loop expressed at type level | Timing belongs to physical carriers (T3) |
-| **Composition** `CellChain` | A combinator is itself a port cell, nested to any depth | Operad structure |
-| **Staticity** `Static` / `DoesWire` / `assert_wiring` | Mark zero-cost subgraphs + compile-time wiring verification | Verification at compile time, zero runtime overhead |
+| **Composition** `Chain` | A combinator is itself a port cell, nested to any depth | Operad structure |
+| **Staticity** `Static` / `Conforms` / `assert_wiring` | Mark zero-cost subgraphs + compile-time wiring verification | Verification at compile time, zero runtime overhead |
 
 **Core promise**:
 - Blueprint-as-type: zero-sized, no runtime object (`size_of::<Blueprint<T>>()==0`);
