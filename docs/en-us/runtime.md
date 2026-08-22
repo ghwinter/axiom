@@ -82,10 +82,10 @@ does not change the topology (T6, multiple physical implementations).
 The runtime gives *activation* to the unified-model constructs (which are **definitions** in
 `core.md`; activation stays the run/carrier side):
 
-- **`SlotDrive<I, O>`** (`runtime/src/slot.rs`) — the ∃ existential fill of a `Slot<I,O>`:
-  install a compile-time-conforming occupant (`T: PortCell<In=I,Out=O>` ⟹ core `Conforms`),
+- **`SlotDrive<I, O>`** — *existential binding* (`runtime/src/slot.rs`) — the ∃ existential fill of a `Slot<I,O>`:
+  install a compile-time-conforming inhabitant (`T: PortCell<In=I,Out=O>` ⟹ core `Conforms`),
   type-erase its state to `Box<dyn Any + Send>`, and `drive`/`swap` it at runtime. This is the
-  physical side of "dynamic loading" — interface fixed & T1-verified at compile time, occupant
+  physical side of "dynamic loading" — interface fixed & T1-verified at compile time, inhabitant
   existentially chosen at runtime.
 - **`drive_seq`** (`runtime/src/flow.rs`, `std`) — the generative/unbounded-count side of
   `Rep<N,C>`: drive a runtime `IntoIterator` sequence of inputs through one cell, collecting

@@ -148,7 +148,7 @@ pub const fn blueprint_is_zero_sized<TOP>() -> bool {
 ```rust
 // 对偶/代换的**统一 T1 判据**：`EXPECT` 是一个类型化位置/接口——
 // - `Wire<A, B>`：一条线（期望从 A.out 流入 B.in，即 `B::In == A::Out`）；
-// - `Slot<I, O>`：一个装载槽（期望 `In=I, Out=O` 的占据者）。
+// - `Slot<I, O>`：一个型位（期望 `In=I, Out=O` 的居留项）。
 pub trait Conforms<EXPECT> { const OK: bool = true; }
 impl<A, B> Conforms<Wire<A, B>> for () where A: PortCell, B: PortCell<In = A::Out> {}
 
@@ -158,7 +158,7 @@ pub fn assert_wiring<A, B>() where A: PortCell, B: PortCell<In = A::Out> {
 ```
 
 - **编译期对偶判定（统一）**：若 `Conforms<Wire<A,B>>` 可构造（impl 存在），则这条布线在该
-  类型对偶下合法——纯类型层（T1）。同一个判据也覆盖装载槽合规（`Conforms<Slot<I,O>>`）。
+  类型对偶下合法——纯类型层（T1）。同一个判据也覆盖型位合规（`Conforms<Slot<I,O>>`）。
 - **断言一条布线合法**：编译期成立则产生零大小证据；若类型不配对则该 impl 不存在 →
   **编译错误**。这是"用于分析与验证"的入口——验证在编译期完成，运行期零开销。
 
@@ -187,7 +187,9 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 
 为保持核心"干净"，以下旧语义被移出抽象层（衔接 `foundations.md` §5.4/5.8）：
 
-- **FlowKind（Data/Control/Observe 三分）**：移出蓝图，是物理载体属性。
+- **FlowKind（Data/Control/Observe 三分）**：不作为蓝图构造原语（`flow_kind` 可选化，
+  `None` = 无标注）；是**抽象层可选语义注解**，描述接收端如何解释值——非物理载体属性
+  （物理层统一为值流经结构，见 `foundations.md` §5.8）。
 - **LinkKind 的载体/背压/时序语义**：物理载体的事，非抽象层。
 - **值形态蓝图 / JSON / 运行时值验证**：蓝图即代码，无 JSON/值形态中间层。
 - **线程/同步异步/时序**：实例物理层（T9/T3）。
@@ -205,10 +207,10 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 - **`Rep<N, C>`** —— 正则/星：同一 cell `C` 的 N 次自组合（Kleene `C*`，计数以编译期常量
   有界）。`State = RepState<N,C>`（手动 `Default`，不依赖原生数组 `Default`）；零成本、
   单态化；`N=0` 恒等。无界计数（运行期）是生成/物理侧——见 `runtime.md` 的 `drive_seq`。
-- **`Slot<I, O>` + `Conforms` / `assert_conforms`** —— ∃ 装载槽**定义**：编译期固定接口
-  （对偶对 T1）+ 对任何未来占据者的编译期参数化合规判定
+- **`Slot<I, O>` + `Conforms` / `assert_conforms`** —— ∃ 型位**定义**：编译期固定接口
+  （对偶对 T1）+ 对任何未来居留项的编译期参数化合规判定
   （`∀ T: PortCell<In=I, Out=O>` ⟹ `Conforms<Slot<I,O>>`，形同统一 `Conforms`）。运行期存在化
-  填充为 `SlotDrive`——见 `runtime.md`。
+  填充为 `SlotDrive`（概念名：**存在绑定**，existential binding）——见 `runtime.md`。
 - **`Choice<A, B>` + `Opt<C>`** —— 正则算子 `|` 与 `?` 的一等纯 `PortCell` 表达。`Choice`
   （输入标号[和]）由输入的标签派发给 `A` 或 `B`；`Opt<C>` 把 `Option<C::In>` 映射为
   `Option<C::Out>`（`None` 恒等，`Some` 应用一次 `C::step`）。二者确定、可像普通 cell 一样
@@ -216,6 +218,27 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 
 这些是**定义**（零大小、无运行时对象），复用同一套 `PortCell` + `Conforms` 式编译期验证
 ——统一模型静片段的优雅加法式实现（见 [`unified.md`](unified.md)）。
+
+### 6c. 构造子 → 构造概念 实例矩阵 与 封闭性检查清单
+
+每个构造子都是五个构造概念（`foundations.md` §8.1）的一个**实例**，不是第六个概念：
+
+| 构造子 | 它实例化的构造概念 |
+|---|---|
+| `PortCell` | 概念 1 —— 单元 / 开放系统 |
+| `Wire<A,B>`（+ `Conforms<Wire<..>>`） | 概念 1/2/4 —— 类型化因果流 + T1 对偶组合（编译期绑定位置） |
+| `Chain` / `Rep` / `Broadcast` / `Merge` / `Feedback` | 概念 3 —— 组合封闭（各自是单元、可嵌套） |
+| `Choice` / `Opt` | 概念 1 —— 输入携带标签 / 可空的单元（仅类型） |
+| `Slot<I,O>`（+ `Conforms<Slot<..>>`） | 概念 4 —— 型位：带类型的开放位置（未绑定义） |
+| `SlotDrive`（runtime；存在绑定） | 概念 4/5 —— 运行期（∃）绑定，然后激活 |
+| `TryChain` / `drive_try`（runtime） | 概念 1 —— 失败为值（`Result`）经组合，保持 `step` 全函数 |
+| `drive` / `drive_seq` / 载体（runtime） | 概念 5 —— 激活（运行）/ 输送（函数、缓冲、通道） |
+
+**封闭性检查清单（源自 §8.3）**——在加任何能力 C 之前，问：
+1. C 是否**五个概念之一的实例**（能用 `PortCell` + T1 组合 + 该/这些绑定 + 激活表达）？
+   是 → 合法（是实例，不是补丁）。
+2. 若 C 需要一个**新的第六个构造概念**（无法用 1–5 表达），则须要么拒绝、要么经集体裁定显式
+   新增——**不容隐性新规则**（不用"五个概念之外"的新类型/特征偷偷加概念）。
 
 ---
 

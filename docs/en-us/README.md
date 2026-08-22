@@ -56,6 +56,6 @@ material — and can be read, reviewed, and evolved on its own.
   cost, no runtime use); activation = embedding the definition into a run (feeding inputs, values
   flowing along causal edges, state updates). A definition may never be activated (e.g. skipped by
   `if false` → runtime 0) — axiom core is the algebra of definition (potential).
-- **Schema / loadable slot**: schema = a closed diagram grammar (interface kinds closed,
-  provable by (co)induction); a loadable slot = interface fixed, occupant replaceable at runtime.
-  A slot constrains **kind**, not **count** (unbounded count comes from recursion / the generator).
+- **Schema / loadable typed hole**: schema = a closed diagram grammar (interface kinds closed,
+  provable by (co)induction); a loadable typed hole = interface fixed, inhabitant replaceable at runtime.
+  A typed hole constrains **kind**, not **count** (unbounded count comes from recursion / the generator).

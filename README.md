@@ -23,9 +23,11 @@ equivalent to hand-written plain Rust with zero runtime objects.
 - Verification at compile time, zero runtime overhead;
 - After compilation, equivalent to hand-written plain Rust (see `examples/cell_demo.rs`).
 
-**Old semantics moved out of the abstract layer (to physical carriers)**: the FlowKind
-(Data/Control/Observe) triad, timing/Delay, threading/sync-async, value-form/JSON —
-see `docs/foundations.md`.
+**Semantics annotations, not physical mechanisms**: FlowKind (Data/Control/Observe) is an
+**optional abstract-layer annotation** describing how the receiver interprets a value — not a
+physical-layer property. The physical layer treats all values uniformly as "value-flowing-through-
+structure" (shared variable / buffer / channel). Timing/Delay, threading/sync-async, and
+value-form/JSON remain physical-layer concerns — see `docs/foundations.md` §5.8.
 
 ## runtime (`axiom-runtime`)
 
