@@ -30,3 +30,8 @@ std = []
 [[bench]]
 name = "chain"
 harness = false
+
+# 零成本对照的第二个形状：菱形（串并结合）泛型路径 vs 手写 vs 类型擦除。
+[[bench]]
+name = "dag"
+harness = false

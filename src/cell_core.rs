@@ -78,6 +78,27 @@ where
     }
 }
 
+// ── 3a. 单位元（恒等单元；T2 单位律的可构造化）────────────────────
+
+/// The identity unit of composition: `In = Out = I`, `State = ()`, and `step`
+/// returns its input unchanged.
+///
+/// This makes T2's unit law explicit and constructible: `Chain<Id<I>, C>` and
+/// `Chain<C, Id<I>>` behave identically to `C`. It is an instance of construction
+/// concept 1 (cell); no new machinery is introduced.
+pub struct Id<I>(core::marker::PhantomData<I>);
+
+impl<I> PortCell for Id<I> {
+    type In = I;
+    type Out = I;
+    type State = ();
+
+    #[inline(always)]
+    fn step(_state: &mut (), input: I) -> I {
+        input
+    }
+}
+
 // ── 3b. 多对多：广播 / 扇出（因果数据流到多个兼容接收者）─────────
 
 /// 广播：把 `SRC` 的输出同时布线到多个接收者（`R1`, `R2`）。
@@ -208,6 +229,48 @@ where
         DST::step(sdst, o1);
         let o2: DST::In = S2::step(ss2, in2).into();
         DST::step(sdst, o2)
+    }
+}
+
+// ── 3b₃. 菱形：扇出后扇入（split–merge 一等组合子）────────────────
+
+/// Split–merge ("diamond") topology as one first-class [`PortCell`]: `SRC` fans
+/// out into two branches `R1`/`R2` (one causal edge splitting), and both branch
+/// outputs are gathered into a single sink `DST`.
+///
+/// This is the serial–parallel complement of [`Chain`] (linear): chains nest
+/// diamonds nest chains, all still cells (composition closure, concept 3).
+/// The sink consumes the pair `(R1::Out, R2::Out)` as its input.
+///
+/// On the `SRC::Out: Clone` bound: it is **symmetric with [`Broadcast`]** and
+/// is the shape layer's minimal capability assumption for one value flowing to
+/// several places under value semantics — replication *mechanism* stays a
+/// physical/carrier concern. Reference-sharing or message-replication fan-out
+/// would be alternative carrier-side realizations and are not foreclosed by
+/// any other part of this definition.
+pub struct Diamond<SRC, R1, R2, DST>(core::marker::PhantomData<(SRC, R1, R2, DST)>);
+
+impl<SRC, R1, R2, DST> PortCell for Diamond<SRC, R1, R2, DST>
+where
+    SRC: PortCell,
+    SRC::Out: Clone,
+    R1: PortCell<In = SRC::Out>,
+    R2: PortCell<In = SRC::Out>,
+    DST: PortCell<In = (R1::Out, R2::Out)>,
+{
+    type In = SRC::In;
+    type Out = DST::Out;
+    type State = (SRC::State, R1::State, R2::State, DST::State);
+
+    #[inline(always)]
+    fn step(
+        (ssrc, sr1, sr2, sdst): &mut Self::State,
+        input: SRC::In,
+    ) -> DST::Out {
+        let mid = SRC::step(ssrc, input);
+        let o1 = R1::step(sr1, mid.clone());
+        let o2 = R2::step(sr2, mid);
+        DST::step(sdst, (o1, o2))
     }
 }
 
@@ -344,6 +407,35 @@ where
         // N=0：恒等，输出 = 输入（同型转换）。
         C::Out::from(acc)
     }
+}
+
+/// Bounded repetition — a reading-friendly alias of [`Rep`]`<N, C>` (`Cⁿ`,
+/// exactly N applications, N a compile-time constant).
+///
+/// Naming note (literal honesty): this is the **power** `Cⁿ`, not Kleene star.
+/// The unbounded operators `C*` / `C⁺` have no honest static constructor here —
+/// their home is the ∃/activation side (runtime's `drive_seq`), where count is
+/// a runtime quantity. For sites that require at least one application, use
+/// the opt-in compile-time witness [`Rep::NONEMPTY`].
+pub type Repeat<const N: usize, C> = Rep<N, C>;
+
+impl<const N: usize, C> Rep<N, C>
+where
+    C: PortCell,
+    C::In: From<C::Out>,
+    C::Out: From<C::In>,
+{
+    /// Opt-in compile-time witness: `N >= 1`.
+    ///
+    /// Referencing this associated constant from a monomorphized site aborts
+    /// constant evaluation when `N = 0` — for callers whose semantics demand
+    /// at least one application. It is deliberately **opt-in**: `Rep<0, C>`
+    /// is a legal identity cell, so no invariant is imposed on the type itself.
+    pub const NONEMPTY: () = assert!(
+        N >= 1,
+        "Rep<N, C>: this site requires at least one application (N >= 1); \
+         Rep<0, C> is identity — did you mean to drop this stage?"
+    );
 }
 
 // ── 3e. 统一模型：装载槽（∃ / 定义侧）──────────────────────────────
@@ -484,7 +576,11 @@ pub struct Blueprint<TOP>(core::marker::PhantomData<TOP>);
 
 impl<TOP> Blueprint<TOP> {
     /// 定义/冻结一张蓝图（编译期定型，运行时零对象）。
-    pub fn define() -> Self {
+    ///
+    /// `const`: a definition can live entirely in the type plane — usable in
+    /// `const`/`static` items, proving the definition↔activation split (a
+    /// defined blueprint costs nothing before activation).
+    pub const fn define() -> Self {
         Blueprint(core::marker::PhantomData)
     }
 }
@@ -747,8 +843,8 @@ mod tests {
 
     #[test]
     fn merge_fans_in_multiple_sources() {
-        // 两个计数器源合入一个加法接收者（fan-in 多对多）。
-        // S1=Inc, S2=Scaler, DST=Accumulator-ish: 用 Counter 求和语义。
+        // Two counter sources merge into one additive sink (fan-in, many-to-many).
+        // S1=Inc, S2=Scaler, DST=Accumulator-ish: use Counter-like summation semantics.
         struct Accum;
         impl PortCell for Accum {
             type In = i32;
@@ -760,9 +856,61 @@ mod tests {
                 *s
             }
         }
-        // S1=Inc(5->6), S2=Scaler(5->10); Accum 累加: 6 -> 16
+        // S1=Inc(5->6), S2=Scaler(5->10); Accum accumulates: 6 -> 16
         let (mut s1, mut s2, mut sdst) = ((), (), 0i32);
         let out = Merge::<Inc, Scaler, Accum>::join(&mut s1, &mut s2, &mut sdst, 5, 5);
         assert_eq!(out, 16);
+    }
+
+    #[test]
+    fn id_is_the_unit_of_composition() {
+        // T2 unit law: Id on either side behaves identically to the bare cell.
+        assert_eq!(drive::<Id<i32>>(&mut (), 7), 7);
+        type LeftUnit = Chain<Id<i32>, Scaler>;
+        let mut st = <LeftUnit as PortCell>::State::default();
+        assert_eq!(drive::<LeftUnit>(&mut st, 5), 10); // Id(5)=5 -> Scaler=10
+        type RightUnit = Chain<Scaler, Id<i32>>;
+        let mut st = <RightUnit as PortCell>::State::default();
+        assert_eq!(drive::<RightUnit>(&mut st, 5), 10); // Scaler(5)=10 -> Id=10
+        assert_eq!(core::mem::size_of::<Id<i32>>(), 0);
+    }
+
+    #[test]
+    fn diamond_splits_and_merges() {
+        // SRC=Inc; branches R1=Inc (+1), R2=Scaler (x2); DST sums the pair.
+        struct SumPair;
+        impl PortCell for SumPair {
+            type In = (i32, i32);
+            type Out = i32;
+            type State = ();
+            #[inline(always)]
+            fn step(_: &mut (), (a, b): (i32, i32)) -> i32 {
+                a + b
+            }
+        }
+        type D = Diamond<Inc, Inc, Scaler, SumPair>;
+        let mut st = <D as PortCell>::State::default();
+        // input 4: Inc->5; branch1 Inc: 6; branch2 Scaler: 10; sum = 16
+        assert_eq!(drive::<D>(&mut st, 4), 16);
+        // Diamond is still a cell: wireable and zero-sized (composition closure).
+        assert_wiring::<Inc, Diamond<Inc, Inc, Scaler, SumPair>>();
+        assert_eq!(core::mem::size_of::<D>(), 0);
+    }
+
+    #[test]
+    fn repeat_alias_matches_rep_and_nonempty_witness_works() {
+        // Repeat<N, C> is a pure alias of Rep<N, C> (exactly-N power C^N).
+        let mut st = <Repeat<2, Inc> as PortCell>::State::default();
+        assert_eq!(drive::<Repeat<2, Inc>>(&mut st, 5), 7);
+        let mut st2 = <Rep<3, Inc> as PortCell>::State::default();
+        assert_eq!(drive::<Rep<3, Inc>>(&mut st2, 5), 8);
+
+        // Opt-in compile-time witness: sites needing >=1 application can force
+        // constant evaluation; N = 0 instantiations of that site fail to compile.
+        let () = Repeat::<2, Inc>::NONEMPTY;
+        let () = Rep::<1, Inc>::NONEMPTY;
+
+        // Constructors stay zero-sized.
+        assert_eq!(core::mem::size_of::<Repeat<3, Inc>>(), 0);
     }
 }

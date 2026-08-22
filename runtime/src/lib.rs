@@ -39,24 +39,27 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
-/// 载体：cell_core 因果数据流的物理实现（值如何流动）。
+/// 载体：cell_core 因果数据流的物理实现（值如何流动）。Stability: **stable**。
 pub mod carrier;
 
-/// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。
+/// 部署期契约校验：Moore 标记 / 成本符合性 / 背压就绪（声明 → 可校验契约）。Stability: **experimental**。
+pub mod contract;
+
+/// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。Stability: **stable**。
 pub mod flow;
 
-/// 装载槽的运行期存在化（∃ 装载，物理侧）。
+/// 装载槽的运行期存在化（∃ 装载，物理侧）。Stability: **experimental**。
 #[cfg(feature = "std")]
 pub mod slot;
 
-/// 有界缓冲 / 背压原语（§9.1，std）。
+/// 有界缓冲 / 背压原语（§9.1，std）。Stability: **experimental**。
 #[cfg(feature = "std")]
 pub mod buffer;
 
-/// 静态路径：声明为静态的子图在编译期内联展开（零运行时对象）。
+/// 静态路径：声明为静态的子图在编译期内联展开（零运行时对象）。Stability: **stable**。
 pub mod static_path;
 
-/// `wire!` 声明宏：编译期展开的"连线 + 载体 + 验证"一次完成（宏/编译期技巧）。
+/// `wire!` 声明宏：编译期展开的"连线 + 载体 + 验证"一次完成（宏/编译期技巧）。Stability: **stable**。
 #[macro_use]
 pub mod macros;
 
@@ -67,6 +70,10 @@ pub mod prelude_all {
     pub use crate::buffer::BoundedQueue;
     #[cfg(feature = "std")]
     pub use crate::carrier::{BoundedCarrier, ChannelCarrier, QueueCarrier, spawned_flow};
+    pub use crate::contract::{
+        ContractError, Moore, assert_capacity_nonzero, declare_inline_loop_moore,
+        validate_capacity, validate_cost, validate_seam,
+    };
     pub use crate::flow::{drive_link, drive_try, drive_wired, TryChain};
     #[cfg(feature = "std")]
     pub use crate::flow::{bounded_pump, bounded_pump_try, drive_seq};

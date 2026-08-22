@@ -8,6 +8,11 @@
 //! - **类型擦除模拟**（`Box<dyn Any>` 每消息装箱）——体现动态税，证明零成本的价值。
 //!
 //! 运行：`cargo bench --bench chain`（`cargo bench` 需要 nightly 或 harness=false + main）。
+//!
+//! Bench 是测量脚本：debug 构建（`--all-targets`）下测量体被 cfg 移除，其引用的
+//! 类型/函数在 debug 视角"未使用"属预期，故文件级允许 dead_code/unused_imports。
+
+#![cfg_attr(debug_assertions, allow(dead_code, unused_imports))]
 
 use axiom::cell_core::{Chain, PortCell};
 
@@ -30,6 +35,16 @@ impl PortCell for Scaler {
 }
 
 fn main() {
+    // Evidence hygiene (see file header): unoptimized numbers are meaningless,
+    // so the whole measurement body is cfg'd out under --all-targets/debug.
+    #[cfg(debug_assertions)]
+    println!("chain: debug build — benchmark skipped; run `cargo bench --bench chain`");
+    #[cfg(not(debug_assertions))]
+    run();
+}
+
+#[cfg(not(debug_assertions))]
+fn run() {
     const N: usize = 1_000_000;
 
     // A. 静态展开：Chain<Inc, Scaler>（零分配、内联）

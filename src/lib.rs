@@ -42,15 +42,19 @@ extern crate alloc;
 //
 // 旧核心（v0：machine/port/link/deploy/FlowKind/值形态等）已移出 src；
 // 物理实现（载体/宏/编译期展开）由 runtime 承担（axiom-runtime crate）。
+//
+// Module maturity: `cell_core` is **stable** (closed five-concept boundary,
+// foundations.md §8); additive-only evolution via the closure checklist.
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// 核心主轴：四构件编译期模型（Stability: **stable**）。
 pub mod cell_core;
 
 /// 核心 prelude：四构件主轴线的默认导出面。
 pub mod prelude_all {
     pub use crate::cell_core::{
-        Blueprint, Broadcast, Chain, Choice, ChoiceIn, ChoiceOut, Conforms, Feedback,
-        Merge, Opt, PortCell, Rep, Slot, Static, Wire, assert_conforms, assert_wiring,
-        blueprint_is_zero_sized, drive, wired,
+        Blueprint, Broadcast, Chain, Choice, ChoiceIn, ChoiceOut, Conforms, Diamond, Feedback,
+        Id, Merge, Opt, PortCell, Rep, Repeat, Slot, Static, Wire, assert_conforms,
+        assert_wiring, blueprint_is_zero_sized, drive, wired,
     };
 }

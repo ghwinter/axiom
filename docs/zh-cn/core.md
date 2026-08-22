@@ -33,7 +33,7 @@
 | 构件 | 内容 | Rust 对应 | 编译期性质 |
 |---|---|---|---|
 | **开放系统/端口体** | 有边界、类型化输入/输出/状态，`step` 纯且可内联 | `PortCell` trait（`src/cell_core.rs`） | 类型级，无运行时对象 |
-| **因果数据流** | 带方向的连接：`A.out -> B.in`，类型层对偶配对 | `Link<A,B>` | 非法连接编译失败（T1） |
+| **因果数据流** | 带方向的连接：`A.out -> B.in`，类型层对偶配对 | `Wire<A,B>` | 非法连接编译失败（T1） |
 | **组合/嵌套** | 组合子仍是端口体，任意层级 | `Chain<A,B>` | 操作类结构（T2） |
 | **静态性声明** | 标记哪些子图要求零成本 | `Static<SUB>` / `Blueprint<TOP>` | 单态化，无 `Box<dyn>`（T7/§5.6） |
 
@@ -204,7 +204,7 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 
 在四构件之外，`cell_core` **加法式**地新增统一模型构造子（不改写既有类型）：
 
-- **`Rep<N, C>`** —— 正则/星：同一 cell `C` 的 N 次自组合（Kleene `C*`，计数以编译期常量
+- **`Rep<N, C>`** —— 正则幂：同一 cell `C` 的 N 次自组合（恰好 N 次的 `Cⁿ`，计数以编译期常量
   有界）。`State = RepState<N,C>`（手动 `Default`，不依赖原生数组 `Default`）；零成本、
   单态化；`N=0` 恒等。无界计数（运行期）是生成/物理侧——见 `runtime.md` 的 `drive_seq`。
 - **`Slot<I, O>` + `Conforms` / `assert_conforms`** —— ∃ 型位**定义**：编译期固定接口
@@ -246,8 +246,9 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 
 ```text
 cargo build --lib        # 零依赖，no_std 支持（--no-default-features）
-cargo test --lib         # 9 测试
-cargo bench --bench chain   # 静态 ≈ 手写（零成本实证）
+cargo test               # 21 单元测试 + 6 项蓝图集成断言（tests/topology_blueprint.rs；基准不混入测试）
+cargo bench --bench chain   # 静态 ≈ 手写（零成本实证，仅 release 数字有意义）
+cargo bench --bench dag     # 菱形零成本实证（泛型路径 <5% vs 手写）
 ```
 
 **已达成（证据链）**：

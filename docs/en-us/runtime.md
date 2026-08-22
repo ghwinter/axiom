@@ -55,6 +55,14 @@ The carrier catalog (`runtime/src/carrier.rs`):
 Each carrier is **independently selectable and replaceable**: swapping one implementation
 does not change the topology (T6, multiple physical implementations).
 
+> **Placement continuum (linking to `foundations.md` §8.6 items 7–8)**: "single-threaded /
+> cross-thread" in the table are **not two models, but the two ends of one physical-placement
+> decision spectrum** — the same blueprint, via placement, decides where each edge sits on the
+> spectrum. The carriers in the table are the physical forms at different positions on the
+> spectrum: single-threaded carriers = the native form of "all edges placed on the same thread"
+> (family A = 0); cross-thread carriers honestly bear family A (concurrency-maintenance toll).
+> The zero-cost promise (family B = 0, see below) holds equally for both.
+
 > **Carrier as attribute (deployment-time physicality)**: the blueprint declares "which
 > carrier this flow uses" (e.g. `Static<Chain<A,B>>` goes through
 > `InlineCarrier`/`static_path`), and the runtime redeems it per the declaration.
@@ -174,6 +182,11 @@ reference (`git show main:runtime/examples/<name>/main.rs`).
 - **The dynamic tax is unavoidable and legitimate**: the tax is paid if and only if the structure
   must be determined at runtime (configuration/plugins/dynamic topology) (linking to T7/T9);
   otherwise the static path must be taken.
+- **Scope of the zero-cost promise**: what is promised is **family B = zero** (the abstraction
+  does not charge for distinction demands); the **family A** of cross-thread edges
+  (synchronization/wakeup/visibility) is a physical toll that an equivalent hand-written
+  multi-threaded program pays as well, and is not an "abstraction tax" (linking to
+  `foundations.md` §8.6 item 8).
 
 ---
 
