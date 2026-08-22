@@ -173,7 +173,7 @@ intermediate state.
 ```rust
 // The unified T1 duality judgment: `EXPECT` is a typed position/interface —
 // - `Wire<A, B>`: a wire (expects flow A.out -> B.in, i.e. `B::In == A::Out`);
-// - `Slot<I, O>`: a load slot (expects an occupant with `In=I, Out=O`).
+// - `Slot<I, O>`: a typed hole (expects an inhabitant with `In=I, Out=O`).
 pub trait Conforms<EXPECT> { const OK: bool = true; }
 impl<A, B> Conforms<Wire<A, B>> for () where A: PortCell, B: PortCell<In = A::Out> {}
 
@@ -184,7 +184,7 @@ pub fn assert_wiring<A, B>() where A: PortCell, B: PortCell<In = A::Out> {
 
 - **Compile-time duality judgment (unified)**: if `Conforms<Wire<A,B>>` is constructible (the
   impl exists), then that wiring is legal under the type duality — purely type-level (T1). The
-  same one judgment covers slot conformance (`Conforms<Slot<I,O>>`).
+  same one judgment covers typed-hole conformance (`Conforms<Slot<I,O>>`).
 - **Asserting a wiring is legal**: if it holds at compile time, a zero-sized witness is produced;
   if the types do not pair, that impl does not exist → **compile error**. The entry point "for
   analysis and verification" — verification is completed at compile time, zero runtime overhead.
@@ -217,8 +217,11 @@ erasure is triggered (`Box<dyn Any>`).
 To keep the core "clean", the following legacy semantics are moved out of the abstraction
 layer (bridging to `foundations.md` §5.4/5.8):
 
-- **FlowKind (Data/Control/Observe trichotomy)**: moved out of the blueprint; it is a
-  physical-carrier attribute.
+- **FlowKind (Data/Control/Observe trichotomy)**: not a blueprint construction primitive
+  (`flow_kind` is optional, `None` = no annotation); it is an **abstract-layer optional semantic
+  annotation** describing how the receiver interprets a value — not a physical-carrier attribute
+  (the physical layer treats all values uniformly as value-flowing-through-structure; see
+  `foundations.md` §5.8).
 - **LinkKind's carrier/backpressure/timing semantics**: the concern of the physical carrier,
   not the abstraction layer.
 - **Value-form blueprint / JSON / runtime value verification**: blueprint-as-code, with no
@@ -243,10 +246,11 @@ the unified-model constructors:
   bounded count as a compile-time constant). `State = RepState<N,C>` (manual `Default`) zeros
   dependency on the built-in array `Default`; zero-cost, monomorphized; `N=0` is identity.
   Unbounded count (runtime) is the generative/physical side — see `runtime.md`, `drive_seq`.
-- **`Slot<I, O>` + `Conforms` / `assert_conforms`** — ∃ loadable-slot **definition**: a
+- **`Slot<I, O>` + `Conforms` / `assert_conforms`** — ∃ typed-hole **definition**: a
   compile-time-fixed interface (dual pair, T1) with a compile-time parametrically-quantified
-  conformity verdict for any future occupant (`∀ T: PortCell<In=I, Out=O>` ⟹ `Conforms<Slot<I,O>>`,
-  the same shape as `Conforms`). The runtime existential fill is `SlotDrive` — see `runtime.md`.
+  conformity verdict for any future inhabitant (`∀ T: PortCell<In=I, Out=O>` ⟹ `Conforms<Slot<I,O>>`,
+  the same shape as `Conforms`). The runtime existential fill is `SlotDrive` (**existential
+  binding**) — see `runtime.md`.
 - **`Choice<A, B>` + `Opt<C>`** — the *regular* operators `|` and `?` as first-class pure
   `PortCell`s. `Choice` (input-tagged [sum]) dispatches by the input's label to `A` or `B`;
   `Opt<C>` maps `Option<C::In>` to `Option<C::Out>` (identity on `None`, one `C::step` on `Some`).
@@ -256,6 +260,30 @@ the unified-model constructors:
 These are **definitions** (zero-sized, no runtime object) and reuse the same `PortCell` +
 `Conforms`-style compile-time verification — the elegant, additive realization of the unified
 model's static fragment (see [`unified.md`](unified.md)).
+
+### 6c. Constructor → concept instance matrix, and the closure checklist
+
+Every constructor is an **instance** of the five construction concepts (`foundations.md` §8.1),
+never a sixth concept:
+
+| Constructor | Construction concept it instantiates |
+|---|---|
+| `PortCell` | concept 1 — the cell / open system |
+| `Wire<A,B>` (+ `Conforms<Wire<..>>`) | concepts 1/2/4 — a typed causal flow + T1 dual composition (compile-time-binding position) |
+| `Chain` / `Rep` / `Broadcast` / `Merge` / `Feedback` | concept 3 — composition closure (each is itself a cell, nestable) |
+| `Choice` / `Opt` | concept 1 — a cell whose input carries a tag / option (just types) |
+| `Slot<I,O>` (+ `Conforms<Slot<..>>`) | concept 4 — typed position (unbound definition) |
+| `SlotDrive` (runtime; *existential binding*) | concept 4/5 — runtime (∃) binding, then activation |
+| `TryChain` / `drive_try` (runtime) | concept 1 — failure-as-value (`Result`) through composition, keeping `step` total |
+| `drive` / `drive_seq` / carriers (runtime) | concept 5 — activation (run) / delivery (function, buffer, channel) |
+
+**Closure checklist (from `foundations.md` §8.3)** — before adding any capability `C`, ask:
+1. Is `C` an *instance of one of the five concepts* (i.e. expressible with `PortCell` +
+   T1-composition + this/these binding(s) + activation)? If yes → legitimate (an instance, not a
+   patch).
+2. If `C` requires a **new sixth construction concept** (not expressible via 1–5), it must either
+   be rejected or explicitly added by collective ruling — **no implicit new rules** (no new type /
+   trait that smuggle a concept beyond the five).
 
 ---
 

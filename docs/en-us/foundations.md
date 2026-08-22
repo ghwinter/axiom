@@ -2,6 +2,11 @@
 
 # axiom Compositional Systems Theory Foundations: Definitions → Axioms → Theorems → Mathematics → axiom
 
+> **One-sentence positioning**: **axiom is a compile-time type algebra — it uses the axioms of
+> compositional systems theory to construct correct system topology (shape), uses the zero-cost
+> conservation law to guarantee shape does not charge the physical layer, and uses typed-hole
+> substitution to achieve runtime content replacement under closed static interfaces.**
+>
 > **Nature**: axiom's **formal foundational specification**. It unifies the axioms,
 > definitions, and mathematical expressions of the modern theory family known as
 > "compositional systems theory" (open systems/operads, session types/π-calculus,
@@ -52,6 +57,14 @@ An open system is a quadruple S = (X_in, X_out, Y, δ), where:
 - δ: behavior (state transition/computation).
 
 The definition of an open system is "having boundaries, interacting through ports." A composed system remains an open system (recursively)—"the whole again forms a module" is thereby formalized. At which layer a certain fan-out holds is determined by the observation layer (which layer's composition is regarded as a unit).
+
+**Definition (Minimal System).** The above open system is axiom's **minimal system** (construction concept 1, "Cell / Unit", §8.1): a quadruple $(S,\, I,\, O,\, \delta)$, where $S$ is a state container that survives across activations, $I/O$ are port interfaces for information transfer, and $\delta : S \times I \to S \times O$ is the synchronous transition function (step). A "system" at the abstract plane **is** a composition of minimal systems via wiring $w$ (§4.2 composition closure), i.e., $\mathcal{S} = \bigotimes \mathcal{M}_i$; the composite remains an open system (recursive, see above).
+
+**Boundary 1.0a (System ≠ Function).** Systems and functions are distinguished at the abstract plane by **three boundaries that must not be conflated**:
+
+1. **Lifetime**: the system's lifetime $\ell_\mathcal{S}$ (from creation to active release) ≠ the lifetime $\ell_f$ of a single embodiment (one function call / stack frame). A system can be **activated multiple times**, each activation carried by a different stack frame; a "system / module" is like a **fixed factory** (it has a lifetime, but not a function-concept lifetime). Formalized: $\ell_\mathcal{S} \neq \ell_f$, and under multiple activations $\bigsqcup \ell_{f_k} \not\subseteq \ell_\mathcal{S}$ holds for a single embodiment.
+2. **I/O form**: the system's $I/O$ is **information transfer** (can be buffered, lost, overwritten, reordered, borne by carriers), **strictly more general than** function parameters / return values — the latter is merely the **sub-case** of `Inline` + synchronous (zero transport-step duration, §8.6 item 6). I/O is not function parameters / return values.
+3. **Degradation relation to functions**: a pure function $f: A \to B$ is a **special case** of a stateless minimal system ($S = \{\bullet\}$, $\delta = \mathrm{const}\circ f$); at the physical plane, a stack frame is the carrier of a single step activation of the system, **not** the system itself (§1.6 instantiation context / host). Therefore "a minimal system is at least a function" **is not a general theorem** — it only holds approximately under the engineering convention of "using functions to launch async code" — and fails in loops + counter-based pseudo-scheduling (no independent function launch, yet logically independent task systems).
 
 ### 1.2 Connections / Channels (Session Types / π-calculus; Honda, Milner)
 
@@ -357,25 +370,26 @@ Rationale: all-or-nothing would cause compilation explosion; flexibility is nece
 ### 5.7 The Runtime Is a Physical-Layer Implementation Use Case and Is Replaceable
 From T6 / §5.4: the runtime intrudes on **instance-layer** details and does not touch the abstraction-layer topology; it is a **replaceable solution library (carrier API) + the realization of physical timing/causality** for "how values flow across connections," and is itself replaceable. A carrier can be plugged in by implementing the `Carrier` trait without changing the topology, giving the physical layer extensibility. See `../en-us/runtime.md`.
 
-### 5.8 Semantic Downgrade: Blueprints Only Declare Abstract Data Flow (FlowKind Moved Out of the Blueprint)
-From §5.4 / T4: the old Data/Control/Observe three-way semantics are **removed from blueprints**—they are not semantics of the abstraction layer but attributes of the physical-layer carrier:
-- There is no "dropping" in memory/CPU: Observe is merely the physical layer deciding how much to look at and whether to look at all; Data and Control are both **data changes at an address**;
-- Dropping/blocking/synchronous/asynchronous **are all physical-layer choices**; they are not blueprint semantics.
+### 5.8 Semantic Annotation: Blueprints Only Declare Abstract Data Flow (FlowKind Is an Optional Abstract-Layer Annotation)
+From §5.4 / T4: the old Data/Control/Observe three-way semantics are **not blueprint construction primitives** (`flow_kind` is optional, `None` = no annotation), but **remain optional abstract-layer semantic annotations** describing how the receiver interprets a value — **not attributes of the physical-layer carrier** (the physical layer treats all values uniformly as value-flowing-through-structure; see `../internal/axiom-conventions.md` §2):
+- There is no "dropping" in memory/CPU: Observe is merely the physical layer deciding how much to look at and whether to look at all; a "control" value, an "observe" value, a "data" value are physically **the same thing** — one thread writes bytes to an address, another reads them;
+- Dropping/blocking/synchronous/asynchronous **are all physical-layer choices (transport-step / carrier semantics)**; they are not blueprint semantics.
+- FlowKind, when annotated, carries **materialization preferences** (Observe → suggests non-blocking/Dropping carrier + independent thread; Control → suggests Dropping/Latest) — these are **derivatives of semantics → carrier selection**, not new physical mechanisms.
 Swapping the carrier for the same blueprint changes the "dropping/blocking/synchronous" behavior; this is "deployment-time physics"—the blueprint declares structure, the carrier declares behavior, and the two are matched through the carrier contract.
 
-### 5.9 What "runtime modification" acts on, and its boundary: loadable slots
+### 5.9 What "runtime modification" acts on, and its boundary: loadable typed holes
 Split "topology / dynamic" into three objects that must **not be conflated**:
 1. **Shape** (interface pairs / edge types, T1 dual pairing): fixed at compile time; **cannot** change at runtime;
-2. **Occupancy / content** (which implementation fills a slot, which edge is activated): **can** change at runtime — this is exactly what plugin loading, driver hot-plug, `dlopen`, and WASM loading do;
+2. **Filling / content** (which implementation fills a typed hole, which edge is activated): **can** change at runtime — this is exactly what plugin loading, driver hot-plug, `dlopen`, and WASM loading do;
 3. **Instance cardinality** (how many instances, which devices exist now): **can** change at runtime — hot-plug, connection pools, elasticity.
 
-**The device tree / driver model is the archetype**: the tree's **schema** (kinds of nodes, interfaces, ABI) is compile-time fixed; the tree's **instance** (current device nodes, which drivers are bound) changes at runtime. A new driver = a node filling an **already-existing interface slot**. The driver must obey fixed calling conventions / ABI / interfaces — **because interfaces, addresses, and protocols are fixed, "dynamic" loading is possible**.
+**The device tree / driver model is the archetype**: the tree's **schema** (kinds of nodes, interfaces, ABI) is compile-time fixed; the tree's **instance** (current device nodes, which drivers are bound) changes at runtime. A new driver = a node filling an **already-existing interface typed hole**. The driver must obey fixed calling conventions / ABI / interfaces — **because interfaces, addresses, and protocols are fixed, "dynamic" loading is possible**.
 
 Therefore, the **precise meaning** of "runtime topology modification" in axiom is:
 
 > **Replacement and activation of content / instances under a closed interface (the dual-paired types of T1 + the behavioral contract of T5).**
 
-Runtime freedom over structure is **parameterized** by "the target interface must already be compile-time fixed"; it cannot cross that interface — that is the wall. Consequently, software with plugins / loading still has a **static host graph** — it merely declares several **loadable slots**: the mouth (ABI / protocol) is fixed, and the occupant is changeable at runtime. The dynamic boundary (type erasure / FFI / WASM / interpreter) is **localized** to where compile-time-unknown content enters, and the dynamic tax is paid only at that seam, without dragging the whole graph into dynamism (connecting to T9 / T7 and §5.5).
+Runtime freedom over structure is **parameterized** by "the target interface must already be compile-time fixed"; it cannot cross that interface — that is the wall. Consequently, software with plugins / loading still has a **static host graph** — it merely declares several **loadable typed holes**: the mouth (ABI / protocol) is fixed, and the inhabitant is changeable at runtime. The dynamic boundary (type erasure / FFI / WASM / interpreter) is **localized** to where compile-time-unknown content enters, and the dynamic tax is paid only at that seam, without dragging the whole graph into dynamism (connecting to T9 / T7 and §5.5).
 
 > **One sentence**: runtime "modification" is not in tension with static typing — it is precisely the process of "substituting content inside a compile-time-fixed interface / ABI envelope"; **because the interface is fixed, the dynamism is possible**.
 
@@ -428,11 +442,22 @@ Runtime freedom over structure is **parameterized** by "the target interface mus
 3. **Composition closure**: the composition of `A` and `B` is itself a cell (satisfies 1). This
    makes "the totality of cells" **closed** under composition — closure lives in the concept, not
    in code generation.
-4. **Substitution binding**: placing "an occupant of type `X`" into "a position (slot/hole) of
+4. **Substitution binding**: placing "an inhabitant of type `X`" into "a typed hole of
    type `X`". There is **one** binding action; **compile-time binding** (static; monomorphized;
    zero cost) and **runtime binding** (dynamic; existential; type-erased) are its **two moments**.
    Accordingly "static/dynamic", "definition/activation", and "future-exists content" are one
    concept (see `unified.md` §2.3).
+
+   > **Word origin & canonical names (typed hole / inhabitant / existential binding)**: a typed
+   > hole is the type-bearing blank of a type-theoretic context (`Γ ⊢ ? : B`) — equally the
+   > container-theoretic **position** under closed shapes of the polynomial functor
+   > F(X) = Σ_{s∈S} X^{P_s}. The hole's type and rule are compile-time facts; which term truly
+   > fills it is a runtime existential. A hole is not incompleteness: it is a first-class,
+   > permanent open position (§5.9). An inhabitant is a term `a : A` (BHK reading). The older
+   > physical metaphors "loadable slot / occupant" are retired as historical aliases; the
+   > canonical concept name for runtime's ∃ binder `SlotDrive` is **existential binding**
+   > (Mitchell–Plotkin existential packages). Three-register policy & full glossary:
+   > `../internal/axiom-conventions.md` §12.
 5. **Activation (run)**: stepping a defined cell through time (feeding inputs, state evolving,
    causality/timing realized). **Legality / existence** belongs to 2/4 (compile time); **efficacy
    (ordering / causality / timing)** belongs to this concept (runtime).
@@ -496,12 +521,23 @@ else is an instance. See `core.md` §6b and `unified.md`.
 4. **The dynamic tax is the tax of a deferred choice, not of creating structure**: runtime does not
    "create" structure; the tax pays for **not fixing `Which` (∃) at compile time** — the
    indirection / erasure / residency it entails (T7 lower bound: ≥1 alloc + 1 indirect), even when
-   the occupants are all pre-compiled. The zero-cost promise covers the static path; the dynamic
+   the inhabitants are all pre-compiled. The zero-cost promise covers the static path; the dynamic
    path pays a legitimate tax at the seam per T7.
 5. **Runtime binding = selection + activation, not structure creation**: legality and the set of
-   possible occupants are closed at compile time (logical closure); runtime only "selects which,
+   possible inhabitants are closed at compile time (logical closure); runtime only "selects which,
    and activates (runs) it". Hence dynamic loading / hot-plug are real, while "arbitrary topology
    rewriting" is impossible — the condition acts only on activation, never on legality.
+6. **Execution step ⊥ transport step; "synchronous" is bounded within a single `step`**: `step` is
+   the **execution step** (a pure transition on state space `(State, In) -> (State, Out)`, producing only assignments, making no commitment about how values leave); the carrier implements the **transport
+   step** (how values are physically delivered to `In`, `Inline` = synchronous direct / queue-channel
+   = asynchronous delivery). The two are **independently selectable and mutually non-entailing** —
+   the same `step` can be paired with different carriers yielding different physical behaviors
+   (blocking / async / dropping) while the abstract semantics remains unchanged (T6). This
+   precisely bounds "synchronous/asynchronous": **within a single `step` is synchronous**
+   (instantaneous, atomic, no external intervention); **a composite system's advance is a sequenced
+   orchestration of execution steps + transport steps**, and whether it is asynchronous depends on
+   whether the transport-step duration is non-zero — there is no blanket "intra-system synchronous",
+   only "intra-step synchronous + inter-step transport-step duration choice".
 
 ---
 

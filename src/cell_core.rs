@@ -120,6 +120,30 @@ where
     }
 }
 
+/// 组合封闭（概念 3）：`Broadcast` 本身是 `PortCell`——`In=SRC::In`，
+/// `Out=(R1::Out, R2::Out)`，`State=(SRC,R1,R2)`。于是"扇出"是一个单元，可再组合/嵌套。
+impl<SRC, R1, R2> PortCell for Broadcast<SRC, R1, R2>
+where
+    SRC: PortCell,
+    SRC::Out: Clone,
+    R1: PortCell<In = SRC::Out>,
+    R2: PortCell<In = SRC::Out>,
+{
+    type In = SRC::In;
+    type Out = (R1::Out, R2::Out);
+    type State = (SRC::State, R1::State, R2::State);
+    #[inline(always)]
+    fn step(
+        (ssrc, sr1, sr2): &mut (SRC::State, R1::State, R2::State),
+        input: SRC::In,
+    ) -> (R1::Out, R2::Out) {
+        let mid = SRC::step(ssrc, input);
+        let o1 = R1::step(sr1, mid.clone());
+        let o2 = R2::step(sr2, mid);
+        (o1, o2)
+    }
+}
+
 // ── 3b₂. 多对多：汇合 / fan-in（多个相容源合入一个接收者）─────────
 
 /// 汇合：`S1` 与 `S2` 的输出（类型须一致）合入一个 `DST` 接收者。
@@ -163,6 +187,30 @@ where
     }
 }
 
+/// 组合封闭（概念 3）：`Merge` 本身是 `PortCell`——`In=(S1::In, S2::In)`，
+/// `Out=DST::Out`，`State=(S1,S2,DST)`。于是"汇入"是一个单元，可再组合/嵌套。
+impl<S1, S2, DST> PortCell for Merge<S1, S2, DST>
+where
+    S1: PortCell,
+    S2: PortCell,
+    DST: PortCell<In = S1::Out>,
+    S2::Out: Into<DST::In>,
+{
+    type In = (S1::In, S2::In);
+    type Out = DST::Out;
+    type State = (S1::State, S2::State, DST::State);
+    #[inline(always)]
+    fn step(
+        (ss1, ss2, sdst): &mut (S1::State, S2::State, DST::State),
+        (in1, in2): (S1::In, S2::In),
+    ) -> DST::Out {
+        let o1 = S1::step(ss1, in1);
+        DST::step(sdst, o1);
+        let o2: DST::In = S2::step(ss2, in2).into();
+        DST::step(sdst, o2)
+    }
+}
+
 // ── 3c. 环：反馈（因果闭合，编译期类型层表达，时序归物理载体）────
 
 /// 反馈环：`BODY` 的输出回喂到 `BODY` 的输入，形成因果闭合。
@@ -195,6 +243,24 @@ where
         // 回喂：out 作为 FEED 输入，产出下一次的 BODY 输入形态。
         let next_in: BODY::In = FEED::step(sfeed, out);
         // 为演示闭合，再驱动一拍（用回喂值）。真实环由载体驱动；这里类型已闭合。
+        BODY::step(sbody, next_in)
+    }
+}
+
+/// 组合封闭（概念 3）：`Feedback` 本身是 `PortCell`——`In=BODY::In`，`Out=BODY::Out`，
+/// `State=(BODY::State, FEED::State)`。于是"环"是一个单元，可再组合/嵌套。
+impl<BODY, FEED> PortCell for Feedback<BODY, FEED>
+where
+    BODY: PortCell,
+    FEED: PortCell<In = BODY::Out, Out = BODY::In>,
+{
+    type In = BODY::In;
+    type Out = BODY::Out;
+    type State = (BODY::State, FEED::State);
+    #[inline(always)]
+    fn step((sbody, sfeed): &mut (BODY::State, FEED::State), external: BODY::In) -> BODY::Out {
+        let out = BODY::step(sbody, external);
+        let next_in: BODY::In = FEED::step(sfeed, out);
         BODY::step(sbody, next_in)
     }
 }

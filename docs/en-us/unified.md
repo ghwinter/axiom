@@ -14,16 +14,16 @@
 
 ## 1. One perspective: substitution over a typed interface algebra
 
-> **Software = a diagram over a typed interface algebra.** Its nodes are *interfaces* with typed
-> slots; its edges are *T1-legal wirings*; *building/running* = substituting each slot with a
-> conforming occupant. The legality of every substitution is a type judgment (T1).
+> **Software = a diagram over a typed interface algebra.** Its nodes are *interfaces* with
+> typed holes; its edges are *T1-legal wirings*; *building/running* = substituting each typed hole with a
+> conforming inhabitant. The legality of every substitution is a type judgment (T1).
 
 Under this one perspective the apparent opposition "static graph vs dynamic loading" dissolves:
 
 - **Static** = substitution performed at **compile time**, **universally quantified** over the
   interface (parametric; provable once; zero cost);
 - **Dynamic** (plugins, code loading, driver hot-plug, hot reload) = substitution performed at
-  **runtime**, **existentially instantiated** (a future occupant that conforms to the interface).
+  **runtime**, **existentially instantiated** (a future inhabitant that conforms to the interface).
 
 They are **two binding modes of the same substitution operation**, not two mechanisms.
 
@@ -33,7 +33,7 @@ They are **two binding modes of the same substitution operation**, not two mecha
 - **Polynomial functors / containers**: a container F(X) = Σ_{s∈S} X^{P_s} — **shapes S are closed**
   (interface kinds, sealed at compile time) while **positions P_s are filled by X** (instances,
   arbitrary). Substitution is the fundamental operation.
-- **Dependent type theory** (D1): binding/instantiation = the judgment "occupant a : interface A".
+- **Dependent type theory** (D1): binding/instantiation = the judgment "inhabitant a : interface A".
 
 ---
 
@@ -52,7 +52,7 @@ openness is about count — never conflate them.
 ### 2.2 Definition ↔ activation (the orthogonal axis)
 
 - **Definition** (potential): exists as a well-formed, validated structure — no runtime use, not in
-  time; it lives in the code/type plane. `Blueprint`/`Static`/schemas/slots are **definitions**
+  time; it lives in the code/type plane. `Blueprint`/`Static`/schemas/typed holes are **definitions**
   (zero-sized, compile-time typed, T1-provable).
 - **Activation** (actual): embedding the definition into a run — feeding inputs, making values flow
   along causal edges ("the connection's time-causality" takes effect), updating state. **Only
@@ -81,39 +81,39 @@ corners are the **same typed potential graph**:
 "Future content" (a module/piece that is *legal now but present only at* runtime) is **not
 expressed by naming it** — it is expressed by a triple:
 
-1. **The interface (universal ∀)**: the slot's port signature `(In, Out)` and protocol — a
-   *closed* contract that **any** future occupant must satisfy (`∀ T : Interface`). This is the
+1. **The interface (universal ∀)**: the typed hole's port signature `(In, Out)` and protocol — a
+   *closed* contract that **any** future inhabitant must satisfy (`∀ T : Interface`). This is the
    compile-time, parametric part.
-2. **Conformance (T1)**: the rule that only a conforming type may fill the slot
+2. **Conformance (T1)**: the rule that only a conforming type may fill the typed hole
    (`T : PortCell<In, Out>` ⟹ `Conforms<Slot<I,O>>`) — decided **once at compile time**
-   (logical closure). axiom adds what registry/device-tree-style loading lacks: an occupant that
+   (logical closure). axiom adds what registry/device-tree-style loading lacks: an inhabitant that
    does not conform *cannot even be registered* (compile error / refused at the seam).
-3. **The existential holder (runtime ∃)**: the slot is **held as an existential** (type-erased
+3. **The existential holder (runtime ∃)**: the typed hole is **held as an existential** (type-erased
    `Box<dyn …>` / function pointer), so a concrete filler is an **∃-witness bound at runtime** —
    never a compile-time name.
 
 Algebraically this is **substitution into a variable / hole**: an open term `C[x]` with a hole of
 type `I`, plus the rule "substitute any term of type `I`"; the **hole's type and the rule are
-compile-time**, and the **substitution (which concrete occupant) is the runtime-existential**. The
+compile-time**, and the **substitution (which concrete inhabitant) is the runtime-existential**. The
 kernel/device-tree mechanism has the same shape (fixed ops/ABI + runtime data-match + registration;
 the future driver is never named, only received through the interface); axiom's typed version merely
 adds a compile-time conformance verdict.
 
 > **This is the unification of `Wire` / `Slot` / `SlotDrive`**: they are the *three binding states
-> of one slot-substitution* — `Slot` (the hole, unbound / definition), `Wire` (the hole filled by a
-> compile-time-known occupant → zero cost), `SlotDrive` (the hole filled by a runtime-existential
-> occupant → dynamic tax at the seam). "Future content" = interface(∀) × conformance(T1) ×
+> of one typed-hole-substitution* — `Slot` (the hole, unbound / definition), `Wire` (the hole filled by a
+> compile-time-known inhabitant → zero cost), `SlotDrive` (the hole filled by a runtime-existential
+> inhabitant → dynamic tax at the seam). "Future content" = interface(∀) × conformance(T1) ×
 > existential holder(∃); the difference is only *when/with-which-modality* the one substitution
 > binds, never a different operation.
 
 ---
 
-## 3. Three forms of substitution; slots constrain kind, not count
+## 3. Three forms of substitution; typed holes constrain kind, not count
 
 | Form | Binding | Meaning | axiom today |
 |---|---|---|---|
 | **① Static combination** | compile-time (∀, parametric) | known interfaces composed into a fixed topology | **core** (Link/Chain/Broadcast/Merge/Static) |
-| **② Loadable slot** (∃) | runtime, one occupant | interface fixed, occupant replaceable | **core** `Slot`/`Conforms` (definition) · runtime `SlotDrive` (∃ activation) |
+| **② Loadable typed hole** (∃) | runtime, one inhabitant | interface fixed, inhabitant replaceable | **core** `Slot`/`Conforms` (definition) · runtime `SlotDrive` (existential binding · ∃ activation) |
 | **③ Generative/recursive schema** | schema closed at compile time; instances unbounded | a finite closed schema F yields an unbounded instance net | **core** `Rep<N,C>` (static star, bounded N) · runtime `drive_seq` (unbounded) |
 
 > **Status note**: ② and ③ are embodied. The **definition** side (core `Rep<N,C>` bounded star,
@@ -124,16 +124,16 @@ adds a compile-time conformance verdict.
 > combinators (all T1-verified and composable); *unbounded generative unrolling* is the
 > ∃/physical side (`drive_seq`/bounded pumps) — see §4.1.
 
-- **② and the wall**: runtime "modification" is *occupancy/content* substitution within a
+- **② and the wall**: runtime "modification" is *filling/content* substitution within a
   **compile-time-closed interface** (T1 dual pairing + T5 behavioral equivalence + A2 shape–content
-  separation). You can replace *what fills a slot*, never *the interface/shape itself* —
+  separation). You can replace *what fills a typed hole*, never *the interface/shape itself* —
   **because interfaces, addresses, ABI, and protocols are fixed, dynamic loading is possible**
   (§5.9 of `foundations.md`).
-- **③ and the "slot implies finite" worry**: a slot constrains **kind**, not **count**.
+- **③ and the "typed hole implies finite" worry**: a typed hole constrains **kind**, not **count**.
   Unbounded count comes from **recursion**: a tree = the fixed point F(F(F(…))) of a finite schema
-  F (a polynomial functor). Every position is still a typed slot; unboundedness is the generator's
-  reach, not a finite slot budget. So "connect arbitrarily many protocol-conforming devices" is
-  expressed by ③, not by multiplying slots.
+  F (a polynomial functor). Every position is still a typed hole; unboundedness is the generator's
+  reach, not a finite typed-hole budget. So "connect arbitrarily many protocol-conforming devices" is
+  expressed by ③, not by multiplying typed holes.
 
 ---
 
@@ -143,7 +143,7 @@ adds a compile-time conformance verdict.
 
 | Level | What | Decidable | Place |
 |---|---|---|---|
-| **0 finite** | bounded non-recursive combinations | yes (exhaustive) | pipelines, fixed slot gluing |
+| **0 finite** | bounded non-recursive combinations | yes (exhaustive) | pipelines, fixed typed-hole gluing |
 | **1 regular / star (Kleene)** | kinds bounded, counts unbounded | yes (induction/automata) | **regular-tree / free monad / algebraic species**; "regex-like" |
 | **2 algebraic** | mutually recursive node kinds | yes | context-free / algebraic species (AST-like) |
 | **3 general graphs** | arbitrary sharing/loops/dynamic topology | **undecidable (in general)** | graph grammars / transformations |
@@ -199,8 +199,8 @@ non-dynamic majority static, **localizes it to the seam**. axiom's zero-cost pro
   (finite combinations at compile time) and the physical-binding fragment (runtime/carrier).
 - To realize the **unified design**, add two kinds of core constructors (all still *definitions* —
   zero-sized, provable; activation by `drive` remains separate):
-  - **② a loadable slot** (`Slot<I,O>` / `Loadable`): interface fixed and sealed; T1 verified
-    parametrically at compile time (`∀ T: Interface`); one occupant existentially filled at runtime.
+  - **② a loadable typed hole** (`Slot<I,O>` / `Loadable`): interface fixed and sealed; T1 verified
+    parametrically at compile time (`∀ T: Interface`); one inhabitant existentially filled at runtime.
   - **③ schema / grammar constructors** (`Choice`, `Opt`, `Star`/`Repeat`, optional mutual
     recursion): express an unbounded class of instance nets from a finite closed schema, provable by
     (co)induction. ② and ③ together make static and dynamic **two binding modes of the same
@@ -209,5 +209,5 @@ non-dynamic majority static, **localizes it to the seam**. axiom's zero-cost pro
   boundary (the explicit exception).
 - **One sentence**: axiom is not "a system that composes one static graph"; it is **the algebra of
   definition** — a typed-substitution calculus whose objects range from a single static graph up to
-  *generative schemas and loadable slots*, all provable at compile time and freely activatable or
+  *generative schemas and loadable typed holes*, all provable at compile time and freely activatable or
   left unactivated at runtime.
