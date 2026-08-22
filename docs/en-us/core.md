@@ -39,7 +39,7 @@ error** (`compile_error!`) or a failed type constraint, rather than a runtime `R
 | Artifact | Content | Rust Correspondence | Compile-Time Nature |
 |---|---|---|---|
 | **Open system / port body** | Bounded, typed input/output/state, `step` pure and inlinable | `PortCell` trait (`src/cell_core.rs`) | Type-level, no runtime objects |
-| **Causal dataflow** | Directed connections: `A.out -> B.in`, dual pairing at the type layer | `Link<A,B>` | Illegal connections fail to compile (T1) |
+| **Causal dataflow** | Directed connections: `A.out -> B.in`, dual pairing at the type layer | `Wire<A,B>` | Illegal connections fail to compile (T1) |
 | **Composition / nesting** | Combinators are still port bodies, at arbitrary depth | `Chain<A,B>` | Operational structure (T2) |
 | **Staticness declaration** | Marks which subgraphs require zero cost | `Static<SUB>` / `Blueprint<TOP>` | Monomorphized, no `Box<dyn>` (T7/§5.6) |
 
@@ -242,8 +242,9 @@ layer (bridging to `foundations.md` §5.4/5.8):
 Beyond the four constituents, `cell_core` adds, **additively** (no rewrite of existing types),
 the unified-model constructors:
 
-- **`Rep<N, C>`** — regular/star: `N`-fold self-composition of a cell `C` (Kleene `C*` with
-  bounded count as a compile-time constant). `State = RepState<N,C>` (manual `Default`) zeros
+- **`Rep<N, C>`** — regular power: `N`-fold self-composition of a cell `C` (exactly `N`
+  applications, `Cⁿ`, with the count as a compile-time constant). `State = RepState<N,C>`
+  (manual `Default`) zeros
   dependency on the built-in array `Default`; zero-cost, monomorphized; `N=0` is identity.
   Unbounded count (runtime) is the generative/physical side — see `runtime.md`, `drive_seq`.
 - **`Slot<I, O>` + `Conforms` / `assert_conforms`** — ∃ typed-hole **definition**: a

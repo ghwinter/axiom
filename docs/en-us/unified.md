@@ -4,7 +4,7 @@
 
 > **Nature**: the **unified-view volume** of axiom's formal specification. It answers "what is the
 > single perspective under which static composition, plugin/loading systems, and driver hot-plug
-> are all one thing", and upgrades the account of what axiom should be, beyond the "static
+> are all one thing", and upgrades the account of what axiom is, beyond the "static
 > blueprint" of `core.md`. It builds on `foundations.md` (definitions/axioms/theorems) and
 > `runtime.md` (the physical layer).
 >
@@ -112,11 +112,11 @@ adds a compile-time conformance verdict.
 
 | Form | Binding | Meaning | axiom today |
 |---|---|---|---|
-| **① Static combination** | compile-time (∀, parametric) | known interfaces composed into a fixed topology | **core** (Link/Chain/Broadcast/Merge/Static) |
+| **① Static combination** | compile-time (∀, parametric) | known interfaces composed into a fixed topology | **core** (Wire/Chain/Broadcast/Merge/Static) |
 | **② Loadable typed hole** (∃) | runtime, one inhabitant | interface fixed, inhabitant replaceable | **core** `Slot`/`Conforms` (definition) · runtime `SlotDrive` (existential binding · ∃ activation) |
 | **③ Generative/recursive schema** | schema closed at compile time; instances unbounded | a finite closed schema F yields an unbounded instance net | **core** `Rep<N,C>` (static star, bounded N) · runtime `drive_seq` (unbounded) |
 
-> **Status note**: ② and ③ are embodied. The **definition** side (core `Rep<N,C>` bounded star,
+> **Status note**: ② and ③ are embodied. The **definition** side (core `Rep<N,C>` bounded power `Cⁿ`,
 > `Choice`/`Opt`, `Slot`/`Conforms`, compile-time T1) and the **activation** side (runtime
 > `SlotDrive`, `drive_seq`, `bounded_pump`) are implemented, verified, and green. The *algebraic
 > (mutually recursive)* schema layer needs **no new core combinator**: recursive/mutually-recursive
@@ -193,18 +193,25 @@ non-dynamic majority static, **localizes it to the seam**. axiom's zero-cost pro
 
 ---
 
-## 6. What this means for axiom ("axiom should be")
+## 6. What this means for axiom (current statement)
 
-- axiom core is the **algebra of definition (potential)**: today it realizes the **static fragment**
-  (finite combinations at compile time) and the physical-binding fragment (runtime/carrier).
-- To realize the **unified design**, add two kinds of core constructors (all still *definitions* —
-  zero-sized, provable; activation by `drive` remains separate):
-  - **② a loadable typed hole** (`Slot<I,O>` / `Loadable`): interface fixed and sealed; T1 verified
-    parametrically at compile time (`∀ T: Interface`); one inhabitant existentially filled at runtime.
-  - **③ schema / grammar constructors** (`Choice`, `Opt`, `Star`/`Repeat`, optional mutual
-    recursion): express an unbounded class of instance nets from a finite closed schema, provable by
-    (co)induction. ② and ③ together make static and dynamic **two binding modes of the same
-    substitution inside the core**, rather than static-in-core + dynamic-at-physical.
+- axiom core is the **algebra of definition (potential)**: it now realizes three fragments —
+  the **static fragment** (① compile-time composition), the **typed-hole definition side**
+  (② `Slot` + `Conforms`, zero-sized, provable), and the **activation/physical side**
+  (runtime carriers and drivers; activation by `drive` stays separate from definition).
+- The **unified design is landed** as two kinds of core constructors (all still *definitions* —
+  zero-sized, fixed at compile time; activation remains separate):
+  - **② loadable typed holes**: core definition side `Slot<I,O>` with the unified judgment
+    `Conforms<Slot<I,O>>` (interface fixed and sealed, parametrically verified as
+    `∀ T: PortCell<In=I,Out=O>`); runtime activation side `SlotDrive<I,O>`
+    (∃ existential fill: install/swap/drive).
+  - **③ schema / grammar constructors**: `Rep<N,C>` (exactly-N self-composition, the power
+    `Cⁿ`; alias `Repeat<N,C>` — a literal-honesty ruling avoids the Kleene-star name, see
+    conventions §13), `Choice<A,B>` (sum), `Opt<C>` (optional). Unbounded count belongs to
+    the activation side (runtime `drive_seq`); mutually recursive schemas are expressed by
+    user-defined recursive types plus existing combinators — no new constructor needed.
+    ② and ③ together make static and dynamic **two binding modes of the same substitution
+    inside the core**, rather than static-in-core + dynamic-at-physical.
 - **Boundary**: full general dynamic graphs are not compile-time-provable → physical/verification
   boundary (the explicit exception).
 - **One sentence**: axiom is not "a system that composes one static graph"; it is **the algebra of

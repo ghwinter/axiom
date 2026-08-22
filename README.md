@@ -12,7 +12,7 @@ equivalent to hand-written plain Rust with zero runtime objects.
 | Constituent | Content | Compile-time property |
 |---|---|---|
 | **Open system / port cell** `PortCell` | Bounded, typed input/output/state, `step` pure & inline | Type-level, no runtime object |
-| **Causal dataflow** `Link` | `A.out -> B.in`, type-level dual pairing | Illegal wiring fails to compile (T1) |
+| **Causal dataflow** `Wire` | `A.out -> B.in`, type-level dual pairing | Illegal wiring fails to compile (T1) |
 | **Many-to-many** `Broadcast` (fan-out) / `Merge` (fan-in) | Broadcast, merge, type-level enforced | No Tee tree |
 | **Loop** `Feedback` | Causal closure of a loop expressed at type level | Timing belongs to physical carriers (T3) |
 | **Composition** `Chain` | A combinator is itself a port cell, nested to any depth | Operad structure |
@@ -51,11 +51,15 @@ a new carrier can be plugged in by implementing the `Carrier` trait without chan
 
 ```text
 cargo build --lib        # core (zero dependency; no_std via --no-default-features)
-cargo test --lib         # 18 tests
-cargo build/test --manifest-path runtime/Cargo.toml   # runtime (17 tests)
+cargo test               # core: 21 unit + 6 blueprint-integration assertions (benches excluded)
+cargo bench --bench dag  # diamond zero-cost proof (composite <5% vs handwritten) — release-only evidence
+cargo test --manifest-path runtime/Cargo.toml   # runtime (incl. contract validation)
 cargo run --example pipeline          # run an example
 cargo run --manifest-path runtime/Cargo.toml --example threaded_flow
 ```
+
+> Benchmarks are meaningful only in release profiles; under debug builds they
+> skip themselves instead of emitting misleading numbers.
 
 ## Further reading
 

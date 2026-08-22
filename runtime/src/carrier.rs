@@ -6,7 +6,7 @@
 use axiom::cell_core::PortCell;
 
 /// 载体的时空成本声明——"部署期物理"的量化（非性能承诺，是可选信息）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum CarrierCost {
     /// 零分配、内联（栈上直接传 / 编译期展开）。
     #[default]
