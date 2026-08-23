@@ -55,6 +55,20 @@ pub trait PortCell: Sized {
 - `step` 是纯转移（`#[inline(always)]` 使内联跨 crate 成立 → Z1 的 (b)）；
 - 纯抽象层——**不掺线程/同步/背压/时序**，那些是物理载体的事（T3 / §5.4）。
 
+**命名阶梯与规模中立**（conventions §12 的权威副本）：
+
+```text
+数学锚：  开放系统 / 最小系统 (S, I, O, δ)、Mealy 余代数      ← 证明处使用
+规范名：  端口体（中文）/ port cell（英文）                    ← 文档定义处使用
+工程名：  PortCell / cell_core（冻结，不改名）
+退役别名：单元、module、container、component                  ← 历史语境之外不得使用
+```
+
+**规模中立**：端口体对规模零假设——可以是数行的纯函数，也可以是数十万行子系统的边界。
+内部实现（slab/arena、work-stealing、SIMD/GPU、WAL/LSM/mmap 等）归边界之内；端口体只承担
+四项接缝义务：类型化端口、State 独占、全转移 δ、纯且原子的 step。配置的代数内正解＝
+泛型参数化或定义期 State 覆写，不引入运行期 ConfigSchema。
+
 ### 2.2 `Wire`（因果数据流）
 
 ```rust

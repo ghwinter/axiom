@@ -67,7 +67,7 @@ An open system is a quadruple S = (X_in, X_out, Y, δ), where:
 
 The definition of an open system is "having boundaries, interacting through ports." A composed system remains an open system (recursively)—"the whole again forms a module" is thereby formalized. At which layer a certain fan-out holds is determined by the observation layer (which layer's composition is regarded as a unit).
 
-**Definition (Minimal System).** The above open system is axiom's **minimal system** (construction concept 1, "Cell / Unit", §8.1): a quadruple $(S,\, I,\, O,\, \delta)$, where $S$ is a state container that survives across activations, $I/O$ are port interfaces for information transfer, and $\delta : S \times I \to S \times O$ is the synchronous transition function (step). A "system" at the abstract plane **is** a composition of minimal systems via wiring $w$ (§4.2 composition closure), i.e., $\mathcal{S} = \bigotimes \mathcal{M}_i$; the composite remains an open system (recursive, see above).
+**Definition (Minimal System).** The above open system is axiom's **minimal system** (construction concept 1, "port body / `PortCell`", §8.1): a quadruple $(S,\, I,\, O,\, \delta)$, where $S$ is a state container that survives across activations, $I/O$ are port interfaces for information transfer, and $\delta : S \times I \to S \times O$ is the synchronous transition function (step). A "system" at the abstract plane **is** a composition of minimal systems via wiring $w$ (§4.2 composition closure), i.e., $\mathcal{S} = \bigotimes \mathcal{M}_i$; the composite remains an open system (recursive, see above).
 
 **Boundary 1.0a (System ≠ Function).** Systems and functions are distinguished at the abstract plane by **three boundaries that must not be conflated**:
 
@@ -468,9 +468,16 @@ Runtime freedom over structure is **parameterized** by "the target interface mus
 
 ### 8.1 The five irreducible construction concepts
 
-1. **Cell (open system)**: an object with an input type `In`, an output type `Out`, an internal
-   state `State`, and a **total transition** `step: (State, In) -> (State, Out)`. This is the sole
-   primitive definition of "what a system is".
+1. **Port body (engineering name `PortCell`; math anchor = open system / minimal system;
+   the older name "unit" is retired)**: an object with an input type `In`, an output type `Out`,
+   an internal state `State`, and a **total transition** `step: (State, In) -> (State, Out)`.
+   This is the sole primitive definition of "what a system is". **Scale neutrality**: a port
+   body makes zero assumptions about scale — it may be a pure function of a few lines or the
+   boundary of a subsystem with hundreds of thousands of lines. Memory management
+   (slab/arena), scheduling (work-stealing), compute (SIMD/GPU), persistence (WAL/LSM/mmap)
+   and every other internal implementation live inside the boundary; the port body carries
+   only four seam obligations: typed ports, exclusive `State`, total transition δ, and a pure,
+   atomic `step`.
 2. **Dual composition (T1 wiring)**: two cells `A`, `B` compose iff `B::In == A::Out` (a type-level
    judgment, T1). This defines "whether two connect".
 3. **Composition closure**: the composition of `A` and `B` is itself a cell (satisfies 1). This

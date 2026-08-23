@@ -65,6 +65,22 @@ pub trait PortCell: Sized {
 - A purely abstract layer — it does **not** incorporate threading/synchronization/backpressure/
   timing; those are the concern of the physical carrier (T3 / §5.4).
 
+**Naming ladder & scale neutrality** (authoritative copy of conventions §12):
+
+```text
+Math anchor:   open system / minimal system (S, I, O, δ), Mealy coalgebra  ← proofs
+Spec name:     端口体 (zh) / port cell (en)                                ← definitions
+Identifier:    PortCell / cell_core (frozen, never renamed)
+Retired alias: unit, module, container, component                          ← not in use
+```
+
+**Scale neutrality**: a port body makes zero assumptions about scale — it may be a pure
+function of a few lines or the boundary of a subsystem with hundreds of thousands of lines.
+Internal implementations (slab/arena, work-stealing, SIMD/GPU, WAL/LSM/mmap) live inside the
+boundary; the port body carries only four seam obligations: typed ports, exclusive `State`,
+total transition δ, and a pure, atomic `step`. The algebra-internal answer to configuration is
+generic parameterization or definition-time state overwrite — no runtime `ConfigSchema`.
+
 ### 2.2 `Wire` (Causal Dataflow)
 
 ```rust
