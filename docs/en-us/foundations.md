@@ -29,16 +29,25 @@
 
 The core of axiom is not "being able to draw complex diagrams," but rather:
 
-> **Commitment (Zero-Cost Abstraction)**
-> For any abstraction layer structure α ∈ A, its physical implementation ⟦α⟧ ∈ P_h satisfies three conditions:
-> (1) Runtime existence vanishes—there is no runtime object for α in the compiled product;
-> (2) Execution time is unchanged—t(⟦α⟧) = t(h_α) + ε, h_α being the equivalent hand-written implementation, with |ε|/t(h_α) < 0.05;
-> (3) Memory usage is unchanged.
+> **Commitment (Zero-Cost Abstraction)** — a **two-channel definition**:
+> For any abstraction layer structure α ∈ A, its physical implementation ⟦α⟧ ∈ P_h and the equivalent hand-written implementation h_α satisfy:
+>
+> ① Product channel (primary definition, provable, non-empirical) — compiled-product isomorphism:
+>    Z(α) ⟹ Compile(⟦α⟧) ≡ Compile(h_α)
+>    Compile is the compiled product (IR / machine code); ≡ is instruction-for-instruction structural
+>    isomorphism; and (1) there is no runtime object for α in the compiled product; (3) memory usage
+>    is unchanged. Nature: a **relative equality**—we prove "identical to the hand-written equivalent",
+>    **not global optimality**. Method (early axiom): parse the product at the Token / IR level and
+>    compare item by item against the hand-written baseline.
+>
+> ② Observational channel (evidence / acceptance; the empirical sense is retained):
+>    t(⟦α⟧) = t(h_α) + ε, |ε|/t(h_α) < 0.05
+>    — runtime measurement serves as **regression-guard evidence / acceptance gate**, not the definition itself.
 >
 > That is: **abstraction does not charge the physical layer; axiom's runtime cost ≡ the cost of an unconstrained equivalent program**.
 > The only overhead allowed is **compile-time computation** (monomorphization, inlining, type resolution).
 
-This definition is rigorously formalized in §3.3 of this volume (Zero-Cost Conservation Theorem ZT) and in §5 (Mathematical Expressions).
+This definition is rigorously formalized in §4.3 of this volume (Zero-Cost Conservation Theorem ZT) and in §4 (Mathematical Expressions).
 The task of this document is: to place this commitment within the axiomatic framework of "compositional systems theory," making zero-cost the **conservation law** of the entire theory family—any compositional operation, as long as it satisfies structurally-static, pure-function inlining, and no type erasure, adds no physical cost.
 
 > **Terminological preamble (connecting to T9)**: throughout this document, "static/dynamic" always refers to **whether the structural/type plane is fixed at compile time** (see the redefinition in Theorem T9), not to the activity of the state/instance layer. State changes, connection-pool resizing, configuration switching, etc. belong to the state/instance layer; they are "dynamic instances/state under a static structure" and are not called "dynamic," nor do they negate typing.
@@ -261,7 +270,7 @@ Any "free variable" that does not belong to the internal state of some open syst
 ### T7. Static Composition Is Zero-Cost; Dynamic Composition Must Pay a Tax
 **Premises**: the type plane (composition fixed at compile time) and the instance plane (composition instantiated at runtime) are separated; zero-cost conservation Z1.
 **Derivation**: determinable at compile time → monomorphization/inlining → zero cost; determined only at runtime → type erasure, and under safe-Rust at least one allocation + one dispatch/stage.
-**Formalization**: Z(α) ⟹ t(⟦α⟧)=t(h_α)+ε; ¬Z(α) ⟹ t(⟦α⟧) ≥ t(h_α) + (1 alloc + 1 vtable)/stage.
+**Formalization**: Z(α) ⟹ Compile(⟦α⟧) ≡ Compile(h_α) (product isomorphism, primary definition), observational corollary t(⟦α⟧)=t(h_α)+ε; ¬Z(α) ⟹ t(⟦α⟧) ≥ t(h_α) + (1 alloc + 1 vtable)/stage.
 **Necessity**: necessary (including the lower bound; a direct consequence of the two planes).
 **Corollary**: static free, dynamic taxed is not a preference but a necessity; the lower bound of the dynamic tax is computable.
 
@@ -317,8 +326,19 @@ S(c) = the shape projection (port-connection structure), V(c) = the content proj
 
 **Zero-Cost Conservation Theorem ZT**
 If α = c₁ ⊗w c₂ and Z(c₁), Z(c₂), Z(w), then Z(α) (composition preserves zero-cost):
-> t(⟦α⟧) = t(⟦c₁⟧) + t(⟦c₂⟧) + ε, ε/n < 0.05
-> Proof: monomorphization still occurs at the composition site (the composite of type parameters is known); inlining can still be performed across the composition boundary; with no type erasure there is no additional allocation. ∎
+> Product channel (primary conclusion): Compile(⟦α⟧) = Compile(⟦c₂⟧) ∘ Compile(⟦c₁⟧)
+>   — compile-time compositionality: the composite product is the sequential concatenation of the
+>   parts' products, with **zero added instructions at the composition seam**.
+> Observational corollary (empirical channel): t(⟦α⟧) = t(⟦c₁⟧) + t(⟦c₂⟧) + ε, ε/n < 0.05 — acceptance gate.
+> Proof: monomorphization still occurs at the composition site (the composite of type parameters is known); inlining can still be performed across the composition boundary; with no type erasure there is no additional allocation (no indirection layer at the product join). ∎
+
+**Corollary (constraint dividend)**
+axiom's shape constraints (typed causal flows, explicit staticity declarations, no type erasure) yield:
+> (i) exclusion of the common pitfalls of hand-writing—accidental indirection / erasure / dynamic
+>     dispatch / non-local shared mutability;
+> (ii) performance problems become locatable—cost appears only at explicitly declared "seams /
+>     carriers" (family A budgetable, family B eliminable), and violations surface at the boundaries—
+>     the positive statement of "cost attribution to seams" (§4.4 concept 8).
 
 **Dynamic tax lower bound** (necessity)
 If the structure can only be determined at runtime (non-Z), each stage under safe-Rust costs at least:

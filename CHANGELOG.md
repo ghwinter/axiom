@@ -47,8 +47,8 @@ after compilation there are no axiom objects.
 - tests/topology_blueprint.rs — six hard assertions (expressiveness, type-level
   contracts on composites, non-invasion ZST/const proof, bit-exact static entry,
   defined-without-activation, determinism R001).
-- benches/dag.rs — diamond shape: composite vs handwritten (<5% delta) vs type
-  erasure (dynamic-tax contrast).
+- benches/dag.rs — diamond shape: composite vs handwritten (Δ≈±1%, within self-noise
+  floor) vs type erasure (dynamic-tax contrast).
 
 ---
 

@@ -52,7 +52,7 @@ a new carrier can be plugged in by implementing the `Carrier` trait without chan
 ```text
 cargo build --lib        # core (zero dependency; no_std via --no-default-features)
 cargo test               # core: 21 unit + 6 blueprint-integration assertions (benches excluded)
-cargo bench --bench dag  # diamond zero-cost proof (composite <5% vs handwritten) — release-only evidence
+cargo bench --bench dag  # diamond zero-cost proof (composite ≈ handwritten, Δ≈±1%) — release-only evidence
 cargo test --manifest-path runtime/Cargo.toml   # runtime (incl. contract validation)
 cargo run --example pipeline          # run an example
 cargo run --manifest-path runtime/Cargo.toml --example threaded_flow

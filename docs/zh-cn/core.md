@@ -248,7 +248,7 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 cargo build --lib        # 零依赖，no_std 支持（--no-default-features）
 cargo test               # 21 单元测试 + 6 项蓝图集成断言（tests/topology_blueprint.rs；基准不混入测试）
 cargo bench --bench chain   # 静态 ≈ 手写（零成本实证，仅 release 数字有意义）
-cargo bench --bench dag     # 菱形零成本实证（泛型路径 <5% vs 手写）
+cargo bench --bench dag     # 菱形零成本实证（Δ(复合−手写)≈±1%，落在自噪声底量级内）
 ```
 
 **已达成（证据链）**：
@@ -257,7 +257,9 @@ cargo bench --bench dag     # 菱形零成本实证（泛型路径 <5% vs 手写
 - 蓝图即类型：`size_of::<Blueprint<TOP>>()==0`，运行时零对象（const 证明）。
 - 验证在编译期（`Conforms` 类型判定，非法布线编译失败）。
 - 编译后等价手写普通 Rust（`examples/cell_demo.rs` 实证）。
-- bench：静态 51µs ≈ 手写 49µs（零成本）、type-erasure 1.3ms（~26x 动态税）——实证
+- bench（`bench_common.rs`：预热 → 轮换交错 → min-of-N + 自噪声底）：Δ(复合−手写) 实测
+  −0.5% ~ +1.2%，自噪声底 ±0.1~0.6%——差异落在测量不确定度量级内、与零不可区分；早先 2.7~6.1%
+  的顺序性波动系单次计时伪影，非抽象成本。type-erasure 动态税约 2.5–5×（对照）——实证
   `foundations.md` T7 的"静态免费、动态必付税"。
 - `#![forbid(unsafe_code)]`、`#![no_std]`（`default=["std"]`），核心零依赖。
 

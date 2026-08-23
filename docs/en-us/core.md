@@ -294,6 +294,7 @@ never a sixth concept:
 cargo build --lib        # zero dependency, no_std support (--no-default-features)
 cargo test --lib         # 9 tests
 cargo bench --bench chain   # static ≈ hand-written (zero-cost proof)
+cargo bench --bench dag     # diamond zero-cost proof (Δ(composite−handwritten) ≈ ±1%, within noise floor)
 ```
 
 **Achieved (evidence chain)**:
@@ -304,9 +305,11 @@ cargo bench --bench chain   # static ≈ hand-written (zero-cost proof)
 - Verification at compile time (`Conforms` type judgment; illegal wiring fails to compile).
 - After compilation, equivalent to hand-written ordinary Rust (proven by
   `examples/cell_demo.rs`).
-- bench: static 51µs ≈ hand-written 49µs (zero cost), type-erasure 1.3ms (~26x dynamic
-  tax) — empirically proving "static is free, dynamic must pay a tax" from T7 of
-  `foundations.md`.
+- bench (via `bench_common.rs`: warmup → interleaved rounds → min-of-N + self-noise floor):
+  measured Δ(composite−handwritten) −0.5% ~ +1.2%, self-noise ±0.1~0.6% — the delta sits within the
+  measurement's own uncertainty, indistinguishable from zero; the earlier 2.7–6.1% order-dependent
+  swings were single-shot artifacts, not abstraction cost. Type-erasure tax ≈ 2.5–5× (contrast) —
+  empirically proving "static is free, dynamic must pay a tax" from T7 of `foundations.md`.
 - `#![forbid(unsafe_code)]`, `#![no_std]` (`default=["std"]`), the core is zero-dependency.
 
 ---

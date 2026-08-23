@@ -1,0 +1,47 @@
+# Minimal CI for axiom: lint + test + no_std build, on both dev platforms.
+#
+# Deliberately NOT included (yet):
+# - `cargo bench`: release-only evidence; benches self-skip under debug and
+#   timing gates are flaky on shared runners. Run `cargo bench` manually when
+#   a zero-cost claim needs re-evidence.
+# - `evidence/run.sh|ps1`: the probe corpus still contains old-era (v0 API)
+#   contracts; wire it in only after the probes are triaged against cell_core.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Lint: zero-warning gate over all targets, both crates.
+      - name: Clippy (all targets, deny warnings)
+        run: |
+          cargo clippy --all-targets -- -D warnings
+          cargo clippy --all-targets --manifest-path runtime/Cargo.toml -- -D warnings
+
+      # Tests: core unit + integration; runtime unit + integration.
+      - name: Test
+        run: |
+          cargo test
+          cargo test --manifest-path runtime/Cargo.toml
+
+      # no_std promise: both crates must build without the std feature.
+      - name: Build no_std
+        run: |
+          cargo build --no-default-features
+          cargo build --no-default-features --manifest-path runtime/Cargo.toml
