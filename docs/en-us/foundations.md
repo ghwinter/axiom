@@ -7,20 +7,19 @@
 > conservation law to guarantee shape does not charge the physical layer, and uses typed-hole
 > substitution to achieve runtime content replacement under closed static interfaces.**
 >
-> **Nature**: axiom's **formal foundational specification**. It unifies the axioms,
-> definitions, and mathematical expressions of the modern theory family known as
+> **Nature**: axiom's **formal foundational specification**. A single rigorous foundation
+> unifying the axioms, definitions, and mathematical expressions of the modern theory family known as
 > "compositional systems theory" (open systems/operads, session types/π-calculus,
 > dependent type theory, coalgebra, sheaf theory/lenses) with axiom's core commitment
 > (**zero-cost abstraction: type erasure leaves code equivalent to hand-written code;
-> runtime cost equivalent to that of an unconstrained program**) into a single rigorous
-> foundation, and derives the form axiom ought to take.
+> runtime cost equivalent to that of an unconstrained program**), from which axiom's form is derived.
 >
-> **Normativity**: this volume is a self-consistent, authoritative specification; axiom's
+> **Normativity**: a self-consistent, authoritative specification; axiom's
 > form is derived directly from the definitions, axioms, and theorems of this volume; it
 > does not depend on any project, path, or external material outside of itself.
 >
 > **Key position**: the theory family provides "the correct shape"; axiom's zero-cost
-> commitment is "the metabolic law of shape"—it guarantees that shape does not charge the
+> commitment is "the metabolic law of shape"—the conservation law guarantees that shape does not charge the
 > physical layer. Only together do the two form a complete foundation.
 
 ---
@@ -48,7 +47,7 @@ The core of axiom is not "being able to draw complex diagrams," but rather:
 > The only overhead allowed is **compile-time computation** (monomorphization, inlining, type resolution).
 
 This definition is rigorously formalized in §4.3 of this volume (Zero-Cost Conservation Theorem ZT) and in §4 (Mathematical Expressions).
-The task of this document is: to place this commitment within the axiomatic framework of "compositional systems theory," making zero-cost the **conservation law** of the entire theory family—any compositional operation, as long as it satisfies structurally-static, pure-function inlining, and no type erasure, adds no physical cost.
+This volume's task: to place this commitment within the axiomatic framework of "compositional systems theory," making zero-cost the **conservation law** of the entire theory family—any compositional operation, as long as it satisfies structurally-static, pure-function inlining, and no type erasure, adds no physical cost.
 
 > **Terminological preamble (connecting to T9)**: throughout this document, "static/dynamic" always refers to **whether the structural/type plane is fixed at compile time** (see the redefinition in Theorem T9), not to the activity of the state/instance layer. State changes, connection-pool resizing, configuration switching, etc. belong to the state/instance layer; they are "dynamic instances/state under a static structure" and are not called "dynamic," nor do they negate typing.
 
@@ -425,7 +424,7 @@ Therefore, the **precise meaning** of "runtime topology modification" in axiom i
 
 Runtime freedom over structure is **parameterized** by "the target interface must already be compile-time fixed"; it cannot cross that interface — that is the wall. Consequently, software with plugins / loading still has a **static host graph** — it merely declares several **loadable typed holes**: the mouth (ABI / protocol) is fixed, and the inhabitant is changeable at runtime. The dynamic boundary (type erasure / FFI / WASM / interpreter) is **localized** to where compile-time-unknown content enters, and the dynamic tax is paid only at that seam, without dragging the whole graph into dynamism (connecting to T9 / T7 and §5.5).
 
-> **One sentence**: runtime "modification" is not in tension with static typing — it is precisely the process of "substituting content inside a compile-time-fixed interface / ABI envelope"; **because the interface is fixed, the dynamism is possible**.
+> **Key point**: runtime "modification" is not in tension with static typing — it is precisely the process of "substituting content inside a compile-time-fixed interface / ABI envelope"; **because the interface is fixed, the dynamism is possible**.
 
 ---
 
@@ -587,4 +586,4 @@ else is an instance. See `core.md` §6b and `unified.md`.
 
 ---
 
-> **In one sentence**: axiom's goal = use the axioms of "compositional systems theory" (boundary, shape-content, connection-as-first-class, two planes, behavioral substitution, local-global) to build the correct shape, and use the "zero-cost conservation law" (structurally static ∧ pure inlining ∧ no erasure) to ensure shape does not charge the physical layer. The theory provides the shape, the conservation law provides the metabolism; per T9, "static/dynamic" refers only to whether the structural/type plane is fixed at compile time, while activity in the state/instance layer (connection pools, configuration, elasticity) is "dynamic instances/state under a static structure" and never pays a structural tax—honestly distinguishing "abstraction is free" from "structural dynamism must pay a legitimate tax."
+> **Summary**: axiom builds the correct shape with the axioms of "compositional systems theory" (boundary, shape-content, connection-as-first-class, two planes, behavioral substitution, local-global) and ensures shape does not charge the physical layer with the "zero-cost conservation law" (structurally static ∧ pure inlining ∧ no erasure). The theory provides the shape, the conservation law provides the metabolism; per T9, "static/dynamic" refers only to whether the structural/type plane is fixed at compile time, while activity in the state/instance layer (connection pools, configuration, elasticity) is "dynamic instances/state under a static structure" and never pays a structural tax—honestly distinguishing "abstraction is free" from "structural dynamism must pay a legitimate tax."

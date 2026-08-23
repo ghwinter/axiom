@@ -1,16 +1,16 @@
 > **Language:** English · [中文版](../zh-cn/core.md)
 
-# axiom Compile-Time Core: cell_core (What axiom "Should Be" · Core Volume)
+# axiom Compile-Time Core: cell_core (Core Volume)
 
-> **Nature**: axiom's **core architecture specification**. It answers "what the axiom core
-> should be": it turns the axioms and theorems of `foundations.md` into a **compile-time core**
-> `src/cell_core.rs`. It describes the form the axiom core should take, consistent with the
+> **Nature**: axiom's **core architecture specification**. Answers "what the axiom core
+> is": it turns the axioms and theorems of `foundations.md` into a **compile-time core**
+> `src/cell_core.rs`. This volume describes the form of the axiom core, consistent with the
 > converged implementation (`src/cell_core.rs`, `src/lib.rs`).
 >
-> **Normative**: This volume is a self-consistent, authoritative specification focused on the
+> **Normative**: a self-consistent, authoritative specification focused on the
 > definition of the axiom core itself.
 >
-> **In one sentence**: axiom core layer = **compile-time DSL + verifier**: all of its
+> **In one sentence**: axiom core layer = **compile-time DSL + verifier**: all
 > "intelligence" (analysis, verification, type constraints, graph construction) is exhausted
 > at **compile time**; the product is **ordinary Rust code**. axiom has no "runtime" — only
 > the two phases "compile time" and "post-compile". This naturally satisfies the zero-cost
@@ -24,9 +24,9 @@
 > at **compile time**; the product is **ordinary Rust code**. axiom has no "runtime" — only
 > the two phases "compile time" and "post-compile".
 
-**Implication**: a blueprint is no longer a "runtime value", but a **compile-time construct**
-(type + const + macro-generated code). Verification shifts from "done on values at runtime" to
-"done at compile time by macros / types / const" — violating a blueprint rule = **compile
+**Implication**: a blueprint is a **compile-time construct**
+(type + const + macro-generated code). Verification is done at compile time by macros /
+types / const — violating a blueprint rule = **compile
 error** (`compile_error!`) or a failed type constraint, rather than a runtime `Result`.
 
 ---
@@ -275,7 +275,7 @@ the unified-model constructors:
   runtime `SlotDrive`).
 
 These are **definitions** (zero-sized, no runtime object) and reuse the same `PortCell` +
-`Conforms`-style compile-time verification — the elegant, additive realization of the unified
+`Conforms`-style compile-time verification — the additive realization of the unified
 model's static fragment (see [`unified.md`](unified.md)).
 
 ### 6c. Constructor → concept instance matrix, and the closure checklist

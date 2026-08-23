@@ -2,18 +2,18 @@
 
 # axiom runtime: Physical-Layer Implementation Use Case (the Carrier)
 
-> **Nature**: the **physical-layer architecture specification** of axiom. It answers
-> "what axiom's physical layer should be": the core `cell_core` only declares
+> **Nature**: the **physical-layer architecture specification** of axiom. Answers
+> "what axiom's physical layer is": the core `cell_core` only declares
 > **causal data flows** (`A.out -> B.in`), and the runtime answers the single question —
-> **how the value of this flow gets from `A.out` to `B.in`, at what space–time cost**. It
-> describes the shape the runtime should have, consistent with the converged
+> **how the value of this flow gets from `A.out` to `B.in`, at what space–time cost**. This
+> volume describes the shape of the runtime, consistent with the converged
 > implementation (`runtime/src/{carrier,flow,static_path,macros,lib}.rs`).
 >
-> **Normativity**: this volume is a self-consistent authoritative specification, focused
+> **Normativity**: a self-consistent authoritative specification, focused
 > on the shape of axiom's physical layer itself.
 >
 > **Positioning (in one sentence)**: runtime = **Carrier catalog + redemption verification**:
-> it provides a physical implementation (how the value moves) for each causal data flow of
+> a physical implementation (how the value moves) for each causal data flow of
 > `cell_core`, each embodying a different space–time cost, modular and replaceable. The
 > runtime is the core's **physical-layer implementation use case** — axiom has no runtime
 > objects, only two phases: "compile time" and "after compilation".
@@ -25,7 +25,7 @@
 - `cell_core`: open systems (`PortCell`: In/Out/State/step) + causal flows (`Wire`/`Chain`/
   `Broadcast`/`Merge`/`Feedback`) + staticness (`Static`) + compile-time verification (unified `Conforms`).
 - A blueprint is a type: zero size, zero runtime objects, exhausted at compile time.
-- **The runtime does not repeat these** — it only answers "for this causal flow, how does the
+- **The runtime does not re-declare the core** — the runtime only answers "for this causal flow, how does the
   value get from A.out to B.in".
 
 ---

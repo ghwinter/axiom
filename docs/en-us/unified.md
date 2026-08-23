@@ -2,10 +2,10 @@
 
 # The Unified Model: Substitution, Schemas, and the Definition–Activation Axis
 
-> **Nature**: the **unified-view volume** of axiom's formal specification. It answers "what is the
+> **Nature**: the **unified-view volume** of axiom's formal specification. Answers "what is the
 > single perspective under which static composition, plugin/loading systems, and driver hot-plug
 > are all one thing", and upgrades the account of what axiom is, beyond the "static
-> blueprint" of `core.md`. It builds on `foundations.md` (definitions/axioms/theorems) and
+> blueprint" of `core.md`. Builds on `foundations.md` (definitions/axioms/theorems) and
 > `runtime.md` (the physical layer).
 >
 > **Authoritativeness**: a self-contained normative spec — depends on nothing outside the crate.
@@ -71,7 +71,7 @@ corners are the **same typed potential graph**:
 | **static** (∀, compile-time) | compiled running graph | `if false` / not driven — runtime 0 |
 | **dynamic** (∃, runtime) | plugin loaded & running | validated but not yet loaded |
 
-> **Consequence**: axiom core is the **algebra of definition (potential)** — it guarantees a
+> **Consequence**: axiom core is the **algebra of definition (potential)** — a
 > well-formed, type-legal, zero-cost-awaiting-activation graph. **Activation is the run/carrier
 > side (actual).** "Definition carries no commitment to activation" is exactly why legality can be
 > proven at compile time for free.

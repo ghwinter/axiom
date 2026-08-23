@@ -2,14 +2,14 @@
 
 # axiom runtime：物理层实现用例（载体 Carrier）
 
-> **性质**：axiom 的**物理层架构规范**。回答"axiom 的物理层应该是什么"：核心
+> **性质**：axiom 的**物理层架构规范**。回答"axiom 的物理层是什么"：核心
 > `cell_core` 只声明**因果数据流**（`A.out -> B.in`），runtime 回答唯一一个问题——
-> **这条流的值怎么从 `A.out` 到 `B.in`，以何种时空成本**。它描述 runtime 的应有
-> 形态，与已收敛的实现（`runtime/src/{carrier,flow,static_path,macros,lib}.rs`）一致。
+> **这条流的值怎么从 `A.out` 到 `B.in`，以何种时空成本**。本卷描述 runtime 的形态，
+> 与已收敛的实现（`runtime/src/{carrier,flow,static_path,macros,lib}.rs`）一致。
 >
-> **规范性**：本卷是自洽的权威规范，专注 axiom 物理层自身的形态。
+> **规范性**：自洽的权威规范，专注 axiom 物理层自身的形态。
 >
-> **定位（一句话）**：runtime = **载体（Carrier）目录 + 兑现验证**：它为 `cell_core`
+> **定位（一句话）**：runtime = **载体（Carrier）目录 + 兑现验证**：为 `cell_core`
 > 的每条因果数据流提供一种物理实现（值怎么移动），每种体现不同的时空成本，模块化、
 > 可替换。runtime 是核心的**物理层实现用例**——axiom 无运行时对象，只有"编译期"与
 > "编译后"两段。
@@ -21,7 +21,7 @@
 - `cell_core`：开放系统（`PortCell`: In/Out/State/step）+ 因果流（`Wire`/`Chain`/
   `Broadcast`/`Merge`/`Feedback`）+ 静态性（`Static`）+ 编译期验证（统一 `Conforms`）。
 - 蓝图即类型：零大小、零运行时对象、编译期耗尽。
-- **runtime 不重复这些**——它只回答"这条因果流，值怎么从 A.out 到 B.in"。
+- **runtime 不重复核心的声明**——runtime 只回答"这条因果流，值怎么从 A.out 到 B.in"。
 
 ---
 

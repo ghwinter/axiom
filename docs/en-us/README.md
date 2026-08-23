@@ -2,10 +2,10 @@
 
 # axiom Documentation (English)
 
-A formal, evolvable specification of **axiom**. This set defines axiom's basic concepts,
-axiom system, derivable conclusions, and the shape axiom should take. It is a **self-contained
-authoritative spec**: it depends on nothing outside the crate — no external project, path, or
-material — and can be read, reviewed, and evolved on its own.
+A formal, evolvable specification of **axiom**, defining its basic concepts, axiom system,
+derivable conclusions, and shape. A **self-contained authoritative spec**: nothing outside
+the crate — no external project, path, or material — and readable, reviewable, and evolvable
+on its own.
 
 ## Documents
 
@@ -18,14 +18,13 @@ material — and can be read, reviewed, and evolved on its own.
 
 ## Reading path
 
-1. Start with [`foundations.md`](foundations.md) — the **core promise**, **terminology**
+1. [`foundations.md`](foundations.md): the **core promise**, **terminology**
    (especially the formal redefinition of "static/dynamic"), **axioms**, and **theorems**.
-2. Read [`core.md`](core.md) — how these theories and axioms become a **compile-time core**
-   (the four constituent `cell_core`), and how "blueprint-as-type, zero runtime object,
-   verification at compile time" is realized.
-3. Read [`runtime.md`](runtime.md) — the core's **physical-layer implementation use-case**
-   (Carrier), and its positioning and boundaries.
-4. (Advanced) Read [`unified.md`](unified.md) — the one perspective under which static/dynamic/
+2. [`core.md`](core.md): how the theory becomes a **compile-time core** (the four-constituent
+   `cell_core`) realizing "blueprint-as-type, zero runtime object, verification at compile time".
+3. [`runtime.md`](runtime.md): the core's **physical-layer implementation use-case**
+   (Carrier), with runtime positioning and boundaries.
+4. (Advanced) [`unified.md`](unified.md): the one perspective under which static/dynamic/
    plugins/loading/driver hot-plug are **two binding modes of the same substitution**, plus the
    **definition–activation axis**, **schemas**, the expressiveness ladder, and the (co)inductive
    proof of "future conformance". This upgrades `core.md`'s "static blueprint".
