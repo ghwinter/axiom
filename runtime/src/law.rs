@@ -62,6 +62,12 @@ impl PairLaw {
     }
 }
 
+impl Default for PairLaw {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// 序列单调律：断言 `prev ≤ next`（已排序流不得逆序；`debug_assertions` 门控）。
 pub fn assert_monotonic<T: PartialOrd + Debug>(prev: &T, next: &T) {
     debug_assert!(prev <= next, "序列违反单调律: {prev:?} > {next:?}");
