@@ -203,3 +203,118 @@ where
         Reply::Panic(payload) => std::panic::resume_unwind(payload),
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// 一等短路载体（§9.2 收账；失败为值经"载体形态"串接）
+// ═══════════════════════════════════════════════════════════════════
+
+/// 短路链路能力：生产端 `A` 的 `Out = Result<X, E>`；经本载体把 `Ok(x)` 送入消费端
+/// `B`（`In = X`），`Err` 短路返回（`B` 不被执行）。
+///
+/// **诚实说明（A5）**：标准 [`Carrier`] 的界 `B::In = A::Out` 无法表达 X-lane
+/// （`A::Out = Result<X,E>` 而 `B::In = X`），故短路以**一等能力**形态落地，不改动
+/// `Carrier` trait（T6 契约不变）；与组合子 [`TryChain`](crate::flow::TryChain)/
+/// [`drive_try`](crate::flow::drive_try) 同语义、不同物理表达。§9.2 余项由此收账。
+pub trait ShortCircuit<A, B, X, E>
+where
+    A: PortCell,
+    B: PortCell,
+{
+    /// 驱动一条短路链：`Ok` 直通 `B`，`Err` 短路（`step` 保持全函数，错误为值）。
+    fn run(sa: &mut A::State, sb: &mut B::State, input: A::In) -> Result<B::Out, E>;
+}
+
+/// `Result` 短路载体：`Ok` 直通、`Err` 短路。
+pub struct ResultCarrier;
+
+impl<A, B, X, E> ShortCircuit<A, B, X, E> for ResultCarrier
+where
+    A: PortCell<Out = Result<X, E>>,
+    B: PortCell<In = X>,
+{
+    #[inline(always)]
+    fn run(sa: &mut A::State, sb: &mut B::State, input: A::In) -> Result<B::Out, E> {
+        match A::step(sa, input) {
+            Ok(x) => Ok(B::step(sb, x)),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// `Maybe` 短路载体：与 `ResultCarrier` 同机制（`Option` 语域是 `E = ()` 的特例）；
+/// 命名区分投递语域而非机制。同为实现 [`ShortCircuit`] 的零尺寸令牌。
+pub struct MaybeCarrier;
+
+impl<A, B, X, E> ShortCircuit<A, B, X, E> for MaybeCarrier
+where
+    A: PortCell<Out = Result<X, E>>,
+    B: PortCell<In = X>,
+{
+    #[inline(always)]
+    fn run(sa: &mut A::State, sb: &mut B::State, input: A::In) -> Result<B::Out, E> {
+        match A::step(sa, input) {
+            Ok(x) => Ok(B::step(sb, x)),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// 经短路载体驱动（一等短路载体的装配入口；§9.2）。
+#[inline(always)]
+pub fn drive_try_carrier<C, A, B, X, E>(
+    sa: &mut A::State,
+    sb: &mut B::State,
+    input: A::In,
+) -> Result<B::Out, E>
+where
+    C: ShortCircuit<A, B, X, E>,
+    A: PortCell,
+    B: PortCell,
+{
+    C::run(sa, sb, input)
+}
+
+#[cfg(test)]
+mod short_circuit_tests {
+    use super::*;
+
+    struct Fallible;
+    #[derive(Debug, PartialEq)]
+    struct Fail;
+    impl PortCell for Fallible {
+        type In = i32;
+        type Out = Result<i32, Fail>;
+        type State = ();
+        #[inline(always)]
+        fn step(_: &mut (), x: i32) -> Result<i32, Fail> {
+            if x < 0 { Err(Fail) } else { Ok(x + 1) }
+        }
+    }
+    struct Double;
+    impl PortCell for Double {
+        type In = i32;
+        type Out = i32;
+        type State = ();
+        #[inline(always)]
+        fn step(_: &mut (), x: i32) -> i32 {
+            x * 2
+        }
+    }
+
+    #[test]
+    fn short_circuit_ok_passes_and_err_skips() {
+        let (mut sa, mut sb) = ((), ());
+        assert_eq!(
+            drive_try_carrier::<ResultCarrier, Fallible, Double, _, _>(&mut sa, &mut sb, 5),
+            Ok(12) // Ok(6) -> Double 12
+        );
+        assert_eq!(
+            drive_try_carrier::<ResultCarrier, Fallible, Double, _, _>(&mut sa, &mut sb, -1),
+            Err(Fail) // 短路:B 不执行
+        );
+        assert_eq!(
+            drive_try_carrier::<MaybeCarrier, Fallible, Double, _, _>(&mut sa, &mut sb, 7),
+            Ok(16) // Ok(8) -> Double 16
+        );
+    }
+}

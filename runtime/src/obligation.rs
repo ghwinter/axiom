@@ -133,6 +133,13 @@ pub const LEDGER: &[LedgerEntry] = &[
         conformance: "contract.rs: inline_loop_drive_requires_moore_declaration",
     },
     LedgerEntry {
+        seam: "carrier::ResultCarrier/MaybeCarrier",
+        obligation: "Ok 直通 B、Err 短路（B 不执行；失败为值、step 保持全函数）",
+        modality: Modality::DeploymentValidation,
+        witness: "carrier::drive_try_carrier",
+        conformance: "carrier.rs: short_circuit_ok_passes_and_err_skips",
+    },
+    LedgerEntry {
         seam: "profile::assemble_profile",
         obligation: "载体成本 ≤ 剖面预算（kernel=零分配 / service=每消息 / tool=外部）",
         modality: Modality::DeploymentValidation,

@@ -105,7 +105,10 @@ pub mod macros;
 
 /// 核心 prelude。
 pub mod prelude_all {
-    pub use crate::carrier::{Carrier, CarrierCost, InlineCarrier};
+    pub use crate::carrier::{
+        Carrier, CarrierCost, InlineCarrier, MaybeCarrier, ResultCarrier, ShortCircuit,
+        drive_try_carrier,
+    };
     #[cfg(feature = "std")]
     pub use crate::buffer::BoundedQueue;
     #[cfg(feature = "std")]

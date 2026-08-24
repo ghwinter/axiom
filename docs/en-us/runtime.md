@@ -276,7 +276,11 @@ short-circuit carriers.
   - `TryChain<A, B>` — a composable short-circuit chain of two fallible cells: the whole fallible
     pipeline is a single-level-`Result` `PortCell` (cleaner than `drive_try`'s nested `Out`;
     psql expresses its full REPL as `TryChain<TryChain<Lexer, Parser>, Executor>`).
-- Remaining: first-class short-circuit carriers (e.g. `MaybeCarrier`/`ResultCarrier`).
+- Resolved: first-class short-circuit carriers — `ShortCircuit` /
+  `ResultCarrier` / `MaybeCarrier` (`carrier.rs`) with the `drive_try_carrier` entry:
+  `Ok` passes through to `B`, `Err` short-circuits **without executing `B`**; the standard
+  `Carrier` bound (`B::In = A::Out`) cannot express the X-lane, so they are implemented as a
+  first-class capability, leaving the `Carrier` trait unchanged (T6 unaffected).
   The combined failure × backpressure semantics is provided by `bounded_pump_try`
   (`flow.rs`): `Ok` enters the bounded queue (full = blocking backpressure); `Err`
   short-circuits (not queued) and is counted.

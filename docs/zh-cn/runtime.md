@@ -226,7 +226,10 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
   - `TryChain<A,B>`——两个会失败的 cell 的可组合短链：整条 fallible 流水线是一个单层
     `Result` 的 `PortCell`（比 `drive_try` 的嵌套 `Out` 更干净；psql 用
     `TryChain<TryChain<Lexer,Parser>,Executor>` 表达完整 REPL）。
-- 仍剩：一等短路载体（如 `MaybeCarrier`/`ResultCarrier`）。失败×背压的联合语义
+- **已闭合**：一等短路载体——`ShortCircuit`/`ResultCarrier`/`MaybeCarrier`
+  （`carrier.rs`）+ `drive_try_carrier` 入口：`Ok` 直通 `B`，`Err` 短路（**`B` 不执行**）；
+  标准 `Carrier` 的界（`B::In = A::Out`）无法表达 X-lane，故以其一等能力形态实现，
+  `Carrier` trait 不变（T6 不受影响）。失败×背压的联合语义
   已由 `bounded_pump_try`（`flow.rs`）落地：`Ok` 投入有界队列（满=阻塞背压），
   `Err` 短路（不投队列、计数）。
 
