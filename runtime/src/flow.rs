@@ -5,7 +5,18 @@
 
 use alloc::vec::Vec;
 use axiom::cell_core::{Conforms, PortCell, Wire};
-use crate::carrier::Carrier;
+use crate::carrier::{Carrier, CarrierCost};
+
+/// 装配产物的驱动入口类型：`(state_a, state_b, input) -> out` 的函数指针
+/// （HRTB 正确、零间接；[`drive_link`] 函数项即此类型）。
+/// 注：类型别名的 where 子句不于使用点强制（rustc 已知限制 #112792），
+/// 故此处以允许抑制该警告；投影正确性由使用点满足。
+#[allow(type_alias_bounds)]
+pub type Driver<A, B>
+where
+    A: PortCell,
+    B: PortCell,
+= fn(&mut A::State, &mut B::State, A::In) -> B::Out;
 
 /// 用载体 `C` 驱动一条 A→B 因果流，返回 B 的输出。
 ///
@@ -20,6 +31,39 @@ where
     // 编译期布线判定：A.out 可布到 B.in（对偶组合 T1，统一 Conforms 判据）。
     let _: bool = <() as Conforms<Wire<A, B>>>::OK;
     C::flow(sa, sb, input)
+}
+
+/// 部署期装配（模态③）：在装配点**一次**校验载体的成本预算，通过才返回驱动入口。
+///
+/// 这是模态③从"规格"到"机制"的接线：部署方在装配点显式选择预算，越界即**装配失败**
+/// （返回 [`ContractError`](crate::contract::ContractError)），而非驱动中静默运行。
+/// 校验只发生在装配点（一次）；返回的入口即 [`drive_link`] 的函数指针（编译期验证 +
+/// 零成本路径，不引入每消息税，也无闭包间接）。
+pub fn assemble_link<A, B, C>(budget: CarrierCost) -> Result<Driver<A, B>, crate::contract::ContractError>
+where
+    A: PortCell,
+    B: PortCell<In = A::Out>,
+    C: Carrier<A, B>,
+{
+    crate::contract::validate_cost::<A, B, C>(budget)?;
+    Ok(drive_link::<A, B, C>)
+}
+
+/// 部署期装配（模态③）：有界接缝的**合并校验**——成本预算 **和** 容量（`CAP >= 1`）
+/// 在装配点一次通过，返回驱动入口（同上：一次校验、热路径零税）。
+///
+/// 模态② 的编译期门（`assert_capacity_nonzero`）覆盖自带门的载体；本入口用
+/// [`validate_seam`](crate::contract::validate_seam) 在部署期兜底无门载体。
+pub fn assemble_seam<A, B, C, const CAP: usize>(
+    budget: CarrierCost,
+) -> Result<Driver<A, B>, crate::contract::ContractError>
+where
+    A: PortCell,
+    B: PortCell<In = A::Out>,
+    C: Carrier<A, B>,
+{
+    crate::contract::validate_seam::<A, B, C, CAP>(budget)?;
+    Ok(drive_link::<A, B, C>)
 }
 
 /// 无缓冲内联闭环驱动：`BODY -> FEED -> BODY` 经内联载体一拍（一次调用内两拍）。
@@ -204,4 +248,95 @@ where
     It: IntoIterator<Item = I>,
 {
     inputs.into_iter().map(|x| C::step(state, x)).collect()
+}
+
+#[cfg(all(test, not(feature = "std")))]
+mod no_std_tests {
+    //! no_std + alloc 断言：`cargo test --no-default-features --lib` 下运行。
+    //! 覆盖驱动入口的 alloc-only 路径（`drive_seq` 物化、`TryChain` 单层短路、
+    //! `drive_link` 内联、模态③ 装配在 no_std 下的可用性）。
+    use alloc::vec;
+    use alloc::vec::Vec;
+    use axiom::cell_core::PortCell;
+    use crate::carrier::InlineCarrier;
+    use crate::carrier::CarrierCost;
+    use crate::flow::{TryChain, drive_link, drive_seq};
+
+    struct Inc;
+    impl PortCell for Inc {
+        type In = i32;
+        type Out = i32;
+        type State = ();
+        #[inline(always)]
+        fn step(_: &mut (), x: i32) -> i32 {
+            x + 1
+        }
+    }
+    struct Double;
+    impl PortCell for Double {
+        type In = i32;
+        type Out = i32;
+        type State = ();
+        #[inline(always)]
+        fn step(_: &mut (), x: i32) -> i32 {
+            x * 2
+        }
+    }
+
+    #[test]
+    fn drive_seq_alloc_only() {
+        let mut st = ();
+        let out = drive_seq::<Inc, i32, i32, Vec<i32>>(&mut st, vec![1, 2, 3]);
+        assert_eq!(out, vec![2, 3, 4]);
+    }
+
+    #[test]
+    fn drive_link_inline_zero_alloc() {
+        let (mut sa, mut sb) = ((), ());
+        let out = drive_link::<Inc, Double, InlineCarrier>(&mut sa, &mut sb, 5);
+        assert_eq!(out, 12);
+    }
+
+    struct Fallible;
+    #[derive(Debug, PartialEq)]
+    struct Bad;
+    impl PortCell for Fallible {
+        type In = i32;
+        type Out = Result<i32, Bad>;
+        type State = ();
+        #[inline(always)]
+        fn step(_: &mut (), x: i32) -> Result<i32, Bad> {
+            if x < 0 { Err(Bad) } else { Ok(x + 1) }
+        }
+    }
+    struct FallibleDouble;
+    impl PortCell for FallibleDouble {
+        type In = i32;
+        type Out = Result<i32, Bad>;
+        type State = ();
+        #[inline(always)]
+        fn step(_: &mut (), x: i32) -> Result<i32, Bad> {
+            Ok(x * 2)
+        }
+    }
+
+    #[test]
+    fn try_chain_single_level_no_std() {
+        let mut st = ((), ());
+        let out = <TryChain<Fallible, FallibleDouble> as PortCell>::step(&mut st, 5);
+        assert_eq!(out, Ok(12));
+        assert_eq!(
+            <TryChain<Fallible, FallibleDouble> as PortCell>::step(&mut st, -1),
+            Err(Bad)
+        );
+    }
+
+    #[test]
+    fn assemble_link_available_in_no_std() {
+        let link: Result<_, crate::contract::ContractError> =
+            crate::flow::assemble_link::<Inc, Double, InlineCarrier>(CarrierCost::ZeroAllocInline);
+        let link = link.expect("Inline 满足零分配预算");
+        let (mut sa, mut sb) = ((), ());
+        assert_eq!(link(&mut sa, &mut sb, 5), 12);
+    }
 }

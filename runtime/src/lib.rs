@@ -74,7 +74,10 @@ pub mod prelude_all {
         ContractError, Moore, assert_capacity_nonzero, declare_inline_loop_moore,
         validate_capacity, validate_cost, validate_seam,
     };
-    pub use crate::flow::{drive_feedback_inline, drive_link, drive_try, TryChain};
+    pub use crate::flow::{
+        assemble_link, assemble_seam, drive_feedback_inline, drive_link, drive_try, Driver,
+        TryChain,
+    };
     #[cfg(feature = "std")]
     pub use crate::flow::{bounded_pump, bounded_pump_try};
     pub use crate::flow::drive_seq;

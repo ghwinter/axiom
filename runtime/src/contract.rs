@@ -7,7 +7,7 @@
 //! | Check | Modality | Guarantee source |
 //! |---|---|---|
 //! | [`Moore`] + [`declare_inline_loop_moore`] | **④ declaration** | deployer axiom: the feed cell's output is claimed state-only. NOT a proof — semantic properties are Rice-undecidable; nothing here can verify the claim |
-//! | [`validate_cost`] / [`validate_seam`] | **③ deployment validation** | cost budgets are deployment decisions; provided as a deployment API — currently exercised by the contract unit tests, not yet wired into a live assembly path (honest gap, see §8.3 modality discipline) |
+//! | [`validate_cost`] / [`validate_seam`] | **③ deployment validation** | cost budgets are deployment decisions; wired into the assembly entries [`assemble_link`](crate::flow::assemble_link) / [`assemble_seam`](crate::flow::assemble_seam) — deployment-time, once, before the zero-cost drive path; rejection = assembly failure |
 //! | [`assert_capacity_nonzero`] | **② compile-time witness** | capacity is a const parameter; sites may force rejection of `CAP = 0` at compile time |
 //! | [`validate_capacity`] | **③ deployment validation** | runtime aggregate form of the same fact for assembled seams |
 //!
@@ -145,7 +145,7 @@ where
     validate_capacity::<CAP>()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use crate::carrier::{InlineCarrier, QueueCarrier};

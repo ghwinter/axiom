@@ -72,3 +72,28 @@ fn bounded_pump_try_failure_short_circuits_and_backpressure_holds() {
     assert_eq!(outs[0], 2);
     // 未污染的队列：全部输出皆来自 Ok 的后续 Double。
 }
+
+// 消费者会 panic 的 cell：模拟真实 cell 内部的断言失败。
+struct PanickyDouble;
+impl PortCell for PanickyDouble {
+    type In = i32;
+    type Out = i32;
+    type State = ();
+    #[inline(always)]
+    fn step(_: &mut (), x: i32) -> i32 {
+        assert!(x != 2, "consumer trap");
+        x * 2
+    }
+}
+
+#[test]
+fn bounded_pump_consumer_panic_resumes_original_payload() {
+    // 消费线程 `B::step` panic：泵把**原始载荷**续抛给调用方（`resume_unwind`），
+    // 而非吞成通用 "consumer finished"；生产端在断连后停止投递（拆除语义）。
+    let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = bounded_pump::<Inc, PanickyDouble, Vec<i32>, 2>(|| (), || (), vec![0, 1, 2, 3, 4]);
+    }));
+    let payload = res.expect_err("consumer panic must reach the caller");
+    let msg = payload.downcast_ref::<&str>().expect("&str panic payload");
+    assert!(msg.contains("consumer trap"), "payload was: {msg}");
+}
