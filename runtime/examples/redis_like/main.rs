@@ -23,6 +23,7 @@
 //! 测试：cargo test --manifest-path runtime/Cargo.toml --example redis_like
 
 mod cells;
+mod server;
 
 use axiom::cell_core::{Chain, PortCell};
 use axiom_runtime::prelude_all::{
@@ -48,6 +49,8 @@ struct Cli {
     corpus: usize,
     max_keys: usize,
     max_value: i64,
+    tcp_port: Option<u16>,
+    selftcp: bool,
 }
 
 const HELP: &str = "\
@@ -57,11 +60,19 @@ miniredis —— 一个 axiom 子系统用例（redis_like 硬化版）
   --corpus N      生成 N 条命令的确定性语料（默认 400）
   --max-keys N    键数量上限（默认 10000）
   --max-value N   值上限（默认 1000000）
+  --tcp PORT      以 TCP 服务器模式运行（§9.3 IO 接缝首用例；纯 std，Ctrl-C 退出）
+  --selftcp       运行事件基座自测（临时端口，断言应答序列）
   --help          显示本帮助
 ";
 
 fn parse_args() -> Cli {
-    let mut cli = Cli { corpus: 400, max_keys: 10_000, max_value: 1_000_000 };
+    let mut cli = Cli {
+        corpus: 400,
+        max_keys: 10_000,
+        max_value: 1_000_000,
+        tcp_port: None,
+        selftcp: false,
+    };
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
     while i < args.len() {
@@ -82,6 +93,11 @@ fn parse_args() -> Cli {
                 i += 1;
                 cli.max_value = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(1_000_000);
             }
+            "--tcp" => {
+                i += 1;
+                cli.tcp_port = args.get(i).and_then(|s| s.parse().ok());
+            }
+            "--selftcp" => cli.selftcp = true,
             other => {
                 eprintln!("未知选项: {other}\n{HELP}");
                 std::process::exit(2);
@@ -133,6 +149,25 @@ fn main() {
     let cfg = parse_args();
     println!("=== miniredis: 一个 axiom 子系统（redis_like 硬化版） ===");
     println!("配置: corpus={} max_keys={} max_value={}\n", cfg.corpus, cfg.max_keys, cfg.max_value);
+
+    // ── 0b. TCP IO 接缝（§9.3 事件基座首个实现用例）──
+    if cfg.selftcp {
+        let replies = server::selftest();
+        println!(
+            "--selftcp：事件基座自测，{} 条应答（含解析短路/背压/RESP 回写/半闭）",
+            replies.len()
+        );
+        for r in &replies {
+            println!("   {r:?}");
+        }
+        return;
+    }
+    if let Some(port) = cfg.tcp_port {
+        println!("--tcp {port}：启动 TCP 服务器（Ctrl-C 退出）\n");
+        server::run_server(&format!("127.0.0.1:{port}"), new_store(cfg_to(&cfg)))
+            .expect("server bind");
+        return;
+    }
 
     // ── 1. 语料经 LineSplit（有状态跨块缓冲，中途切断一次）──
     let text = build_corpus(cfg.corpus);

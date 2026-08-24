@@ -89,6 +89,10 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 - **`contract` 模块**（`runtime/src/contract.rs`）——部署期与编译期接缝契约：`Moore` 标记（④）、
   `assert_capacity_nonzero`（②）、`validate_cost`/`validate_capacity`/`validate_seam`（③）、
   `ContractError`。
+- **`assemble_link` / `assemble_seam`**（`runtime/src/flow.rs`）——**模态③ 的接线入口**：在
+  部署装配点**一次**校验成本（有界接缝还校验容量），通过后返回 `drive_link` 函数指针
+  （`Driver<A,B>`）；预算越界 = **装配失败**，绝非运行期静默成本。（`BoundedCarrier` 自带的
+  编译期门是模态②；`assemble_seam` 在部署期兜底无门载体。）
 
 两类均安全（`#![forbid(unsafe_code)]`）；`SlotDrive` 为 `std` 门控，`drive_seq` 与
 `drive_feedback_inline` 非 `std` 门控——动态税局部化到缝上（见
@@ -118,9 +122,11 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 ## 6. 构建与验收基准
 
 ```text
-cargo build/test --manifest-path runtime/Cargo.toml   # runtime（18 集成 + 5 契约单元测试）
+cargo build/test --manifest-path runtime/Cargo.toml   # runtime（25 集成 + 5 契约单元测试）
 cargo run --manifest-path runtime/Cargo.toml --example carrier_demo
 cargo run --manifest-path runtime/Cargo.toml --example threaded_flow
+cargo run --manifest-path runtime/Cargo.toml --example redis_like -- --corpus 500   # miniredis 子系统用例
+cargo test --manifest-path runtime/Cargo.toml --example redis_like                 # 6 个 cell 单元测试
 cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 ```
 
@@ -202,10 +208,14 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 
 ### 9.3 外部输入源的接入接缝（IO 事件 ↔ flow）
 文档已声明"IO 是物理/载体可替换"，但"外部世界（socket 事件等）如何正式成为一条因果流
-的 `in`"这一落地接口未形式化。redis_like 升级为真实 TCP（监听/accept/按帧解析）即此接缝
-的第一个实现用例。
+的 `in`"这一落地接口未形式化。**首案例已落地**：`redis_like`
+（`runtime/examples/redis_like`，`--tcp PORT` / `--selftcp`）——纯 std TCP 服务器：
+每连接有状态 `LineSplit`（跨块缓冲）→ `CmdParse`（类型化错误、短路）→ **有界通道（背压）**
+→ 持有 `StoreState` 的存储工作线程（`DataStore` 全函数，无 panic 路径）→ RESP 回执路由
+（每连接 FIFO 顺序、EOF 时写半关闭）。
 - 落层：**runtime**（事件基座即一类载体/驱动）。
-- 方向：提炼事件基座（event-substrate），使外部事件成为一类可替换的输入载体/驱动。
+- 方向：提炼事件基座（event-substrate），使外部事件成为一类可替换的输入载体/驱动；
+  `redis_like --tcp` 是该接缝的参考实现；载体类接口本身的形式化仍开放。
 
 ### 9.4 失败 × 背压同时发生
 已由 `bounded_pump_try` 闭合：缓冲满与处理失败同时出现时，失败值短路（不投队列、

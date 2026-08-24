@@ -105,6 +105,11 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
 - **`contract` module** (`runtime/src/contract.rs`) — deployment & compile-time seam contracts:
   `Moore` marker (④); `assert_capacity_nonzero` (②); `validate_cost` / `validate_capacity` /
   `validate_seam` (③); `ContractError`.
+- **`assemble_link` / `assemble_seam`** (`runtime/src/flow.rs`) — the wired **modality ③
+  entries**: validate cost (and, for bounded seams, capacity) once at the deployment assembly
+  point and return the `drive_link` function pointer (`Driver<A,B>`); a budget violation is an
+  **assembly failure**, never a silent runtime cost. (`BoundedCarrier`'s own const gate is
+  modality ②; `assemble_seam` backstops ungated carriers at deploy time.)
 
 Both families are safe (`#![forbid(unsafe_code)]`); `SlotDrive` is `std`-gated, `drive_seq` and
 `drive_feedback_inline` are not — they localize the dynamic tax to the
@@ -142,9 +147,11 @@ seam (see [`unified.md`](unified.md) §5).
 ## 6. Build and Acceptance Baseline
 
 ```text
-cargo build/test --manifest-path runtime/Cargo.toml   # runtime (18 integration + 5 contract unit tests)
+cargo build/test --manifest-path runtime/Cargo.toml   # runtime (25 integration + 5 contract unit tests)
 cargo run --manifest-path runtime/Cargo.toml --example carrier_demo
 cargo run --manifest-path runtime/Cargo.toml --example threaded_flow
+cargo run --manifest-path runtime/Cargo.toml --example redis_like -- --corpus 500   # miniredis 子系统用例
+cargo test --manifest-path runtime/Cargo.toml --example redis_like                 # 6 cell 单元测试
 cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 ```
 
@@ -246,11 +253,16 @@ short-circuit carriers.
 ### 9.3 The Seam for Attaching External Input Sources (IO Events ↔ flow)
 The documentation has declared "IO is physical/carrier-replaceable", but the grounding
 interface for "how the external world (socket events, etc.) formally becomes the `in` of a
-causal flow" has not been formalized. Upgrading redis_like to real TCP (listen/accept/
-frame-based parsing) is the first implementation use case for this seam.
+causal flow" has not been formalized. **First realization (landed)**: `redis_like`
+(`runtime/examples/redis_like`, `--tcp PORT` / `--selftcp`) — a std-only TCP server:
+per-connection stateful `LineSplit` (cross-chunk buffering) → `CmdParse` (typed errors,
+short-circuit) → **bounded channel (backpressure)** → a store worker thread owning
+`StoreState` (`DataStore` total, no panic path) → RESP reply routing with per-connection
+FIFO order and write-half close on EOF.
 - Layer: **runtime** (an event substrate is just a class of carrier/driver).
 - Direction: distill an event substrate (event-substrate), so that external events become a
-  replaceable class of input carrier/driver.
+  replaceable class of input carrier/driver; `redis_like --tcp` is the reference implementation
+  of this seam; formalizing the carrier-class interface itself remains open.
 
 ### 9.4 Failure × Backpressure Occurring Simultaneously
 Resolved by `bounded_pump_try`: when the buffer is full and a step fails at the same time,
