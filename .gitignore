@@ -51,7 +51,11 @@ l9_debug.txt
 # documentation. Per docs/doc-governance.md, the I1 tier records design-time
 # decisions in Chinese; it is not part of the published documentation and is
 # deliberately NOT tracked by git.
-/docs/internal/
+/docs/internal/*
+# Exception: the theory corpus IS tracked (prevention of loss of the
+# foundational documents): meta-foundations.md, boundary-ontology.md,
+# frontier-notes.md, and the history archive.
+!/docs/internal/theory/
 
 # Reasonix desktop session metadata (local tool state)
 .reasonix/
