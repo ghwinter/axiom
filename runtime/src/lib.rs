@@ -94,7 +94,7 @@ pub mod prelude_all {
     pub use crate::flow::{bounded_pump, bounded_pump_try};
     pub use crate::flow::drive_seq;
     #[cfg(feature = "std")]
-    pub use crate::slot::SlotDrive;
+    pub use crate::slot::{Seat, SlotDrive, SlotPending};
     pub use crate::static_path::{run_declared_static, run_static};
     pub use crate::wire;
 }

@@ -91,11 +91,15 @@ does not change the topology (T6, multiple physical implementations).
 The runtime gives *activation* to the unified-model constructs (which are **definitions** in
 `core.md`; activation stays the run/carrier side):
 
-- **`SlotDrive<I, O>`** — *existential binding* (`runtime/src/slot.rs`) — the ∃ existential fill of a `Slot<I,O>`:
-  install a compile-time-conforming inhabitant (`T: PortCell<In=I,Out=O>` ⟹ core `Conforms`),
-  type-erase its state to `Box<dyn Any + Send>`, and `drive`/`swap` it at runtime. This is the
-  physical side of "dynamic loading" — interface fixed & T1-verified at compile time, inhabitant
-  existentially chosen at runtime.
+- **`SlotPending<I,O>` → `SlotDrive<I, O>`** — *existential binding* (`runtime/src/slot.rs`) —
+  the ∃ existential fill of a `Slot<I,O>` under a **license lifecycle (typestate, modality ①)**:
+  `SlotPending::install` (Adding) installs a compile-time-conforming inhabitant
+  (`T: PortCell<In=I,Out=O>` ⟹ core `Conforms`), type-erases its state to `Box<dyn Any + Send>`;
+  `commit()` (Ready→Live) authorizes `SlotDrive` — driving before commit is a **type-level
+  refusal** (no runtime check, Placement Law A3); `SlotDrive` then `drive`/`swap`s at runtime
+  (swap bumps a generation, so a previously created `Seat` is rejected as stale); `retire()`
+  terminates the license (Cleaned). Physical side of "dynamic loading": interface fixed &
+  T1-verified at compile time, inhabitant existentially chosen at runtime.
 - **`drive_seq`** (`runtime/src/flow.rs`, `no_std + alloc`) — the generative/unbounded-count side of
   `Rep<N,C>`: drive a runtime `IntoIterator` sequence of inputs through one cell, collecting
   outputs, with state held across steps (count decided at runtime, not compile time).

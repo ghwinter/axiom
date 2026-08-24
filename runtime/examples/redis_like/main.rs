@@ -27,7 +27,7 @@ mod server;
 
 use axiom::cell_core::{Chain, PortCell};
 use axiom_runtime::prelude_all::{
-    CarrierCost, InlineCarrier, QueueCarrier, SlotDrive, TryChain, assemble_link,
+    CarrierCost, InlineCarrier, QueueCarrier, SlotDrive, SlotPending, TryChain, assemble_link,
     bounded_pump_try, drive_seq,
 };
 
@@ -210,9 +210,9 @@ fn main() {
         parse_errs
     );
 
-    // ── 5. 动态内容（∃）：SlotDrive 安装 DataStore → 换装 ReadOnlyProxy ──
+    // ── 5. 动态内容（∃）：SlotPending 安装 DataStore → commit 授权 → 换装 ReadOnlyProxy ──
     let mut slot: SlotDrive<Cmd, Result<(Reply, Option<String>), Error>> =
-        SlotDrive::install::<DataStore>(new_store(cfg_to(&cfg)));
+        SlotPending::install::<DataStore>(new_store(cfg_to(&cfg))).commit();
     let r_set = slot.drive(Cmd::Set("slotkey".into(), 42));
     let r_get = slot.drive(Cmd::Get("slotkey".into()));
     slot.swap::<ReadOnlyProxy>(());

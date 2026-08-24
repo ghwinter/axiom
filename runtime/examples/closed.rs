@@ -12,7 +12,7 @@
 //! 运行：`cargo run --manifest-path runtime/Cargo.toml --example closed`
 
 use axiom::cell_core::{Chain, Conforms, PortCell, Slot, Wire, assert_wiring, drive};
-use axiom_runtime::prelude_all::{SlotDrive, TryChain, bounded_pump, drive_seq};
+use axiom_runtime::prelude_all::{SlotDrive, SlotPending, TryChain, bounded_pump, drive_seq};
 
 // ═══════════════════════════════════════════════════════════════
 // cells（都是 PortCell，概念 1）
@@ -97,7 +97,7 @@ fn main() {
     println!("3. T6：内联/同步 {inline_out:?} == 跨线程/有界 {outs:?}（语义等价 ✓）");
 
     // ── 4. 未来内容（概念 4 的 ∃ 侧）：运行期安装/换装合规居留项 ──
-    let mut slot: SlotDrive<i32, i32> = SlotDrive::install::<Double>(());
+    let mut slot: SlotDrive<i32, i32> = SlotPending::install::<Double>(()).commit();
     let a = slot.drive(5); // Double: 10
     slot.swap::<Triple>(());
     let b = slot.drive(5); // Triple: 15

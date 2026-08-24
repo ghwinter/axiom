@@ -76,10 +76,14 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 
 runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是运行/载体侧）提供**激活**：
 
-- **存在绑定 `SlotDrive<I, O>`**（existential binding，`runtime/src/slot.rs`）——对 `Slot<I,O>` 的 ∃ 存在化填充：安装一个
-  编译期合规居留项（`T: PortCell<In=I,Out=O>` ⟹ core 的 `Conforms`）、把其状态类型擦除为
-  `Box<dyn Any + Send>`、运行期 `drive`/`swap`。这是"动态装载"的物理侧——接口固定且编译期
-  T1 验证、居留项运行期存在化。
+- **存在绑定 `SlotPending<I,O>` → `SlotDrive<I, O>`**（existential binding，`runtime/src/slot.rs`）——
+  对 `Slot<I,O>` 的 ∃ 存在化填充，处于**许可生命周期**（typestate，模态①）：
+  `SlotPending::install`（Adding）安装编译期合规居留项（`T: PortCell<In=I,Out=O>` ⟹ core 的
+  `Conforms`）、把其状态类型擦除为 `Box<dyn Any + Send>`；`commit()`（Ready→Live）授权
+  `SlotDrive`——未 commit 即驱动是**类型级拒绝**（零运行期检查，落位律 A3）；`SlotDrive`
+  运行期 `drive`/`swap`（swap 递增代，此前创建的 `Seat` 以陈旧引用被拒绝）；`retire()`
+  终结许可（Cleaned）。这是"动态装载"的物理侧——接口固定且编译期 T1 验证、居留项
+  运行期存在化。
 - **`drive_seq`**（`runtime/src/flow.rs`，`no_std + alloc`）——`Rep<N,C>` 的生成/无界计数侧：
   把一组运行期 `IntoIterator` 输入依次流经同一 cell，收集输出，状态跨次保持（计数由运行期
   决定，非编译期）。
