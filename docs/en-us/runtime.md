@@ -117,6 +117,25 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   `Full` / `Closed` mechanized from `mpsc` errors with the rejected value preserved (②③);
   `Timeout` / `Cancelled` **declared** as modality ④ (mechanization is a physical choice:
   timer / request-scoped channels), no fabricated witnesses.
+- **`mailbox` module** (`runtime/src/mailbox.rs`, `std`) — the anti-starvation bounded mailbox
+  (actix-type): capacity = `CAP` buffer slots **plus one guaranteed slot per producer**;
+  three send modes—`try_send` (strict, `Full(v)` with the value returned), `send` (blocking
+  backpressure, parks on its own guaranteed slot), `fire` (best-effort: buffer first, then the
+  producer's own slot); `recv` is blocking and never returns `Empty` (`try_recv` observes the
+  empty state); close drains then reports `Closed` with values returned. Modality ② capacity
+  gate (`CAP ≥ 1`). `bounded_pump` stays as the teaching form; the mailbox is the
+  anti-starvation instance of the same obligation class (per-producer slot).
+- **`profile` module** (`runtime/src/profile.rs`) — the **profile catalog** (six-tuple C
+  component; F↦C(F)): `KernelProfile` (zero-alloc budget), `ServiceProfile`
+  (per-message budget + Full/Closed mechanized), `ToolProfile` (external); a profile is a
+  modality-① type token plus a modality-③ budget gate—`assemble_profile<P, A, B, C>()`
+  rejects carriers exceeding the profile budget, so the same topology swaps profiles without
+  touching the graph (T6). Carrier whitelists remain normative documentation (open `Carrier`
+  impls cannot be whitelisted at the type level—honest A5 note).
+- **`law` module** (`runtime/src/law.rs`, `std`) — runtime-law probes (T-component
+  deepening): pairing law (N sends ↔ N verdicts; received ≤ delivered), sequence monotonicity,
+  broadcast fan-out counting; `debug_assertions`-gated, release zero-overhead (LiteOS
+  `LOS_ASSERT` precedent).
 - **`assemble_link` / `assemble_seam`** (`runtime/src/flow.rs`) — the wired **modality ③
   entries**: validate cost (and, for bounded seams, capacity) once at the deployment assembly
   point and return the `drive_link` function pointer (`Driver<A,B>`); a budget violation is an

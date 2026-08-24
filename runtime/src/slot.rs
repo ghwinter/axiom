@@ -140,6 +140,11 @@ impl<'a, I, O> Seat<'a, I, O> {
     pub fn generation(&self) -> u64 {
         self.generation
     }
+
+    /// 是否已陈旧：所驻 `SlotDrive` 的代与本席位创建时的代不一致（其间发生过 `swap`）。
+    pub fn is_stale(&self) -> bool {
+        self.generation != self.drive.generation
+    }
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -192,6 +197,7 @@ mod tests {
         let g = live.generation();
         let mut seat = live.seat();
         assert_eq!(seat.generation(), g);
+        assert!(!seat.is_stale());
         assert_eq!(seat.drive(3), 4);
     }
 

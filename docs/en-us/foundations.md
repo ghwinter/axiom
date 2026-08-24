@@ -591,3 +591,18 @@ else is an instance. See `core.md` §6b and `unified.md`.
 ---
 
 > **Summary**: axiom builds the correct shape with the axioms of "compositional systems theory" (boundary, shape-content, connection-as-first-class, two planes, behavioral substitution, local-global) and ensures shape does not charge the physical layer with the "zero-cost conservation law" (structurally static ∧ pure inlining ∧ no erasure). The theory provides the shape, the conservation law provides the metabolism; per T9, "static/dynamic" refers only to whether the structural/type plane is fixed at compile time, while activity in the state/instance layer (connection pools, configuration, elasticity) is "dynamic instances/state under a static structure" and never pays a structural tax—honestly distinguishing "abstraction is free" from "structural dynamism must pay a legitimate tax."
+
+---
+
+## Extended Theory Corpus (non-normative)
+
+Derivation archives, meta-theory, and frontier notes live in `docs/internal/theory/` (version-controlled):
+
+| File | Content |
+|---|---|
+| [`boundary-ontology.md`](../internal/theory/boundary-ontology.md) | Four-axis filtering of algebraic legality vs machine reachability; closure intersection; lawful rewiring; three destinations; two-layer trust architectures; the Law of Stratification (§9) |
+| [`meta-foundations.md`](../internal/theory/meta-foundations.md) | The axiom-placement problem M: constitution tri-partition (grammar/proof/axiom regions), regress trilemma, stratified necessity of proof, honesty rule and obligation algebra |
+| [`frontier-notes.md`](../internal/theory/frontier-notes.md) | Registry of unrealized directions: higher-order binding, time-as-value, generative canonical API, artifact analysis granularity ladder, e-graph topological equivalence, compile-time carrier form of blueprints |
+| [`theory-archive.md`](../internal/theory/theory-archive.md) | Historical derivation archive: compositional-theory derivations, meta-level reasoning, unified-model landing audits, compile-time-core principle re-examination, refactor execution logs |
+
+These materials are not part of this specification; on any wording conflict, this volume and `core.md` prevail.

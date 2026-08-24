@@ -133,6 +133,27 @@ pub const LEDGER: &[LedgerEntry] = &[
         conformance: "contract.rs: inline_loop_drive_requires_moore_declaration",
     },
     LedgerEntry {
+        seam: "profile::assemble_profile",
+        obligation: "载体成本 ≤ 剖面预算（kernel=零分配 / service=每消息 / tool=外部）",
+        modality: Modality::DeploymentValidation,
+        witness: "contract::validate_cost",
+        conformance: "profile.rs: kernel_profile_rejects_per_message_carriers",
+    },
+    LedgerEntry {
+        seam: "law::PairLaw",
+        obligation: "配对律：N 次投递 ↔ N 个区分性判定；已收 ≤ 已投",
+        modality: Modality::DeploymentValidation,
+        witness: "law.rs 探针（debug_assertions 门控）",
+        conformance: "law.rs: pairing_law_holds_for_verdicts",
+    },
+    LedgerEntry {
+        seam: "mailbox::BoundedMailbox",
+        obligation: "容量 CAP ≥ 1（模态②门）+ 每生产者保底席位（反饥饿资源义务）",
+        modality: Modality::ConstantWitness,
+        witness: "contract::assert_capacity_nonzero",
+        conformance: "mailbox.rs: capacity_semantics_include_per_producer_slots",
+    },
+    LedgerEntry {
         seam: "buffer::BoundedQueue::push",
         obligation: "断连时值随错误回传（不静默丢值）",
         modality: Modality::DeploymentValidation,

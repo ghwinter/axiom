@@ -99,6 +99,20 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 - **`delivery` 模块**（`runtime/src/delivery.rs`，std）——投递四态税则：`Full`/`Closed` 自
   `mpsc` 错误机械化且被拒值随错误回传（②③）；`Timeout`/`Cancelled` **声明**为模态④
   （机械化为物理选择：定时器/请求域通道），不伪造见证。
+- **`mailbox` 模块**（`runtime/src/mailbox.rs`，std）——反饥饿有界邮箱（actix 型）：容量 =
+  `CAP` 缓冲槽 **+ 每生产者 1 个保底席位**；三投递模式——`try_send`（严格，满即
+  `Full(v)` 值回传）、`send`（阻塞背压，占自身保底席位等待）、`fire`（尽力：缓冲槽优先，
+  再占自身席位）；`recv` 阻塞且不返回 `Empty`（空态由 `try_recv` 观察）；关闭排空后投递
+  得 `Closed(v)`。模态② 容量门（`CAP ≥ 1`）。`bounded_pump` 保留教学形态；邮箱是同一
+  义务类（每生产者席位）的反饥饿实例。
+- **`profile` 模块**（`runtime/src/profile.rs`）——**剖面目录**（六元组 C 构件；F↦C(F)）：
+  `KernelProfile`（零分配预算）、`ServiceProfile`（每消息预算 + Full/Closed 机械化）、
+  `ToolProfile`（外部）；剖面 = 模态① 类型令牌 + 模态③ 预算门——`assemble_profile<P,A,B,C>()`
+  拒绝超预算载体，同一拓扑换剖面即换预算门、不改拓扑（T6）。载体白名单为规范文档
+  （开放 `Carrier` impl 无法在类型层禁入——A5 诚实声明）。
+- **`law` 模块**（`runtime/src/law.rs`，std）——运行期律探针（T 构件深化）：配对律
+  （N 投递 ↔ N 判定；已收 ≤ 已投）、序列单调律、广播扇出计数律；`debug_assertions`
+  门控、release 零开销（LiteOS `LOS_ASSERT` 先例）。
 - **`assemble_link` / `assemble_seam`**（`runtime/src/flow.rs`）——**模态③ 的接线入口**：在
   部署装配点**一次**校验成本（有界接缝还校验容量），通过后返回 `drive_link` 函数指针
   （`Driver<A,B>`）；预算越界 = **装配失败**，绝非运行期静默成本。（`BoundedCarrier` 自带的

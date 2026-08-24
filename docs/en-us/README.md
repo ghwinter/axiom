@@ -16,6 +16,13 @@ on its own.
 | [`runtime.md`](runtime.md) | The physical layer / Carrier: runtime positioning, carrier catalog, multi-physical-implementation equivalence, boundaries and open questions | **Architecture**: what axiom's physical layer is |
 | [`unified.md`](unified.md) | The unified model: the substitution calculus (the one perspective), the definition–activation axis, three forms of substitution, the schema expressiveness ladder with (co)inductive proof, precise dynamic tax | **Upgraded view**: axiom's unified design beyond the "static blueprint" |
 
+> **Theory corpus (non-normative):** [`../internal/theory/`](../../internal/theory/README.md)
+> holds derivation archives and meta-theory ([boundary-ontology](../../internal/theory/boundary-ontology.md) ·
+> [meta-foundations](../../internal/theory/meta-foundations.md)), the unrealized-directions
+> registry ([frontier-notes](../../internal/theory/frontier-notes.md)), and the historical
+> archive ([theory-archive](../../internal/theory/theory-archive.md)). Not part of this
+> specification; on conflicts the documents above prevail.
+
 ## Reading path
 
 1. [`foundations.md`](foundations.md): the **core promise**, **terminology**

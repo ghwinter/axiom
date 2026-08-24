@@ -517,7 +517,7 @@ no_std 构建全部通过。旧 runtime 源码在 `runtime/_legacy_v0/` 保留�
 ### 5.4 遗留缓行清单（编译期核心重构）
 
 - **FlowKind 接口层实际剥离**：`HasPortInfo::flow_kind()` 及 builtin 经 prelude 依赖
-  ——彻底移除需 redesign 旧端口接口 + 重构 builtin（57+ 处）；新核心 cell_core
+  ——完全移除需 redesign 旧端口接口 + 重构 builtin（57+ 处）；新核心 cell_core
   已不依赖它。
 - **值形态/JSON（blueprint.rs）**：serialize 集成测试依赖，删除会破坏其编译；
   留待新核心确立后再处置。

@@ -33,6 +33,28 @@
 //! 例如 `axiom_tokio` 可用 async 通道载体替换队列/通道形态的载体，`axiom_io_uring` 用
 //! io_uring 载体替换。runtime 作为参考实现用例，提供各载体作模板。
 //!
+//! ## 宪法头（公理展出；meta-foundations A3/A5 与定义 1.4 的物理层落点）
+//!
+//! **逻辑-D（结构不变量，少而硬）**：
+//! - L1 **无静默丢失**：每次投递必得一个区分性判定（`Delivered`/`Full(v)`/`Closed(v)`，
+//!   被拒值随判定回传，[`delivery`](crate::delivery)）；
+//! - L2 **单属主**：任一 `State` 在同一时刻至多被一个执行流轮询（`&mut` 独占，
+//!   借用检查器背书；[`slot`](crate::slot) 的 `Seat` 亦以代戳拒绝陈旧借用）；
+//! - L3 **容量先验**：有界接缝的 `CAP` 是编译期常量且 ≥ 1（模态②，
+//!   [`assert_capacity_nonzero`](crate::contract::assert_capacity_nonzero)）；
+//! - L4 **政策归驱动**：cell 无时间语义，拍次/调度只在 driver/carrier（§8.4）。
+//!
+//! **经验-D（界 + 监测）**：
+//! - E1 **性能界随 bench 重验**：bench 噪声底背书，工具链升级须重跑；
+//! - E2 **成本按 [`CarrierCost`](crate::carrier::CarrierCost) 序声明**：
+//!   `ZeroAllocInline < PerMessageAlloc < External`，未声明默认 `External`（fail-closed）。
+//!
+//! ## 剖面（六元组 C 构件）与律探针（T 构件）
+//!
+//! [`profile`](crate::profile)：剖面目录——F↦C(F) 的分域承诺（Kernel/Service/Tool），
+//! 同一拓扑换剖面即换预算门（T6）。[`law`](crate::law)：运行期律探针（配对/单调/扇出，
+//! `debug_assertions` 门控，release 零开销）。
+//!
 //! `#![forbid(unsafe_code)]`：runtime 核心无 unsafe。
 
 #![forbid(unsafe_code)]
@@ -48,9 +70,20 @@ pub mod contract;
 /// 义务类类型系统与义务账本（宪法 A3–A6 的机械；meta-foundations 定义 1.6）。Stability: **experimental**。
 pub mod obligation;
 
+/// 剖面目录（六元组 C 构件；F↦C(F) 分域承诺，模态① 令牌 + 模态③ 预算门）。Stability: **experimental**。
+pub mod profile;
+
+/// 运行期律探针（T 构件；配对/单调/扇出，debug_assertions 门控、release 零开销）。Stability: **experimental**。
+#[cfg(feature = "std")]
+pub mod law;
+
 /// 投递四态税则：Full/Closed 机械化、Timeout/Cancelled 声明（模态④，无伪见证）。Stability: **experimental**。
 #[cfg(feature = "std")]
 pub mod delivery;
+
+/// 有界邮箱（actix 型反饥饿背压）：CAP + 每生产者保底席位，三投递模式 fire/try/block。Stability: **experimental**。
+#[cfg(feature = "std")]
+pub mod mailbox;
 
 /// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。Stability: **stable**。
 pub mod flow;
@@ -83,9 +116,16 @@ pub mod prelude_all {
     };
     #[cfg(feature = "std")]
     pub use crate::delivery::{Delivery, Receipt};
+    #[cfg(feature = "std")]
+    pub use crate::mailbox::{BoundedMailbox, Producer};
     pub use crate::obligation::{
         DeliveryKind, LedgerEntry, LifecycleKind, Modality, ObligationClass, ReferenceKind, LEDGER,
     };
+    pub use crate::profile::{
+        KernelProfile, Profile, ServiceProfile, ToolProfile, assemble_profile,
+    };
+    #[cfg(feature = "std")]
+    pub use crate::law::{PairLaw, assert_fanout, assert_monotonic};
     pub use crate::flow::{
         assemble_link, assemble_seam, drive_feedback_inline, drive_link, drive_try, Driver,
         TryChain,

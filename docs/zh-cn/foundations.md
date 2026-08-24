@@ -672,3 +672,18 @@ axiom 的形状约束（类型化因果流、显式静态性声明、无擦除�
 > 保证形状不向物理层收费。理论给形状，守恒律给代谢；按 T9，"静态/动态"只指结构/类型
 > 平面是否编译期定死，状态/实例层的活跃（连接池、配置、弹性）属"静态结构下的动态
 > 实例/状态"，永不付结构税——诚实地区分"抽象免费"与"结构动态必付正当税"。
+
+---
+
+## 延伸理论语料（非规范 / Extended Theory Corpus, non-normative）
+
+本卷的推导档案、元理论与前沿注记存于 `docs/internal/theory/`（受版本控制）：
+
+| 文件 | 内容 |
+|---|---|
+| [`boundary-ontology.md`](../internal/theory/boundary-ontology.md) | 代数合法性与机器可达性的四轴过滤、闭包交集、合法重接线、三归宿、双层信任架构、分层律（§9） |
+| [`meta-foundations.md`](../internal/theory/meta-foundations.md) | 公理放置问题 M：构成三分区（文法/证明/公理区）、回归三难、证明必要性分层、诚实规则与义务代数 |
+| [`frontier-notes.md`](../internal/theory/frontier-notes.md) | 未落地方向注册表：高阶绑定、时间作值、规范 API 生成、产物分析粒度阶梯、e-graph 拓扑等价、蓝图编译期载体形态 |
+| [`theory-archive.md`](../internal/theory/theory-archive.md) | 早期推导历史归档：组合系统论推导、元层推理、统一模型落地审计、编译期核心原则重审、重构执行日志 |
+
+这些材料不构成本规范的组成部分；表述冲突时，以本卷及 `core.md` 为准。
