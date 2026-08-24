@@ -45,6 +45,13 @@ pub mod carrier;
 /// 部署期契约校验：Moore 标记 / 成本符合性 / 背压就绪（声明 → 可校验契约）。Stability: **experimental**。
 pub mod contract;
 
+/// 义务类类型系统与义务账本（宪法 A3–A6 的机械；meta-foundations 定义 1.6）。Stability: **experimental**。
+pub mod obligation;
+
+/// 投递四态税则：Full/Closed 机械化、Timeout/Cancelled 声明（模态④，无伪见证）。Stability: **experimental**。
+#[cfg(feature = "std")]
+pub mod delivery;
+
 /// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。Stability: **stable**。
 pub mod flow;
 
@@ -73,6 +80,11 @@ pub mod prelude_all {
     pub use crate::contract::{
         ContractError, Moore, assert_capacity_nonzero, declare_inline_loop_moore,
         validate_capacity, validate_cost, validate_seam,
+    };
+    #[cfg(feature = "std")]
+    pub use crate::delivery::{Delivery, Receipt};
+    pub use crate::obligation::{
+        DeliveryKind, LedgerEntry, LifecycleKind, Modality, ObligationClass, ReferenceKind, LEDGER,
     };
     pub use crate::flow::{
         assemble_link, assemble_seam, drive_feedback_inline, drive_link, drive_try, Driver,

@@ -105,6 +105,14 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
 - **`contract` module** (`runtime/src/contract.rs`) — deployment & compile-time seam contracts:
   `Moore` marker (④); `assert_capacity_nonzero` (②); `validate_cost` / `validate_capacity` /
   `validate_seam` (③); `ContractError`.
+- **`obligation` module** (`runtime/src/obligation.rs`) — the obligation-class type system
+  (delivery × resource × reference × lifecycle) and the **obligation ledger** (`LEDGER`):
+  a machine-readable constitution excerpt (seam × obligation × modality × witness ×
+  conformance test), enforcing the minimal-basis and honesty rules (A4/A5).
+- **`delivery` module** (`runtime/src/delivery.rs`, `std`) — the four-state delivery taxonomy:
+  `Full` / `Closed` mechanized from `mpsc` errors with the rejected value preserved (②③);
+  `Timeout` / `Cancelled` **declared** as modality ④ (mechanization is a physical choice:
+  timer / request-scoped channels), no fabricated witnesses.
 - **`assemble_link` / `assemble_seam`** (`runtime/src/flow.rs`) — the wired **modality ③
   entries**: validate cost (and, for bounded seams, capacity) once at the deployment assembly
   point and return the `drive_link` function pointer (`Driver<A,B>`); a budget violation is an

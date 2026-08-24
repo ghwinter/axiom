@@ -89,6 +89,12 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 - **`contract` 模块**（`runtime/src/contract.rs`）——部署期与编译期接缝契约：`Moore` 标记（④）、
   `assert_capacity_nonzero`（②）、`validate_cost`/`validate_capacity`/`validate_seam`（③）、
   `ContractError`。
+- **`obligation` 模块**（`runtime/src/obligation.rs`）——义务类类型系统（投递态 × 资源类 ×
+  引用有效 × 生命周期）与**义务账本**（`LEDGER`）：机器可读的宪法摘录（接缝 × 义务 × 模态 ×
+  见证 × 符合性测试），执行极小基律与诚实规则（A4/A5）。
+- **`delivery` 模块**（`runtime/src/delivery.rs`，std）——投递四态税则：`Full`/`Closed` 自
+  `mpsc` 错误机械化且被拒值随错误回传（②③）；`Timeout`/`Cancelled` **声明**为模态④
+  （机械化为物理选择：定时器/请求域通道），不伪造见证。
 - **`assemble_link` / `assemble_seam`**（`runtime/src/flow.rs`）——**模态③ 的接线入口**：在
   部署装配点**一次**校验成本（有界接缝还校验容量），通过后返回 `drive_link` 函数指针
   （`Driver<A,B>`）；预算越界 = **装配失败**，绝非运行期静默成本。（`BoundedCarrier` 自带的
