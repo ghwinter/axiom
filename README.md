@@ -33,9 +33,9 @@ value-form/JSON remain physical-layer concerns — see `docs/foundations.md` §5
 
 runtime is the core's **physical-layer implementation use-case (Carrier)**: for each causal
 dataflow it provides replaceable physical options for "how values flow" —
-`InlineCarrier` (stack call · zero allocation), `QueueCarrier` / `ChannelCarrier` /
-`spawned_flow` (heap queue/channel · cross-thread), `DirectCarrier` / `static_path`
-(compile-time expansion), and the `wire!` declaration macro. Modular and replaceable:
+`InlineCarrier` (stack call · zero allocation), `QueueCarrier` / `BoundedCarrier<CAP>`
+(heap queue / bounded channel), `spawned_flow` (channel + dedicated thread · cross-thread,
+worker panic propagated), and the `wire!` declaration macro. Modular and replaceable:
 a new carrier can be plugged in by implementing the `Carrier` trait without changing the topology.
 
 ## Examples

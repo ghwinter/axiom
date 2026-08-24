@@ -202,6 +202,15 @@ mod tests {
     }
 
     #[test]
+    fn inline_loop_drive_requires_moore_declaration() {
+        // 门禁落位（S7）：runtime 驱动器 drive_feedback_inline 要求 FEED: Moore。
+        let (mut sb, mut sf) = ((), ());
+        let out = crate::flow::drive_feedback_inline::<Pass, IdentityFeed>(&mut sb, &mut sf, 5);
+        // Pass(5)=5 -> feed Identity(5)=5 -> Pass(5)=5
+        assert_eq!(out, 5);
+    }
+
+    #[test]
     fn cost_conformance_accepts_and_rejects() {
         // Inline within a zero-alloc budget: OK.
         assert_eq!(

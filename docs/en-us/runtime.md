@@ -47,10 +47,10 @@ The carrier catalog (`runtime/src/carrier.rs`):
 
 | Carrier | Physical scheme | Space–time cost | Threading | Module |
 |---|---|---|---|---|
-| `InlineCarrier` | Direct pass on the stack (`B::step(A::step(x))`) | Zero allocation, inlined | Single-threaded | carrier.rs |
-| `DirectCarrier` | Compile-time expansion marker (`static_path` redemption) | Zero runtime objects | Single-threaded | carrier.rs |
+| `InlineCarrier` | Direct pass on the stack (`B::step(A::step(x))`); compile-time expansion (`Direct` merged into it) | Zero allocation, inlined | Single-threaded | carrier.rs |
 | `QueueCarrier` (std) | Heap-queue relay (`Box<dyn Any>`, allocated per message) | Per-message allocation | Within a single thread | carrier.rs |
-| `ChannelCarrier` / `spawned_flow` (std) | mpsc channel + dedicated thread, `B::State` on the dedicated thread | Per-message allocation + synchronization | **Cross-thread** | carrier.rs |
+| `BoundedCarrier<CAP>` (std) | Bounded-channel relay (`CAP ≥ 1` enforced at compile time) | Per-message allocation | Within a single thread | carrier.rs |
+| `spawned_flow` (std) | mpsc channel + dedicated thread, `B::State` on the dedicated thread; worker panic propagates via reply channel | Per-message allocation + synchronization | **Cross-thread** | carrier.rs |
 
 Each carrier is **independently selectable and replaceable**: swapping one implementation
 does not change the topology (T6, multiple physical implementations).
@@ -74,9 +74,10 @@ does not change the topology (T6, multiple physical implementations).
 
 ## 3. Driving (flow) and Static Path (static_path)
 
-- **`flow`** (`runtime/src/flow.rs`): `drive_link` / `drive_wired` — after compile-time
+- **`flow`** (`runtime/src/flow.rs`): `drive_link` — after compile-time
   wiring verification (unified `Conforms<Wire>`), drives one A→B causal flow with the selected carrier;
-  **verification happens at compile time, zero runtime overhead**.
+  **verification happens at compile time, zero runtime overhead**. (`drive_wired` removed as a
+  redundant alias of `drive_link`.)
 - **`static_path`** (`runtime/src/static_path.rs`): `run_static` / `run_declared_static` —
   inline-expands at **compile time** the subgraph declared by `Static<SUB>` as "requiring
   zero cost" (zero runtime objects).
@@ -106,8 +107,9 @@ seam (see [`unified.md`](unified.md) §5).
 
 - Each carrier is an **independent unit** that can be a standalone crate.
 - A new physical carrier is attached by implementing the `Carrier` trait **without changing
-  the cell topology**: for example, replacing `ChannelCarrier` with a channel carrier carrying
-  other scheduling/timing semantics, or replacing the zero-allocation carrier with other
+  the cell topology**: for example, replacing the queue/channel-form carrier with a channel
+  carrier carrying other scheduling/timing semantics, or replacing the zero-allocation carrier
+  with other
   low-level mechanisms.
 - As a reference implementation use case, the runtime provides each carrier as a template.
 
@@ -198,8 +200,9 @@ reference (`git show main:runtime/examples/<name>/main.rs`).
 > composition of the core (`cell_core`).
 
 ### 9.1 Backpressure / Bounded Buffering
-The current `QueueCarrier`/`ChannelCarrier` are **unbounded** mpsc forms; real systems need
-bounded + backpressure semantics for "producer fast, consumer slow".
+The unbounded mpsc form (queue/thread transport) is covered by `QueueCarrier`/`spawned_flow`
+(the latter is **unbounded**); real systems need bounded + backpressure semantics for
+"producer fast, consumer slow".
 - Layer: **purely runtime** (`foundations.md` has already placed "backpressure/timing" under
   physical carriers).
 - **Provided**:

@@ -264,7 +264,7 @@ Any "free variable" that does not belong to the internal state of some open syst
 **Necessity**: necessary (logical consequence of two-plane separation).
 **Corollary**: adapters/translators are a necessity, not an option; multiple physical implementations = a direct consequence of two-plane separation.
 
-> **axiom realization**: the same `cell_core` blueprint can be implemented by carriers such as `InlineCarrier`/`QueueCarrier`/`ChannelCarrier` at different spatiotemporal costs while remaining semantically equivalent (`../en-us/runtime.md`).
+> **axiom realization**: the same `cell_core` blueprint can be implemented by carriers such as `InlineCarrier`/`QueueCarrier`/`BoundedCarrier` at different spatiotemporal costs while remaining semantically equivalent (`../en-us/runtime.md`).
 
 ### T7. Static Composition Is Zero-Cost; Dynamic Composition Must Pay a Tax
 **Premises**: the type plane (composition fixed at compile time) and the instance plane (composition instantiated at runtime) are separated; zero-cost conservation Z1.
@@ -506,7 +506,9 @@ Runtime freedom over structure is **parameterized** by "the target interface mus
 
 - Pure transformation = 1 with `State = ()`;
 - Fan-out / fan-in (`Broadcast` / `Merge`) = 3 (fan-out requires a copiable output; ordering is 5);
-- Feedback (`Feedback`) = 3 (self-connection; well-definedness is 5);
+- Feedback (`Feedback`) = 3 (self-connection; well-definedness is 5; its cell form fixes one
+  inline-unbuffered iteration per step — an explicit abstract-layer choice; other tickings are
+  physical; see the C2 ruling in `core.md` §2.4);
 - Repetition (`Rep`) = 3 applied repeatedly (count fixed at compile time is 4; at runtime is 5);
 - Choice / Option (`Choice`/`Opt`) = 1 whose input carries a tag / option (just types);
 - Loading / future content (`Slot`/`SlotDrive`) = 4 (a typed position + runtime placement);

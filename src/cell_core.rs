@@ -282,6 +282,13 @@ where
 /// 是物理载体的事（Kahn 通道 ⟹ 环安全；内联 ⟹ 需 Moore）。这里在类型层表达
 /// 闭合：回喂经过 `FEED`（可改变值），`FEED` 的输入来自 `BODY` 输出、
 /// 输出回到 `BODY` 输入 —— 编译期保证这条因果闭合合法。
+///
+/// **单元形式的拍次裁定（C2）**：`Feedback` 作为 `PortCell`，每次外部输入执行**一次
+/// 内联无缓冲回环迭代**（`BODY -> FEED -> BODY`，即两拍）——这是抽象层对"无缓冲内联"
+/// 这一拍次的**显式选择**；缓冲环与其它拍次归物理载体（runtime 的 `drive_feedback_inline`
+/// 以 `Moore` 声明把关）。无缓冲内联的正确性**假设** `FEED` 只依赖状态、不依赖同拍输入
+/// （即 `Moore`）——这是**声明、非证明**（Rice 不可判定），错误声明由作者在部署 /
+/// 运行期承担。
 pub struct Feedback<BODY, FEED>
 where
     BODY: PortCell,
@@ -296,10 +303,11 @@ where
     BODY: PortCell,
     FEED: PortCell<In = BODY::Out, Out = BODY::In>,
 {
-    /// 一拍：外部输入经 BODY，输出经 FEED 成为"下一拍输入"的形态。
+    /// 一拍：外部输入经 BODY，输出经 FEED 成为"下一拍输入"的形态（一次内联无缓冲迭代）。
     ///
-    /// 真实循环调度（何时用回喂值、是否需要缓冲）是物理载体职责（T3）；
-    /// 本方法仅演示因果闭合在类型层成立——无运行时对象，无 Box<dyn>。
+    /// 真实循环调度（何时用回喂值、是否需要缓冲）是物理载体职责（T3）；本方法基于 C2
+    /// 裁定——抽象层的单元形式固定"无缓冲内联两拍"；缓冲/其它拍次经 runtime
+    /// `drive_feedback_inline`（`Moore` 门）或缓冲载体承担。
     #[inline(always)]
     pub fn tick(sbody: &mut BODY::State, sfeed: &mut FEED::State, external: BODY::In) -> BODY::Out {
         let out = BODY::step(sbody, external);
@@ -311,7 +319,8 @@ where
 }
 
 /// 组合封闭（概念 3）：`Feedback` 本身是 `PortCell`——`In=BODY::In`，`Out=BODY::Out`，
-/// `State=(BODY::State, FEED::State)`。于是"环"是一个单元，可再组合/嵌套。
+/// `State=(BODY::State, FEED::State)`，每次外部输入 = 一次内联无缓冲回环迭代（C2 裁定，
+/// 见结构文档）。于是"环"是一个单元，可再组合/嵌套。
 impl<BODY, FEED> PortCell for Feedback<BODY, FEED>
 where
     BODY: PortCell,

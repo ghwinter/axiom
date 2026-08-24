@@ -1,11 +1,11 @@
 //! runtime 载体用例：用 cell_core 蓝图 + Carrier 物理载体驱动一个二阶拓扑。
 //!
 //! 演示 runtime 的定位——"cell_core 的物理层实现用例"：同一张四构件蓝图
-//! （链 + 广播），用不同载体（Inline / Direct / Queue）驱动，**语义等价，
+//! （链 + 广播），用不同载体（Inline / Queue / Bounded）驱动，**语义等价，
 //! 但时空成本不同**（T6 多物理实现）。换载体不改拓扑。
 
 use axiom::cell_core::{Broadcast, Chain, PortCell};
-use axiom_runtime::carrier::{Carrier, CarrierCost, DirectCarrier, InlineCarrier, QueueCarrier};
+use axiom_runtime::carrier::{Carrier, CarrierCost, InlineCarrier, QueueCarrier};
 use axiom_runtime::flow::drive_link;
 
 // ── 有状态细胞 ─────────────────────────────────────────
@@ -44,10 +44,10 @@ fn main() {
         "A. Inline 驱动 Counter->Double: 一次(5)= {a1}, 二次累加(3)= {a2} (零分配)"
     );
 
-    // === B. 同一链用 DirectCarrier + 布尔路由（编译期展开标记） ===
+    // === B. 同一链再跑一次：Direct 已并入 Inline（编译期展开 = 内联直传） ===
     let mut sb = <Chain2 as PortCell>::State::default();
-    let b = drive_link::<Counter, Double, DirectCarrier>(&mut sb.0, &mut sb.1, 7);
-    println!("B. Direct 驱动同上链: (7) = {b} (编译期展开, 零运行时对象)");
+    let b = drive_link::<Counter, Double, InlineCarrier>(&mut sb.0, &mut sb.1, 7);
+    println!("B. Inline 驱动同上链（Direct 已并入 Inline）: (7) = {b} (零分配)");
 
     // === C. 广播：Counter -> (Counter, Double) 用 Broadcast 类型层 fan-out ===
     let (mut ssrc, mut sr1, mut sr2) = (0i32, 0i32, ());

@@ -12,11 +12,12 @@ keywords = ["dataflow", "carrier", "zero-cost", "compile-time", "execution"]
 categories = ["concurrency", "rust-patterns", "embedded"]
 
 [dependencies]
-axiom = { path = "..", version = "0.3.0" }
+# 默认 no_std：runtime 的 `std` feature 显式映射 `axiom/std`，使 "no_std 组合" 在依赖层闭环。
+axiom = { path = "..", version = "0.3.0", default-features = false }
 
 [features]
 default = ["std"]
-std = []
+std = ["axiom/std"]
 
 # ── 性能基准（构建用例，保留）：衡量不同载体的时空成本 ──────────────
 [[bench]]

@@ -1,8 +1,8 @@
 //! runtime 载体/驱动测试——验证"不同载体 = 不同物理实现（T6）"且语义等价。
 
 use axiom::cell_core::PortCell;
-use axiom_runtime::carrier::{Carrier, DirectCarrier, InlineCarrier, QueueCarrier};
-use axiom_runtime::flow::{drive_link, drive_wired};
+use axiom_runtime::carrier::{Carrier, InlineCarrier, QueueCarrier};
+use axiom_runtime::flow::drive_link;
 
 struct Inc;
 impl PortCell for Inc {
@@ -37,9 +37,10 @@ fn inline_carrier_zero_alloc_semantics() {
 }
 
 #[test]
-fn direct_carrier_compile_time_unrolled() {
+fn inline_carrier_compile_time_unrolled() {
+    // Direct 已并入 Inline（两者逐字节等价）：Inline 即编译期展开/内联。
     let (mut sa, mut sb) = ((), ());
-    let out = drive_link::<Inc, Scaler, DirectCarrier>(&mut sa, &mut sb, 3);
+    let out = drive_link::<Inc, Scaler, InlineCarrier>(&mut sa, &mut sb, 3);
     assert_eq!(out, 8); // 3 -> 4 -> 8
 }
 
@@ -56,10 +57,10 @@ fn queue_carrier_per_message_alloc_semantics_equal() {
 }
 
 #[test]
-fn drive_wired_verifies_before_running() {
-    // 显式布线见证（LINK 由统一 Conforms<Wire> 判定，用 () 满足）。
+fn drive_link_verifies_wiring_before_running() {
+    // drive_link 在驱动前做统一 Conforms<Wire> 编译期布线验证（原 drive_wired 已并入/删除）。
     let (mut sa, mut sb) = ((), ());
-    let out = drive_wired::<Inc, Scaler, (), InlineCarrier>(&mut sa, &mut sb, 10);
+    let out = drive_link::<Inc, Scaler, InlineCarrier>(&mut sa, &mut sb, 10);
     assert_eq!(out, 22); // 10 -> 11 -> 22
 }
 
@@ -89,6 +90,26 @@ fn channel_carrier_crosses_threads() {
     // 用 `spawned_flow`：Inc 输出 5->6，Scaler 在工作线程 6->12。
     let out = axiom_runtime::carrier::spawned_flow::<Inc, Scaler>(&mut sa, || (), 5);
     assert_eq!(out, 12);
+}
+
+#[test]
+fn spawned_flow_propagates_worker_panic() {
+    // S1：工作线程 B::step panic 必须传播到调用线程（原实现会永久阻塞 recv）。
+    struct Boom;
+    impl PortCell for Boom {
+        type In = i32;
+        type Out = i32;
+        type State = ();
+        #[inline(always)]
+        fn step(_: &mut (), _: i32) -> i32 {
+            panic!("boom in worker");
+        }
+    }
+    let mut sa = ();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        axiom_runtime::carrier::spawned_flow::<Inc, Boom>(&mut sa, || (), 5)
+    }));
+    assert!(result.is_err(), "worker panic must propagate to the caller");
 }
 
 #[test]

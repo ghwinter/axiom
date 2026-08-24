@@ -314,7 +314,7 @@ obs-behavior(⟨c₂,E⟩)（bisimulation，互模拟）。
 **必然性**：必然（两平面分离的逻辑推论）。
 **推论**：适配器/翻译官是必然而非选项；多物理实现 = 两平面分离的直接后果。
 
-> **axiom 兑现**：同一 `cell_core` 蓝图可被 `InlineCarrier`/`QueueCarrier`/`ChannelCarrier`
+> **axiom 兑现**：同一 `cell_core` 蓝图可被 `InlineCarrier`/`QueueCarrier`/`BoundedCarrier`
 > 等载体以不同时空成本实现，语义等价（[`runtime.md`](runtime.md)）。
 
 ### T7. 静态组合零成本，动态组合必付税
@@ -590,7 +590,8 @@ axiom 的形状约束（类型化因果流、显式静态性声明、无擦除�
 
 - 纯转换 = 1 且 `State = ()`；
 - 分叉：真实系统的组成是**扇出/扇入**（`Broadcast` 扇出 / `Merge` 汇入）= 3（扇出需输出可复制；先后属 5）；
-- 反馈（`Feedback`）= 3（自接；良定义与否属 5）；
+- 反馈（`Feedback`）= 3（自接；良定义与否属 5；其单元形式固定"每步一次内联无缓冲迭代"——
+  抽象层的显式拍次选择；其它拍次归物理；见 `core.md` §2.4 的 C2 裁定）；
 - 重复（`Rep`）= 3 重复作用（次数编译期定死属 4，运行期定属 5）；
 - 二选一 / 可空（`Choice`/`Opt`）= 1 的输入携带标签 / 可空（仅类型）；
 - 装载 / 未来内容（`Slot`/`SlotDrive`）= 4（带类型位置 + 运行期放置）；

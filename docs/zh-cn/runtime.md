@@ -42,10 +42,10 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 
 | 载体 | 物理方案 | 时空成本 | 线程 | 模块 |
 |---|---|---|---|---|
-| `InlineCarrier` | 栈上函数直接传（`B::step(A::step(x))`） | 零分配、内联 | 单线程 | carrier.rs |
-| `DirectCarrier` | 编译期展开标记（`static_path` 兑现） | 零运行时对象 | 单线程 | carrier.rs |
+| `InlineCarrier` | 栈上函数直接传（`B::step(A::step(x))`）；编译期展开（Direct 已并入） | 零分配、内联 | 单线程 | carrier.rs |
 | `QueueCarrier`（std） | 堆队列中转（`Box<dyn Any>` 每消息分配） | 每消息分配 | 单线程内 | carrier.rs |
-| `ChannelCarrier` / `spawned_flow`（std） | mpsc 通道 + 独立线程，`B::State` 在专用线程 | 每消息分配 + 同步 | **跨线程** | carrier.rs |
+| `BoundedCarrier<CAP>`（std） | 有界通道中转（`CAP >= 1` 编译期强制） | 每消息分配 | 单线程内 | carrier.rs |
+| `spawned_flow`（std） | mpsc 通道 + 独立线程，`B::State` 在专用线程；worker panic 经回执传播 | 每消息分配 + 同步 | **跨线程** | carrier.rs |
 
 每种载体**独立可选、可替换**：换一个实现不改拓扑（T6 多物理实现）。
 
@@ -62,8 +62,9 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 
 ## 3. 驱动（flow）与静态路径（static_path）
 
-- **`flow`**（`runtime/src/flow.rs`）：`drive_link` / `drive_wired`——编译期布线验证
-  （统一 `Conforms<Wire>`）后，用选定载体驱动一条 A→B 因果流；**验证在编译期，运行期零开销**。
+- **`flow`**（`runtime/src/flow.rs`）：`drive_link`——编译期布线验证
+  （统一 `Conforms<Wire>`）后，用选定载体驱动一条 A→B 因果流；**验证在编译期，运行期零开销**
+  （`drive_wired` 已删除——它是 `drive_link` 的冗余别名）。
 - **`static_path`**（`runtime/src/static_path.rs`）：`run_static` / `run_declared_static`——
   把被 `Static<SUB>` 声明为"要求零成本"的子图在**编译期内联展开**（零运行时对象）。
 - **声明宏**（`runtime/src/macros.rs`）：`wire!`——编译期展开的"连线 + 载体 + 验证"
@@ -89,7 +90,7 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 
 - 每个 carrier 是**独立单元**，可作为单独 crate。
 - 新的物理载体通过实现 `Carrier` trait 挂入，**不改 cell 拓扑**：例如用带其他调度/
-  时序语义的通道载体替换 `ChannelCarrier`，或用其他底层机制替换零分配载体。
+  时序语义的通道载体替换队列/通道形态的载体，或用其他底层机制替换零分配载体。
 - runtime 作为参考实现用例，提供各载体作模板。
 
 ---
@@ -163,8 +164,8 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 > 属于"工程叠加/优化 + 一处理论边界"，不改核心（`cell_core`）的既有构成。
 
 ### 9.1 背压 / 有界缓冲
-当前 `QueueCarrier`/`ChannelCarrier` 是**无界** mpsc 形态；真实系统需要"生产快而消费慢"
-的有界 + 背压语义。
+无界 mpsc 形态（队列/线程输送）由 `QueueCarrier`/`spawned_flow` 覆盖（后者**无界**）；
+真实系统需要"生产快而消费慢"的有界 + 背压语义。
 - 落层：**纯 runtime**（`foundations.md` 已把"背压/时序"归物理载体）。
 - **已提供**：
   - `BoundedQueue<T, CAP>`（`buffer.rs`，std）——基于 `sync_channel(CAP)` 的有界 FIFO：

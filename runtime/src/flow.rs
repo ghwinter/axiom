@@ -3,12 +3,13 @@
 //! 这里"兑现"沿 cell_core 的"蓝图即类型"——给定一个 `PortCell` 拓扑和载体，
 //! 提供便捷的驱动入口。不同载体 = 不同物理实现（T6）。
 
+use alloc::vec::Vec;
 use axiom::cell_core::{Conforms, PortCell, Wire};
 use crate::carrier::Carrier;
 
 /// 用载体 `C` 驱动一条 A→B 因果流，返回 B 的输出。
 ///
-/// 载体 `C` 决定物理实现（Inline=零分配内联 / Queue=队列中转 / Direct=编译期展开）。
+/// 载体 `C` 决定物理实现（Inline=零分配内联 / Queue=队列中转 / Bounded=有界通道）。
 /// 在驱动前做编译期布线验证（`Conforms<Wire<A,B>>`，失败即编译错误）——验证在编译期，运行期零开销。
 pub fn drive_link<A, B, C>(sa: &mut A::State, sb: &mut B::State, input: A::In) -> B::Out
 where
@@ -21,22 +22,27 @@ where
     C::flow(sa, sb, input)
 }
 
-/// 驱动一条已验证布线的 A→B 流（显式以 `LINK` 作为布线持证者）。
+/// 无缓冲内联闭环驱动：`BODY -> FEED -> BODY` 经内联载体一拍（一次调用内两拍）。
 ///
-/// 布线合法性由 `Conforms<Wire<A,B>>` 在编译期判定；`LINK` 是这条合法性的命名见证。
-pub fn drive_wired<A, B, LINK, C>(
-    sa: &mut A::State,
-    sb: &mut B::State,
-    input: A::In,
-) -> B::Out
+/// **门禁**：要求 `FEED:` [`Moore`](crate::contract::Moore)（部署者声明，模态④——仅声明、
+/// 非证明：输出是否真的只依赖 `State` 是语义性质、不可判定（Rice），错误声明由声明者负责）。
+/// 有缓冲环（`BoundedCarrier`/队列）无需此门——缓冲即延迟（T3）。
+///
+/// > 与核心 [`Feedback`](axiom::cell_core::Feedback)`::step` 的关系**待裁定**：核心的单元
+/// > 形式亦固定"一拍两算"且不要求 `Moore`；本入口是 runtime 侧"门禁落位"的驱动，二者语义
+/// > 一致性由审计项 S7 跟踪。
+pub fn drive_feedback_inline<BODY, FEED>(
+    sb: &mut BODY::State,
+    sf: &mut FEED::State,
+    external: BODY::In,
+) -> BODY::Out
 where
-    A: PortCell,
-    B: PortCell<In = A::Out>,
-    C: Carrier<A, B>,
+    BODY: PortCell,
+    FEED: PortCell<In = BODY::Out, Out = BODY::In> + crate::contract::Moore,
 {
-    let _: bool = <() as Conforms<Wire<A, B>>>::OK;
-    let _ = core::marker::PhantomData::<LINK>;
-    C::flow(sa, sb, input)
+    let out = BODY::step(sb, external);
+    let next_in: BODY::In = FEED::step(sf, out);
+    BODY::step(sb, next_in)
 }
 
 /// Result 短路：把"产出 `Result`"的 `A` 连接到一个消费其 Ok 的 `B`，遇 `Err` 立即短路。
@@ -59,9 +65,10 @@ where
 
 /// 可失败链：把两个会失败的 cell（`Out = Result`）串成**短路链**，产出**单层** `Result`。
 ///
-/// 比 `drive_try` 的"`B::Out` 再嵌套"更干净：`A` 的 `Ok(X)` 流入 `B`，任一 `Err` 短路，
-/// `Out = Result<B::Ok, E>`（单层）。它是"错误/短路通路"（§9.2）的**可组合一等构造**
-/// （一个 `PortCell`）——整条 fallible 流水线可作为一个 cell 复用/组合。
+/// 与 `drive_try` 的差异：`drive_try` 只要求 `A` 产生 `Result`、`B` 可**非失败**
+/// （"OK 通道"专线，`Out = Result<B::Out, E>`）；`TryChain` 要求 `A` 与 `B` **都**产生
+/// `Result` 且共享同一错误类型 `E`，产出单层 `Out = Result<Y, E>`，本身是 `PortCell`
+/// （可再组合）——整条 fallible 流水线可作为一个 cell 复用。
 pub struct TryChain<A, B>(core::marker::PhantomData<(A, B)>);
 
 impl<A, B, X, Y, E> PortCell for TryChain<A, B>
@@ -178,7 +185,8 @@ where
 /// 这是"无界计数"的**生成/物理侧**：计数的多少由运行期序列（`IntoIterator`）决定，
 /// 而非编译期常量——作为 [`Rep<N,C>`](axiom::cell_core::Rep)（编译期定数）的运行期
 /// 对应物；二者统一于"对同型 cell 的反复作用"。状态在序列各次驱动间保持。
-#[cfg(feature = "std")]
+///
+/// 仅用 `alloc`（`Vec`），不依赖 `std`——`no_std + alloc` 下亦可作为"无界计数"激活入口。
 pub fn drive_seq<C, I, O, It>(state: &mut C::State, inputs: It) -> Vec<O>
 where
     C: PortCell<In = I, Out = O>,

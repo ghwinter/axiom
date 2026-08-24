@@ -1,0 +1,4 @@
+# Line-ending normalization.
+# Repository stores LF; checkouts are LF on every platform.
+# Overrides core.autocrlf, suppresses CRLF/LF conversion warnings.
+* text=auto eol=lf

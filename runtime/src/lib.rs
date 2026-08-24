@@ -12,16 +12,16 @@
 //! | 载体 | 物理方案 | 时空成本 | 单线程/跨线程 |
 //! |---|---|---|---|
 //! | [`InlineCarrier`](crate::carrier::InlineCarrier) | 栈上函数直接传（`B::step(A::step(x))`） | 零分配、内联 | 单线程 |
-//! | [`DirectCarrier`](crate::carrier::DirectCarrier) | 编译期展开标记（`static_path` 兑现） | 零运行时对象 | 单线程 |
 //! | [`QueueCarrier`](crate::carrier::QueueCarrier)（std） | 堆队列中转（`Box<dyn Any>` 每消息分配） | 每消息分配 | 单线程内 |
-//! | [`ChannelCarrier`](crate::carrier::ChannelCarrier)（std）/ [`spawned_flow`](crate::carrier::spawned_flow) | mpsc 通道 + 独立线程，`B::State` 在专用线程 | 每消息分配 + 同步 | **跨线程** |
+//! | [`BoundedCarrier`](crate::carrier::BoundedCarrier)（std） | 有界通道中转（`CAP >= 1` 编译期门） | 每消息分配 | 单线程内 |
+//! | [`spawned_flow`](crate::carrier::spawned_flow)（std） | mpsc 通道 + 独立线程，`B::State` 在专用线程（panic 经回执传播） | 每消息分配 + 同步 | **跨线程** |
 //!
 //! 蓝图声明"这条流用哪个载体"（如 `Static<Chain<A,B>>` 走 `InlineCarrier`/`static_path`），
 //! runtime 按声明兑现——"部署期物理"。不同时空成本 = 不同载体 = 同一逻辑的不同物理实现。
 //!
 //! ## 驱动（flow）与静态路径（static_path）
 //!
-//! - [`flow`](crate::flow)：`drive_link`/`drive_wired` —— 编译期布线验证（`Conforms<Wire>`）后，
+//! - [`flow`](crate::flow)：`drive_link` —— 编译期布线验证（`Conforms<Wire>`）后，
 //!   用选定载体驱动一条 A→B 因果流；验证在编译期，运行期零开销。
 //! - [`static_path`](crate::static_path)：`run_static`/`run_declared_static` —— 把被
 //!   `Static<SUB>` 声明为"要求零成本"的子图在编译期内联展开（零运行时对象）。
@@ -30,7 +30,7 @@
 //!
 //! 每个载体独立、可单独引用。第三方物理适配器（未来 `axiom_tokio`、`axiom_io_uring`）
 //! 通过实现 [`Carrier`](crate::carrier::Carrier) trait 挂入，**不改 cell 拓扑**：
-//! 例如 `axiom_tokio` 可用 async 通道载体替换 `ChannelCarrier`，`axiom_io_uring` 用
+//! 例如 `axiom_tokio` 可用 async 通道载体替换队列/通道形态的载体，`axiom_io_uring` 用
 //! io_uring 载体替换。runtime 作为参考实现用例，提供各载体作模板。
 //!
 //! `#![forbid(unsafe_code)]`：runtime 核心无 unsafe。
@@ -65,18 +65,19 @@ pub mod macros;
 
 /// 核心 prelude。
 pub mod prelude_all {
-    pub use crate::carrier::{Carrier, CarrierCost, DirectCarrier, InlineCarrier};
+    pub use crate::carrier::{Carrier, CarrierCost, InlineCarrier};
     #[cfg(feature = "std")]
     pub use crate::buffer::BoundedQueue;
     #[cfg(feature = "std")]
-    pub use crate::carrier::{BoundedCarrier, ChannelCarrier, QueueCarrier, spawned_flow};
+    pub use crate::carrier::{BoundedCarrier, QueueCarrier, spawned_flow};
     pub use crate::contract::{
         ContractError, Moore, assert_capacity_nonzero, declare_inline_loop_moore,
         validate_capacity, validate_cost, validate_seam,
     };
-    pub use crate::flow::{drive_link, drive_try, drive_wired, TryChain};
+    pub use crate::flow::{drive_feedback_inline, drive_link, drive_try, TryChain};
     #[cfg(feature = "std")]
-    pub use crate::flow::{bounded_pump, bounded_pump_try, drive_seq};
+    pub use crate::flow::{bounded_pump, bounded_pump_try};
+    pub use crate::flow::drive_seq;
     #[cfg(feature = "std")]
     pub use crate::slot::SlotDrive;
     pub use crate::static_path::{run_declared_static, run_static};
