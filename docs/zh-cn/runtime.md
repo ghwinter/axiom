@@ -5,7 +5,7 @@
 > **性质**：axiom 的**物理层架构规范**。回答"axiom 的物理层是什么"：核心
 > `cell_core` 只声明**因果数据流**（`A.out -> B.in`），runtime 回答唯一一个问题——
 > **这条流的值怎么从 `A.out` 到 `B.in`，以何种时空成本**。本卷描述 runtime 的形态，
-> 与已收敛的实现（`runtime/src/{carrier,flow,static_path,macros,lib}.rs`）一致。
+> 与已收敛的实现（`runtime/src/{carrier,flow,static_path,macros,contract,slot,buffer,lib}.rs`）一致。
 >
 > **规范性**：自洽的权威规范，专注 axiom 物理层自身的形态。
 >
@@ -33,7 +33,7 @@ pub enum CarrierCost { ZeroAllocInline, PerMessageAlloc, External }   // 时空�
 pub trait Carrier<A, B>
 where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 {
-    fn cost() -> CarrierCost { CarrierCost::ZeroAllocInline }
+    fn cost() -> CarrierCost { CarrierCost::External }
     fn flow(sa: &mut A::State, sb: &mut B::State, input: A::In) -> B::Out;
 }
 ```
@@ -80,10 +80,18 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
   编译期合规居留项（`T: PortCell<In=I,Out=O>` ⟹ core 的 `Conforms`）、把其状态类型擦除为
   `Box<dyn Any + Send>`、运行期 `drive`/`swap`。这是"动态装载"的物理侧——接口固定且编译期
   T1 验证、居留项运行期存在化。
-- **`drive_seq`**（`runtime/src/flow.rs`，`std`）——`Rep<N,C>` 的生成/无界计数侧：把一组运行期
-  `IntoIterator` 输入依次流经同一 cell，收集输出，状态跨次保持（计数由运行期决定，非编译期）。
+- **`drive_seq`**（`runtime/src/flow.rs`，`no_std + alloc`）——`Rep<N,C>` 的生成/无界计数侧：
+  把一组运行期 `IntoIterator` 输入依次流经同一 cell，收集输出，状态跨次保持（计数由运行期
+  决定，非编译期）。
+- **`drive_feedback_inline<BODY, FEED>`**（`runtime/src/flow.rs`）——`Feedback` cell 形式的
+  物理激活：每个输入步一次内联无缓冲回环（`BODY -> FEED -> BODY`），由 **Moore 声明**把关
+  （`FEED: Moore`，模态 ④——声明非证明）。
+- **`contract` 模块**（`runtime/src/contract.rs`）——部署期与编译期接缝契约：`Moore` 标记（④）、
+  `assert_capacity_nonzero`（②）、`validate_cost`/`validate_capacity`/`validate_seam`（③）、
+  `ContractError`。
 
-二者 `std` 门控、安全（`#![forbid(unsafe_code)]`）；把动态税局部化到缝上（见
+两类均安全（`#![forbid(unsafe_code)]`）；`SlotDrive` 为 `std` 门控，`drive_seq` 与
+`drive_feedback_inline` 非 `std` 门控——动态税局部化到缝上（见
 [`unified.md`](unified.md) §5）。
 
 ## 4. 模块化与可替换（可扩展的物理载体）
@@ -110,7 +118,7 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 ## 6. 构建与验收基准
 
 ```text
-cargo build/test --manifest-path runtime/Cargo.toml   # runtime（7 测试）
+cargo build/test --manifest-path runtime/Cargo.toml   # runtime（18 集成 + 5 契约单元测试）
 cargo run --manifest-path runtime/Cargo.toml --example carrier_demo
 cargo run --manifest-path runtime/Cargo.toml --example threaded_flow
 cargo bench --manifest-path runtime/Cargo.toml --bench carrier
@@ -118,8 +126,8 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 
 **已达成（证据链）**：
 - runtime 只依赖 cell_core（新核心），不依赖任何 v0 模块。
-- 载体目录：Inline（栈上函数传·零分配）/ Queue（堆队列中转）/ Channel（跨线程 mpsc）/
-  Direct+static_path（编译期展开）/ wire!（声明宏）。
+- 载体目录：Inline（栈上函数传·零分配）/ Queue（堆队列中转）/ Bounded（有界通道，
+  编译期 `CAP ≥ 1`）/ spawned_flow（跨线程 mpsc）/ static_path / wire!（声明宏）。
 - 模块化可替换：换载体不改拓扑（T6），各载体独立可单独引用。
 - `#![forbid(unsafe_code)]`、no_std（`std` feature 门控非零分配/跨线程载体）。
 - bench：Inline 2.7µs vs spawned_flow 6.96s——同一因果流在单线程内联与跨线程通道载体下的
@@ -188,7 +196,9 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
   - `TryChain<A,B>`——两个会失败的 cell 的可组合短链：整条 fallible 流水线是一个单层
     `Result` 的 `PortCell`（比 `drive_try` 的嵌套 `Out` 更干净；psql 用
     `TryChain<TryChain<Lexer,Parser>,Executor>` 表达完整 REPL）。
-- 仍剩：一等短路载体（如 `MaybeCarrier`/`ResultCarrier`）、失败×背压的联合语义。
+- 仍剩：一等短路载体（如 `MaybeCarrier`/`ResultCarrier`）。失败×背压的联合语义
+  已由 `bounded_pump_try`（`flow.rs`）落地：`Ok` 投入有界队列（满=阻塞背压），
+  `Err` 短路（不投队列、计数）。
 
 ### 9.3 外部输入源的接入接缝（IO 事件 ↔ flow）
 文档已声明"IO 是物理/载体可替换"，但"外部世界（socket 事件等）如何正式成为一条因果流
@@ -198,14 +208,15 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 - 方向：提炼事件基座（event-substrate），使外部事件成为一类可替换的输入载体/驱动。
 
 ### 9.4 失败 × 背压同时发生
-缓冲满与处理失败同时出现时的语义未被规定——留待上述二者定形后一并收敛。
+已由 `bounded_pump_try` 闭合：缓冲满与处理失败同时出现时，失败值短路（不投队列、
+计数），成功值继续在满队列上阻塞（背压）——失败与背压正交，且各自显式。
 
 ---
 
 ## 10. 结论
 
-> runtime = `cell_core` 的**物理层实现用例**：载体目录（Inline/Queue/Channel/Direct/
-> static_path/wire!）+ 兑现验证，模块化可替换，解释并验证"同一张静态图可插进多种物理
+> runtime = `cell_core` 的**物理层实现用例**：载体目录（Inline/Queue/Bounded/
+> spawned_flow/static_path/wire!）+ 兑现验证，模块化可替换，解释并验证"同一张静态图可插进多种物理
 > 执行（内联/队列/跨线程），每种有可验证的语义等价"。载体可通过实现 `Carrier` trait
-> 挂入而不改拓扑，使物理层具备可扩展性；其边界内的开放问题（背压、错误通路、
-> IO 接缝）已如实记录，作为后续迭代的驱动输入。
+> 挂入而不改拓扑，使物理层具备可扩展性；已闭合项（背压、失败×背压）与边界内的
+> 开放问题（IO 接缝、一等短路载体）已如实记录，作为后续迭代的驱动输入。

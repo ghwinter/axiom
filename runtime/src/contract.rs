@@ -1,12 +1,13 @@
 //! Deploy-time & compile-time seam contracts — with **explicit proof modality**.
 //!
 //! Every check in this module states honestly *how* it is guaranteed, following
-//! the project's four-modality discipline (see `axiom-conventions.md` §13):
+//! the project's four-modality discipline (② compile-time witness / ③ deployment
+//! validation / ④ declaration):
 //!
 //! | Check | Modality | Guarantee source |
 //! |---|---|---|
 //! | [`Moore`] + [`declare_inline_loop_moore`] | **④ declaration** | deployer axiom: the feed cell's output is claimed state-only. NOT a proof — semantic properties are Rice-undecidable; nothing here can verify the claim |
-//! | [`validate_cost`] / [`validate_seam`] | **③ deployment validation** | cost budgets are deployment decisions; checked when a seam is assembled |
+//! | [`validate_cost`] / [`validate_seam`] | **③ deployment validation** | cost budgets are deployment decisions; provided as a deployment API — currently exercised by the contract unit tests, not yet wired into a live assembly path (honest gap, see §8.3 modality discipline) |
 //! | [`assert_capacity_nonzero`] | **② compile-time witness** | capacity is a const parameter; sites may force rejection of `CAP = 0` at compile time |
 //! | [`validate_capacity`] | **③ deployment validation** | runtime aggregate form of the same fact for assembled seams |
 //!
@@ -82,8 +83,8 @@ impl std::error::Error for ContractError {}
 /// Use at assembly points that must not compile with a degenerate rendezvous
 /// channel:
 ///
-/// ```ignore
-/// const _: () = assert_capacity_nonzero::<4>();
+/// ```
+/// const _: () = axiom_runtime::contract::assert_capacity_nonzero::<4>();
 /// ```
 ///
 /// `CAP = 0` is fully decidable at compile time, so sites that want the earliest

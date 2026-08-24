@@ -55,7 +55,7 @@ pub trait PortCell: Sized {
 - `step` 是纯转移（`#[inline(always)]` 使内联跨 crate 成立 → Z1 的 (b)）；
 - 纯抽象层——**不掺线程/同步/背压/时序**，那些是物理载体的事（T3 / §5.4）。
 
-**命名阶梯与规模中立**（conventions §12 的权威副本）：
+**命名阶梯与规模中立**（规范登记；权威来源见 `foundations.md` §8.1）：
 
 ```text
 数学锚：  开放系统 / 最小系统 (S, I, O, δ)、Mealy 余代数      ← 证明处使用
@@ -116,7 +116,10 @@ where A: PortCell, B: PortCell<In = A::Out>,
   是物理载体的事（T3/Kahn）——抽象层只声明"多个源可布入同一接收者"这一因果形态。
 - **`Feedback<BODY, FEED>`**：`BODY` 输出经 `FEED` 回喂到 `BODY` 输入，形成因果闭合。
   抽象层**只声明环的存在**（因果闭合，T3）；环是否良定义、是否需要缓冲，是物理载体的事
-  （Kahn 通道 ⟹ 环安全；内联 ⟹ 需 Moore）。
+  （Kahn 通道 ⟹ 环安全；内联 ⟹ 需 Moore）。**C2 裁定**：cell 形式固定为每个外部输入执行
+  一次内联无缓冲回环迭代（`BODY -> FEED -> BODY`，两拍）——抽象的显式选择；缓冲/其它拍次
+  归物理（runtime `drive_feedback_inline`，Moore 门）；无缓冲内联正确性假设 `FEED` 仅依赖
+  状态（Moore，声明非证明）。
 
 ### 2.5 `Static` / `Blueprint`（静态性声明 + 蓝图即类型）
 
@@ -239,10 +242,10 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 
 | 构造子 | 它实例化的构造概念 |
 |---|---|
-| `PortCell` | 概念 1 —— 单元 / 开放系统 |
+| `PortCell` | 概念 1 —— 端口体 / 开放系统 |
 | `Wire<A,B>`（+ `Conforms<Wire<..>>`） | 概念 1/2/4 —— 类型化因果流 + T1 对偶组合（编译期绑定位置） |
-| `Chain` / `Rep` / `Broadcast` / `Merge` / `Feedback` | 概念 3 —— 组合封闭（各自是单元、可嵌套） |
-| `Choice` / `Opt` | 概念 1 —— 输入携带标签 / 可空的单元（仅类型） |
+| `Chain` / `Rep` / `Broadcast` / `Merge` / `Feedback` | 概念 3 —— 组合封闭（各自是端口体、可嵌套） |
+| `Choice` / `Opt` | 概念 1 —— 输入携带标签 / 可空的端口体（仅类型） |
 | `Slot<I,O>`（+ `Conforms<Slot<..>>`） | 概念 4 —— 型位：带类型的开放位置（未绑定义） |
 | `SlotDrive`（runtime；存在绑定） | 概念 4/5 —— 运行期（∃）绑定，然后激活 |
 | `TryChain` / `drive_try`（runtime） | 概念 1 —— 失败为值（`Result`）经组合，保持 `step` 全函数 |
@@ -260,7 +263,7 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 
 ```text
 cargo build --lib        # 零依赖，no_std 支持（--no-default-features）
-cargo test               # 21 单元测试 + 6 项蓝图集成断言（tests/topology_blueprint.rs；基准不混入测试）
+cargo test               # 21 单元测试 + 5 项封闭边界断言（tests/closed_boundary.rs）+ 6 项蓝图集成断言（tests/topology_blueprint.rs；基准不混入测试）
 cargo bench --bench chain   # 静态 ≈ 手写（零成本实证，仅 release 数字有意义）
 cargo bench --bench dag     # 菱形零成本实证（Δ(复合−手写)≈±1%，落在自噪声底量级内）
 ```

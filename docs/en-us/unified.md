@@ -157,7 +157,7 @@ to the physical/verification boundary (the explicit exception of T9).
 ### 4.2 Proving future conformance algebraically
 
 A future module = an **arbitrary derivation** of the schema grammar (whose derivation rules **are**
-the interface/type rules, T1). We prove *all* derivations are well-typed — not each one:
+the interface/type rules, T1). All derivations are proven well-typed — not each one:
 
 - **Finite unrollings**: **structural induction** over the recursive structure (initial algebra /
   least fixed point) — well-founded, so no enumeration; validity is a universal argument over depth/
@@ -206,8 +206,7 @@ non-dynamic majority static, **localizes it to the seam**. axiom's zero-cost pro
     `∀ T: PortCell<In=I,Out=O>`); runtime activation side `SlotDrive<I,O>`
     (∃ existential fill: install/swap/drive).
   - **③ schema / grammar constructors**: `Rep<N,C>` (exactly-N self-composition, the power
-    `Cⁿ`; alias `Repeat<N,C>` — a literal-honesty ruling avoids the Kleene-star name, see
-    conventions §13), `Choice<A,B>` (sum), `Opt<C>` (optional). Unbounded count belongs to
+    `Cⁿ`; alias `Repeat<N,C>` — a literal-honesty ruling avoids the Kleene-star name), `Choice<A,B>` (sum), `Opt<C>` (optional). Unbounded count belongs to
     the activation side (runtime `drive_seq`); mutually recursive schemas are expressed by
     user-defined recursive types plus existing combinators — no new constructor needed.
     ② and ③ together make static and dynamic **two binding modes of the same substitution

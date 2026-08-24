@@ -92,6 +92,10 @@ where
 /// 这是 §9.1"有界/背压"的**真实背压**演示：生产端把 `A` 的输出投入容量 `CAP` 的有界
 /// `sync_channel`；**当队列满时，生产端阻塞（背压）**，直到消费者线程 drain 腾出空间。
 /// 返回值 = 消费者 `B::step` 的输出序列。std 门控、安全。
+///
+/// **拆除语义**：若消费者线程终止（`B::step` panic 使 `rx` 断连），`send` 失败——
+/// 生产端立即停止投递（不再空转生产），随后由 `consumer.join()` 显式暴露 panic；
+/// 拆除时未投递的值随管道一起丢弃，不静默延续生产。
 #[cfg(feature = "std")]
 pub fn bounded_pump<A, B, It, const CAP: usize>(
     init_a: impl FnOnce() -> A::State + Send + 'static,
@@ -108,6 +112,7 @@ where
 {
     use std::sync::mpsc;
 
+    const { crate::contract::assert_capacity_nonzero::<CAP>() };
     let (tx, rx) = mpsc::sync_channel::<A::Out>(CAP);
 
     // 消费者线程：drain 有界队列，逐条跑 B::step。
@@ -124,11 +129,13 @@ where
     let mut sa = init_a();
     for input in inputs {
         let mid = A::step(&mut sa, input);
-        let _ = tx.send(mid);
+        if tx.send(mid).is_err() {
+            break; // 消费者已终止（断连）：停止生产，交由 join 暴露（拆除语义，见函数文档）。
+        }
     }
     drop(tx); // 关闭通道，令消费者收尾。
 
-    consumer.join().expect("consumer finished")
+    consumer.join().unwrap_or_else(|p| std::panic::resume_unwind(p))
 }
 
 /// 有界泵（可失败生产端）：`失败 × 背压` 联合语义的可测试表达。
@@ -154,6 +161,7 @@ where
 {
     use std::sync::mpsc;
 
+    const { crate::contract::assert_capacity_nonzero::<CAP>() };
     let (tx, rx) = mpsc::sync_channel::<X>(CAP);
     let consumer = std::thread::spawn(move || {
         let mut sb = init_b();
@@ -169,14 +177,16 @@ where
     for input in inputs {
         match A::step(&mut sa, input) {
             Ok(x) => {
-                let _ = tx.send(x); // 满则阻塞 = 背压
+                if tx.send(x).is_err() {
+                    break; // 消费者已终止（断连）：停止生产，交由 join 暴露（拆除语义，同 bounded_pump）。
+                } // 满则阻塞 = 背压
             }
             Err(_) => errs += 1, // 短路：不投队列、记录错误
         }
     }
     drop(tx);
 
-    let outs = consumer.join().expect("consumer finished");
+    let outs = consumer.join().unwrap_or_else(|p| std::panic::resume_unwind(p));
     (outs, errs)
 }
 
@@ -187,6 +197,7 @@ where
 /// 对应物；二者统一于"对同型 cell 的反复作用"。状态在序列各次驱动间保持。
 ///
 /// 仅用 `alloc`（`Vec`），不依赖 `std`——`no_std + alloc` 下亦可作为"无界计数"激活入口。
+/// 序列物化为 `Vec` 是本入口声明的生成成本；零成本单步路径在核心 `drive`。
 pub fn drive_seq<C, I, O, It>(state: &mut C::State, inputs: It) -> Vec<O>
 where
     C: PortCell<In = I, Out = O>,

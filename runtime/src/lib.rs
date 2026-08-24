@@ -48,7 +48,7 @@ pub mod contract;
 /// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。Stability: **stable**。
 pub mod flow;
 
-/// 装载槽的运行期存在化（∃ 装载，物理侧）。Stability: **experimental**。
+/// 型位的运行期存在化（∃ 绑定，物理侧）。Stability: **experimental**。
 #[cfg(feature = "std")]
 pub mod slot;
 

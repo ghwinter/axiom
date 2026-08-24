@@ -37,6 +37,10 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
+// Let `::axiom::` resolve from inside this crate itself (e.g. at `wire!` expansion
+// sites inside this crate), matching the macro's hardcoded extern path.
+extern crate self as axiom;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 核心主轴线：cell_core（四构件编译期模型）。
 //

@@ -1,5 +1,5 @@
 //! 统一模型（runtime 激活侧）测试：
-//! - 装载槽的运行期存在化（SlotDrive：install / drive / swap）
+//! - 型位的运行期存在化（SlotDrive：install / drive / swap）
 //! - 无界计数序列驱动（drive_seq）
 
 use axiom::cell_core::PortCell;
@@ -33,7 +33,7 @@ impl PortCell for Scaler {
 
 #[test]
 fn slot_drive_install_and_drive() {
-    // ∃ 装载：运行期安装一个合规占据者并驱动（类型已擦除）。
+    // ∃ 绑定：运行期安装一个合规居留项并驱动（类型已擦除）。
     let mut slot: SlotDrive<i32, i32> = SlotDrive::install::<Inc>(0);
     // Inc(0): step(0, 5) -> 5
     assert_eq!(slot.drive(5), 5);
@@ -43,7 +43,7 @@ fn slot_drive_install_and_drive() {
 
 #[test]
 fn slot_drive_swap_existential_replacement() {
-    // 运行期换装不同的合规占据者（存在化代换）。
+    // 运行期换装不同的合规居留项（存在化代换）。
     let mut slot: SlotDrive<i32, i32> = SlotDrive::install::<Inc>(0);
     assert_eq!(slot.drive(5), 5);
     // 换装 Scaler（也满足 In=i32, Out=i32），状态重置为 0。

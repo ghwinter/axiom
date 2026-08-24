@@ -84,8 +84,8 @@ fn static_path_unrolls_declared_static_subgraph() {
 }
 
 #[test]
-fn channel_carrier_crosses_threads() {
-    // 跨线程通道载体：A(Inc) 在调用线程产出，B(Scaler) 状态在工作线程，跨线程 causal flow。
+fn spawned_flow_crosses_threads() {
+    // spawned_flow 跨线程：A(Inc) 在调用线程产出，B(Scaler) 状态在工作线程，跨线程 causal flow。
     let mut sa = ();
     // 用 `spawned_flow`：Inc 输出 5->6，Scaler 在工作线程 6->12。
     let out = axiom_runtime::carrier::spawned_flow::<Inc, Scaler>(&mut sa, || (), 5);

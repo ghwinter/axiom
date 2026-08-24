@@ -69,7 +69,7 @@ fn unified_conforms_t1_covers_wire_and_slot() {
     // 装载合规经统一 Conforms：Slot<I,O>
     let _: bool = <Inc as Conforms<Slot<i32, i32>>>::OK;
     assert_conforms::<Slot<i32, i32>, Inc>();
-    // 复合单元也是合法线源 / 占据者。
+    // 复合单元也是合法线源 / 居留项。
     type Body = Chain<Inc, Double>;
     assert_wiring::<Body, Acc>();
 }

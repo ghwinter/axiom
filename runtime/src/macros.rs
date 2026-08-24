@@ -9,6 +9,10 @@
 /// 默认用 [`InlineCarrier`](crate::carrier::InlineCarrier)（栈上直接传，零分配内联）。
 /// 宏在编译期展开为 `B::step(&mut *, A::step(&mut *, input))` —— 即手写等价（T7）。
 /// `A`/`B` 由 `source`/`sink` 类型指定。
+///
+/// **路径契约**：宏展开中的 `::axiom::` 路径解析于**调用方**的 extern prelude，故调用方的
+/// 依赖必须**以字面名 `axiom` 出现**（重命名依赖会在此宏的每个使用点编译失败）；axiom
+/// 核心自身经 `extern crate self as axiom;` 使该路径在 crate 内亦可解析。
 #[macro_export]
 macro_rules! wire {
     // source: A, sink: B —— 生成一个内联驱动闭包。

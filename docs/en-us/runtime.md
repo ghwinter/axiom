@@ -7,7 +7,7 @@
 > **causal data flows** (`A.out -> B.in`), and the runtime answers the single question —
 > **how the value of this flow gets from `A.out` to `B.in`, at what space–time cost**. This
 > volume describes the shape of the runtime, consistent with the converged
-> implementation (`runtime/src/{carrier,flow,static_path,macros,lib}.rs`).
+> implementation (`runtime/src/{carrier,flow,static_path,macros,contract,slot,buffer,lib}.rs`).
 >
 > **Normativity**: a self-consistent authoritative specification, focused
 > on the shape of axiom's physical layer itself.
@@ -38,7 +38,7 @@ pub enum CarrierCost { ZeroAllocInline, PerMessageAlloc, External }   // space�
 pub trait Carrier<A, B>
 where A: PortCell, B: PortCell<In = A::Out>,   // T1: the causal flow itself is legal
 {
-    fn cost() -> CarrierCost { CarrierCost::ZeroAllocInline }
+    fn cost() -> CarrierCost { CarrierCost::External }
     fn flow(sa: &mut A::State, sb: &mut B::State, input: A::In) -> B::Out;
 }
 ```
@@ -96,11 +96,18 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   type-erase its state to `Box<dyn Any + Send>`, and `drive`/`swap` it at runtime. This is the
   physical side of "dynamic loading" — interface fixed & T1-verified at compile time, inhabitant
   existentially chosen at runtime.
-- **`drive_seq`** (`runtime/src/flow.rs`, `std`) — the generative/unbounded-count side of
+- **`drive_seq`** (`runtime/src/flow.rs`, `no_std + alloc`) — the generative/unbounded-count side of
   `Rep<N,C>`: drive a runtime `IntoIterator` sequence of inputs through one cell, collecting
   outputs, with state held across steps (count decided at runtime, not compile time).
+- **`drive_feedback_inline<BODY, FEED>`** (`runtime/src/flow.rs`) — the physical activation of a
+  `Feedback` cell form: one inline-unbuffered loop (`BODY -> FEED -> BODY`) per input step,
+  gated by the **Moore declaration** (`FEED: Moore`, modality ④ — declaration, not proof).
+- **`contract` module** (`runtime/src/contract.rs`) — deployment & compile-time seam contracts:
+  `Moore` marker (④); `assert_capacity_nonzero` (②); `validate_cost` / `validate_capacity` /
+  `validate_seam` (③); `ContractError`.
 
-Both are `std`-gated and safe (`#![forbid(unsafe_code)]`); they localize the dynamic tax to the
+Both families are safe (`#![forbid(unsafe_code)]`); `SlotDrive` is `std`-gated, `drive_seq` and
+`drive_feedback_inline` are not — they localize the dynamic tax to the
 seam (see [`unified.md`](unified.md) §5).
 
 ## 4. Modularity and Replaceability (Extensible Physical Carriers)
@@ -135,7 +142,7 @@ seam (see [`unified.md`](unified.md) §5).
 ## 6. Build and Acceptance Baseline
 
 ```text
-cargo build/test --manifest-path runtime/Cargo.toml   # runtime (7 tests)
+cargo build/test --manifest-path runtime/Cargo.toml   # runtime (18 integration + 5 contract unit tests)
 cargo run --manifest-path runtime/Cargo.toml --example carrier_demo
 cargo run --manifest-path runtime/Cargo.toml --example threaded_flow
 cargo bench --manifest-path runtime/Cargo.toml --bench carrier
@@ -143,8 +150,9 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 
 **Accomplished (chain of evidence)**:
 - The runtime depends only on cell_core (the new core), not on any v0 module.
-- Carrier catalog: Inline (stack pass · zero allocation) / Queue (heap-queue relay) / Channel
-  (cross-thread mpsc) / Direct+static_path (compile-time expansion) / wire! (declaration macro).
+- Carrier catalog: Inline (stack pass · zero allocation) / Queue (heap-queue relay) / Bounded
+  (bounded channel, `CAP ≥ 1` at compile time) / spawned_flow (cross-thread mpsc) / static_path /
+  wire! (declaration macro).
 - Modular and replaceable: swapping a carrier does not change the topology (T6), and each
   carrier is independent and can be referenced on its own.
 - `#![forbid(unsafe_code)]`, no_std (the `std` feature gates the non-zero-allocation /
@@ -230,8 +238,10 @@ short-circuit carriers.
   - `TryChain<A, B>` — a composable short-circuit chain of two fallible cells: the whole fallible
     pipeline is a single-level-`Result` `PortCell` (cleaner than `drive_try`'s nested `Out`;
     psql expresses its full REPL as `TryChain<TryChain<Lexer, Parser>, Executor>`).
-- Remaining: first-class short-circuit carriers (e.g. `MaybeCarrier`/`ResultCarrier`), and the
-  combined failure × backpressure semantics.
+- Remaining: first-class short-circuit carriers (e.g. `MaybeCarrier`/`ResultCarrier`).
+  The combined failure × backpressure semantics is provided by `bounded_pump_try`
+  (`flow.rs`): `Ok` enters the bounded queue (full = blocking backpressure); `Err`
+  short-circuits (not queued) and is counted.
 
 ### 9.3 The Seam for Attaching External Input Sources (IO Events ↔ flow)
 The documentation has declared "IO is physical/carrier-replaceable", but the grounding
@@ -243,18 +253,20 @@ frame-based parsing) is the first implementation use case for this seam.
   replaceable class of input carrier/driver.
 
 ### 9.4 Failure × Backpressure Occurring Simultaneously
-The semantics when the buffer is full and processing fails at the same time are not specified —
-left to converge together once the two above are settled.
+Resolved by `bounded_pump_try`: when the buffer is full and a step fails at the same time,
+the failing value short-circuits (not queued, counted) while successful values keep blocking
+on the full queue — failure and backpressure are orthogonal and each is explicit.
 
 ---
 
 ## 10. Conclusion
 
 > runtime = the `cell_core` **physical-layer implementation use case**: a carrier catalog
-> (Inline/Queue/Channel/Direct/static_path/wire!) + redemption verification, modular and
+> (Inline/Queue/Bounded/spawned_flow/static_path/wire!) + redemption verification, modular and
 > replaceable, explaining and verifying that "the same static graph can be plugged into
 > multiple physical executions (inline/queue/cross-thread), each with verifiable semantic
 > equivalence". Carriers can be attached by implementing the `Carrier` trait without changing
-> the topology, giving the physical layer extensibility; the open questions within its
-> boundaries (backpressure, error pathways, IO seams) have been faithfully recorded as driver
+> the topology, giving the physical layer extensibility; the resolved items (backpressure,
+> failure × backpressure) and the open questions within its boundaries (IO seams,
+> first-class short-circuit carriers) have been faithfully recorded as driver
 > input for subsequent iteration.

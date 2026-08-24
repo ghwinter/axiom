@@ -34,10 +34,10 @@ The core of axiom is not "being able to draw complex diagrams," but rather:
 > ① Product channel (primary definition, provable, non-empirical) — compiled-product isomorphism:
 >    Z(α) ⟹ Compile(⟦α⟧) ≡ Compile(h_α)
 >    Compile is the compiled product (IR / machine code); ≡ is instruction-for-instruction structural
->    isomorphism; and (1) there is no runtime object for α in the compiled product; (3) memory usage
->    is unchanged. Nature: a **relative equality**—we prove "identical to the hand-written equivalent",
->    **not global optimality**. Method (early axiom): parse the product at the Token / IR level and
->    compare item by item against the hand-written baseline.
+>    isomorphism; and (1) there is no runtime object for α in the compiled product; (2) memory usage
+>    is unchanged. Nature: a **relative equality** — "identical to the hand-written equivalent" is
+>    proven, **not global optimality**. Method (early axiom): parse the product at the Token / IR
+>    level and compare item by item against the hand-written baseline.
 >
 > ② Observational channel (evidence / acceptance; the empirical sense is retained):
 >    t(⟦α⟧) = t(h_α) + ε, |ε|/t(h_α) < 0.05
@@ -64,14 +64,14 @@ An open system is a quadruple S = (X_in, X_out, Y, δ), where:
 - Y: internal state space;
 - δ: behavior (state transition/computation).
 
-The definition of an open system is "having boundaries, interacting through ports." A composed system remains an open system (recursively)—"the whole again forms a module" is thereby formalized. At which layer a certain fan-out holds is determined by the observation layer (which layer's composition is regarded as a unit).
+The definition of an open system is "having boundaries, interacting through ports." A composed system remains an open system (recursively)—"the whole again forms a module" is thereby formalized. At which layer a certain fan-out holds is determined by the observation layer (which layer's composition is regarded as a whole port body).
 
 **Definition (Minimal System).** The above open system is axiom's **minimal system** (construction concept 1, "port body / `PortCell`", §8.1): a quadruple $(S,\, I,\, O,\, \delta)$, where $S$ is a state container that survives across activations, $I/O$ are port interfaces for information transfer, and $\delta : S \times I \to S \times O$ is the synchronous transition function (step). A "system" at the abstract plane **is** a composition of minimal systems via wiring $w$ (§4.2 composition closure), i.e., $\mathcal{S} = \bigotimes \mathcal{M}_i$; the composite remains an open system (recursive, see above).
 
 **Boundary 1.0a (System ≠ Function).** Systems and functions are distinguished at the abstract plane by **three boundaries that must not be conflated**:
 
 1. **Lifetime**: the system's lifetime $\ell_\mathcal{S}$ (from creation to active release) ≠ the lifetime $\ell_f$ of a single embodiment (one function call / stack frame). A system can be **activated multiple times**, each activation carried by a different stack frame; a "system / module" is like a **fixed factory** (it has a lifetime, but not a function-concept lifetime). Formalized: $\ell_\mathcal{S} \neq \ell_f$, and under multiple activations $\bigsqcup \ell_{f_k} \not\subseteq \ell_\mathcal{S}$ holds for a single embodiment.
-2. **I/O form**: the system's $I/O$ is **information transfer** (can be buffered, lost, overwritten, reordered, borne by carriers), **strictly more general than** function parameters / return values — the latter is merely the **sub-case** of `Inline` + synchronous (zero transport-step duration, §8.6 item 6). I/O is not function parameters / return values. And **how the value arriving over $I/O$ is interpreted** by the receiver (data / command / observation, FlowKind, §5.8) is an **abstract-layer semantic annotation**, not a physical I/O kind — for one shared location whose bytes are overwritten / read, the physical layer makes **no distinction** among Data/Control/Observe (§2.3 M1 note). A "service request" and a "dataflow input" are the same thing at the physical layer; the difference lies solely in the receiver's semantic interpretation (§5.8).
+2. **I/O form**: the system's $I/O$ is **information transfer** (can be buffered, lost, overwritten, reordered, borne by carriers), **strictly more general than** function parameters / return values — the latter is merely the **sub-case** of `Inline` + synchronous (zero transport-step duration, §8.6 item 6). I/O is not function parameters / return values. And **how the value arriving over $I/O$ is interpreted** by the receiver (data / command / observation, FlowKind, §5.8) is an **abstract-layer semantic annotation**, not a physical I/O kind — for one shared location whose bytes are overwritten / read, the physical layer makes **no distinction** among Data/Control/Observe (§5.8). A "service request" and a "dataflow input" are the same thing at the physical layer; the difference lies solely in the receiver's semantic interpretation (§5.8).
 3. **Degradation relation to functions**: a pure function $f: A \to B$ is a **special case** of a stateless minimal system ($S = \{\bullet\}$, $\delta = \mathrm{const}\circ f$); at the physical plane, a stack frame is the carrier of a single step activation of the system, **not** the system itself (§1.6 instantiation context / host). Therefore "a minimal system is at least a function" **is not a general theorem** — it only holds approximately under the engineering convention of "using functions to launch async code" — and fails in loops + counter-based pseudo-scheduling (no independent function launch, yet logically independent task systems).
 
 **Definition 1.0b (Three states: ontological · degenerate · constructive).** The relation between a system / module and a function is defined precisely through three forms:
@@ -179,13 +179,13 @@ Condensing the axioms of Part 1 into axiom's own axiom set (each with its source
 |---|---|---|
 | **A1 Boundary** | Everything interactable = open system (port body); after composition it remains an open system | W1, W2 |
 | **A2 Shape-Content Separation** | Topological shape and content are independent; the same shape can be filled with different content | W2 |
-| **A3 Wiring-Connection Bipartition** | Wiring (structural plane) is a shape of arbitrary topology; connection instances (value plane) are dynamic channels | S1, S2, B2 |
+| **A3 Wiring-Connection Bipartition** | Wiring (structural plane) is a shape of arbitrary topology; connection instances (value plane) are dynamic channels | S1, S2 |
 | **A4 Two-Plane Separation** | The type plane is static; the instance plane is dynamic; the judgment a:A bridges the two | D1 |
-| **I1 Every Instance Must Be Carried** | Any module instance exists in some host context H, with lifetime following H | I1 |
+| **I1 Every Instance Must Be Carried** | Any module instance exists in some host context H, with lifetime following H | A4 |
 | **A5 Behavioral Substitution** | Substitutability = behavioral observation equivalence | C1 |
 | **A6 Local-Global Consistency** | Local verifications glue into a global one; views and bases do not drift | L1 |
 | **Z1 Zero-Cost Conservation** | Compositions satisfying (structurally static ∧ pure-function inlining ∧ no type erasure) do not charge the physical layer | Axiom 15 formalized |
-| **B2 Wiring-Connection Bipartition** | The structural plane has only wiring (permanent shape declarations); only the value plane has connection instances (transient values) | S1, S2, A3 |
+| **B2 Wiring-Connection Bipartition** | The structural plane has only wiring (permanent shape declarations); only the value plane has connection instances (transient values) | A3 |
 | **V1 Inter-Layer Independence** | The state layer and the instance layer are always dynamic and independent of whether axiom is typed; only the structural/type layer requires "changing code at runtime" | T9 |
 
 ### 2.3 Supplementary Axioms
@@ -404,7 +404,7 @@ Rationale: all-or-nothing would cause compilation explosion; flexibility is nece
 From T6 / §5.4: the runtime intrudes on **instance-layer** details and does not touch the abstraction-layer topology; it is a **replaceable solution library (carrier API) + the realization of physical timing/causality** for "how values flow across connections," and is itself replaceable. A carrier can be plugged in by implementing the `Carrier` trait without changing the topology, giving the physical layer extensibility. See `../en-us/runtime.md`.
 
 ### 5.8 Semantic Annotation: Blueprints Only Declare Abstract Data Flow (FlowKind Is an Optional Abstract-Layer Annotation)
-From §5.4 / T4: the old Data/Control/Observe three-way semantics are **not blueprint construction primitives** (`flow_kind` is optional, `None` = no annotation), but **remain optional abstract-layer semantic annotations** describing how the receiver interprets a value — **not attributes of the physical-layer carrier** (the physical layer treats all values uniformly as value-flowing-through-structure; see `../internal/axiom-conventions.md` §2):
+From §5.4 / T4: the old Data/Control/Observe three-way semantics are **not blueprint construction primitives** (`flow_kind` is optional, `None` = no annotation), but **remain optional abstract-layer semantic annotations** describing how the receiver interprets a value — **not attributes of the physical-layer carrier** (the physical layer treats all values uniformly as value-flowing-through-structure):
 - There is no "dropping" in memory/CPU: Observe is merely the physical layer deciding how much to look at and whether to look at all; a "control" value, an "observe" value, a "data" value are physically **the same thing** — one thread writes bytes to an address, another reads them;
 - Dropping/blocking/synchronous/asynchronous **are all physical-layer choices (transport-step / carrier semantics)**; they are not blueprint semantics.
 - FlowKind, when annotated, carries **materialization preferences** (Observe → suggests non-blocking/Dropping carrier + independent thread; Control → suggests Dropping/Latest) — these are **derivatives of semantics → carrier selection**, not new physical mechanisms.
@@ -433,7 +433,7 @@ Runtime freedom over structure is **parameterized** by "the target interface mus
 - "Absolutely free" for arbitrary programs is impossible (every computation has a physical cost); what axiom commits to is **abstraction adds no extra charge** = the cost of an equivalent hand-written program.
 - Only structures determinable **only at runtime at the structural/type layer** must pay the dynamic tax (the safe-Rust lower bound is explicit; connecting to T7/T9); activity in the state/instance layer never pays a structural tax (connecting to T9).
 - Behavioral equivalence (A5/E5) is the hardest item—if it is not implemented, the documentation is downgraded rather than claimed.
-- **Total-function assumption (known open boundary)**: in the definition of an open system, the transition δ implicitly assumes a **total function**—an input must have an output transition. Correspondingly, axiom's `PortCell::step` is assumed to be a total transition. **"What shape a failing cell (partial function) has, and how failure propagates through composition, is not covered by any axiom or theorem"**—this is a known deviation between the theory and real programs (such as parsing errors), and by current positioning is attributed to the physical `Result` convention (see the open question in `../en-us/runtime.md`).
+- **Total-function assumption (resolved boundary — see §7.5)**: in the definition of an open system, the transition δ implicitly assumes a **total function**—an input must have an output transition. Correspondingly, axiom's `PortCell::step` is assumed to be a total transition. **"What shape a failing cell (partial function) has, and how failure propagates through composition, is not covered by any axiom or theorem"**—this was a deviation between the theory and real programs (such as parsing errors); **§7.5 closes it**: failure is a value in `Out` (`Out = Result`), `step` stays total, and propagation crosses composition via typed combinators (`TryChain` / `drive_try`), superseding the earlier open-question pointer in `../en-us/runtime.md`.
 - **The access seam for external input sources (known open boundary)**: the documentation declares "IO is physically/carrier-replaceable," but the landing interface whereby "the external world (socket events, etc.) formally becomes the in of a causal flow" has not been formalized—see the open question in `../en-us/runtime.md`.
 
 ---
@@ -496,8 +496,10 @@ Runtime freedom over structure is **parameterized** by "the target interface mus
    > permanent open position (§5.9). An inhabitant is a term `a : A` (BHK reading). The older
    > physical metaphors "loadable slot / occupant" are retired as historical aliases; the
    > canonical concept name for runtime's ∃ binder `SlotDrive` is **existential binding**
-   > (Mitchell–Plotkin existential packages). Three-register policy & full glossary:
-   > `../internal/axiom-conventions.md` §12.
+   > (Mitchell–Plotkin existential packages). Three-register policy: canonical concept
+   > name / code name / retired historical alias — the canonical names are listed above;
+   > every other name (unit, module, container, slot, occupant, DirectCarrier,
+   > ChannelCarrier, drive_wired) is a retired historical alias with no normative force.
 5. **Activation (run)**: stepping a defined cell through time (feeding inputs, state evolving,
    causality/timing realized). **Legality / existence** belongs to 2/4 (compile time); **efficacy
    (ordering / causality / timing)** belongs to this concept (runtime).

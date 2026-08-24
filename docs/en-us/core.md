@@ -65,7 +65,8 @@ pub trait PortCell: Sized {
 - A purely abstract layer — it does **not** incorporate threading/synchronization/backpressure/
   timing; those are the concern of the physical carrier (T3 / §5.4).
 
-**Naming ladder & scale neutrality** (authoritative copy of conventions §12):
+**Naming ladder & scale neutrality** (the canonical register; the normative copy lives in
+`foundations.md` §8.1):
 
 ```text
 Math anchor:   open system / minimal system (S, I, O, δ), Mealy coalgebra  ← proofs
@@ -135,6 +136,10 @@ again (at arbitrary depth) — the closure of concept 3 (composition closure) in
   forming a causal closure. The abstraction layer **only declares the existence of the loop**
   (causal closure, T3); whether the loop is well-defined and whether buffering is needed is
   the physical carrier's concern (Kahn channels ⟹ loop safety; inlining ⟹ Moore required).
+  **C2 ruling**: the cell form fixes exactly one inline-unbuffered loop iteration
+  (`BODY -> FEED -> BODY`, two ticks) per external input — an explicit abstract-layer choice;
+  buffered/other tickings are physical (runtime `drive_feedback_inline`, Moore-gated); the
+  unbuffered correctness assumes `FEED` is state-only (Moore; declaration, not proof).
 
 ### 2.5 `Static` / `Blueprint` (Staticness Declaration + Blueprint-as-Type)
 
@@ -308,7 +313,7 @@ never a sixth concept:
 
 ```text
 cargo build --lib        # zero dependency, no_std support (--no-default-features)
-cargo test --lib         # 9 tests
+cargo test               # 21 lib + 5 closed_boundary + 6 blueprint (topology_blueprint.rs) tests
 cargo bench --bench chain   # static ≈ hand-written (zero-cost proof)
 cargo bench --bench dag     # diamond zero-cost proof (Δ(composite−handwritten) ≈ ±1%, within noise floor)
 ```

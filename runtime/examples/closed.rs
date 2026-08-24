@@ -5,7 +5,7 @@
 //! - **失败为值 + `TryChain` 短路（概念 1）**：`Out=Result`，任一 `Err` 即停、不执行后续；
 //! - **同一张图多物理等价（T6）**：同一 `Chain<Double,Triple>` 用 `drive_seq`(内联/同步)
 //!   与 `bounded_pump`(跨线程/有界) 各跑一遍 → 输出逐位一致；
-//! - **未来内容（概念 4 的 ∃ 侧）**：`SlotDrive<i32,i32>` 运行期安装/换装合规占据者。
+//! - **未来内容（概念 4 的 ∃ 侧）**：`SlotDrive<i32,i32>` 运行期安装/换装合规居留项。
 //!
 //! 全程 zero-cost 静态路径（`Chain` 等单态化）、`#![forbid(unsafe_code)]`、no_std 核心。
 //!
@@ -96,12 +96,12 @@ fn main() {
     assert_eq!(inline_out, outs, "T6：同图不同物理实现须语义等价");
     println!("3. T6：内联/同步 {inline_out:?} == 跨线程/有界 {outs:?}（语义等价 ✓）");
 
-    // ── 4. 未来内容（概念 4 的 ∃ 侧）：运行期安装/换装合规占据者 ──
+    // ── 4. 未来内容（概念 4 的 ∃ 侧）：运行期安装/换装合规居留项 ──
     let mut slot: SlotDrive<i32, i32> = SlotDrive::install::<Double>(());
     let a = slot.drive(5); // Double: 10
     slot.swap::<Triple>(());
     let b = slot.drive(5); // Triple: 15
-    // Slot<i32,i32> 的合规由统一 Conforms 编译期判定（占据者须 In=i32,Out=i32）。
+    // Slot<i32,i32> 的合规由统一 Conforms 编译期判定（居留项须 In=i32,Out=i32）。
     let _: bool = <Double as Conforms<Slot<i32, i32>>>::OK;
     println!("4. 未来内容：SlotDrive 安装 Double(5)->{a}，换装 Triple(5)->{b}（∃ 选择，Conforms 保证合规）");
 

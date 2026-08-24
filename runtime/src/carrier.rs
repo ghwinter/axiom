@@ -68,14 +68,15 @@ where
     }
 }
 
-/// 队列载体：把 `A` 的输出经一个 FIFO 队列中转后流入 `B`。
+/// 队列载体（类型擦除传递的**演示形态**）：把 `A` 的输出经一次装箱/解包流入 `B`。
 ///
-/// 每次传输 = 一次 `Box<dyn Any>` 堆分配（类型擦除的物理代价）+ 队列 push/pop。
-/// 体现"不同时空成本 = 不同载体"：总线放（Inline）→ 零分配；队列中转 → 每消息分配。
-/// 真正的跨线程调度是运行时驱动（`flow` 模块）的职责，本载体聚焦"队列中转"的物理形态。
+/// 每次传递 = 一次 `Box<dyn Any>` 堆分配 + downcast（类型擦除的物理代价）。
+/// **本形态不是真实 FIFO 缓冲**：装箱立即解包，无跨步延迟/重排——它演示的是
+/// "队列/类型擦除"的成本形态（每消息分配）。真实的有界阻塞背压由 [`BoundedCarrier`]
+/// 与 [`bounded_pump`](crate::flow::bounded_pump) 承载；跨线程调度由 [`spawned_flow`] 承载。
 ///
 /// 需要 `std`（`Box<dyn Any>` downcast）。`no_std` 构建下仅有 Inline 零分配载体
-/// （Direct 已并入 Inline；跨线程经 [`spawned_flow`]）。
+/// （Direct 已并入 Inline）。
 #[cfg(feature = "std")]
 pub struct QueueCarrier;
 
@@ -94,8 +95,8 @@ where
     fn flow(sa: &mut A::State, sb: &mut B::State, input: A::In) -> B::Out {
         // ① A 产出输出。
         let mid = A::step(sa, input);
-        // ② 经队列中转：装箱（每消息堆分配）→ 立即出队解包。
-        //   （演示"队列/类型擦除"的物理形态；真实异步队列由 flow 驱动管理。）
+        // ② 类型擦除传递：装箱（每消息堆分配）→ 立即解包（**非真实 FIFO 缓冲**）。
+        //   （演示"队列/类型擦除"的成本形态；真实有界背压见 BoundedCarrier/bounded_pump。）
         let boxed: Box<dyn core::any::Any + Send> = Box::new(mid);
         let unboxed: Box<A::Out> = boxed
             .downcast::<A::Out>()
@@ -150,8 +151,8 @@ where
 /// （无法跨线程借用），故跨线程形态由本独立入口提供——"线程是物理层"（T9/T3）。
 /// 真正需要常驻工作线程/流式 worker 时，可在载体目录扩展本形态。
 ///
-/// **终止性保证（panic 传播）**：若工作线程内 `B::step` panic，panic 载荷经回执通道
-/// 传回，调用线程在 `recv` 后立即 `resume_unwind`——不会永久阻塞、panic 不丢失。
+/// **终止性保证（panic 传播）**：若工作线程内 `init_b` 或 `B::step` panic，panic 载荷经回执
+/// 通道传回，调用线程立即 `resume_unwind`——不会永久阻塞、panics 不丢失、原载荷保留。
 #[cfg(feature = "std")]
 pub fn spawned_flow<A, B>(
     sa: &mut A::State,
@@ -182,8 +183,8 @@ where
 
     // ③ 工作线程持有 B::State，收到输入即执行 B::step；panic 被捕获并回传。
     let worker = std::thread::spawn(move || {
-        let mut sb = init_b();
         let reply = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut sb = init_b();
             let v = rx.recv().expect("input channel alive");
             B::step(&mut sb, v)
         }));
