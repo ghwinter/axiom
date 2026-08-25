@@ -317,6 +317,12 @@ satisfying associativity, identity, and symmetry:
 **Shape-Content**
 S(c) = the shape projection (port-connection structure), V(c) = the content projection (the concrete system of each port body).
 > c₁ ≅ c₂ (structural isomorphism) ⟺ S(c₁) ≅ S(c₂) ∧ V is equivalent port by port
+>
+> **Degradation clause (T5 anchor)**: "equivalent port by port" here means **T5
+> behavioral equivalence (bisimulation)**, not syntactic identity—structural
+> isomorphism ⊬ behavioral equivalence and vice versa. The syntax-level
+> approximation that *is* checkable is structural equivalence only (the C8
+> e-graph domain); it must never be presented as a behavioral verdict.
 
 ### 4.3 Type-Term and Zero-Cost
 

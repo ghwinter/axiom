@@ -90,6 +90,11 @@ pub mod mailbox;
 #[cfg(feature = "std")]
 pub mod event;
 
+/// 异步接缝（D2 executor 契约第一层）：可轮询单元（Poll/Poller/poll_until
+/// 期限探测）。Stability: **experimental**。
+#[cfg(feature = "std")]
+pub mod async_seam;
+
 /// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。Stability: **stable**。
 pub mod flow;
 
@@ -131,6 +136,8 @@ pub mod prelude_all {
     pub use crate::event::{
         ChunkSource, EventPumpStats, EventStream, PushVerdict, pump_events, split_lines,
     };
+    #[cfg(feature = "std")]
+    pub use crate::async_seam::{Poll, PollResult, Poller};
     pub use crate::obligation::{
         DeliveryKind, LedgerEntry, LifecycleKind, Modality, ObligationClass, ReferenceKind, LEDGER,
     };

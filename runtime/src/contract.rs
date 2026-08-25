@@ -60,6 +60,16 @@ pub enum ContractError {
     },
     /// A bounded seam was configured with capacity 0 (rendezvous, not backpressure).
     ZeroCapacity,
+    /// The carrier's obligation class falls short of the profile's obligation
+    /// minimum on some axis (modality ③; C10 step 2).
+    ObligationUnderMet {
+        /// The violated axis ("resource" or "delivery").
+        axis: &'static str,
+        /// Obligation declared by the carrier (`Carrier::obligation`).
+        declared: crate::obligation::ObligationClass,
+        /// Minimum required by the profile (`Profile::obligation_min`).
+        minimum: crate::obligation::ObligationClass,
+    },
 }
 
 impl core::fmt::Display for ContractError {
@@ -71,6 +81,14 @@ impl core::fmt::Display for ContractError {
             ContractError::ZeroCapacity => {
                 write!(f, "bounded seam requires capacity >= 1; 0 means rendezvous, not backpressure")
             }
+            ContractError::ObligationUnderMet {
+                axis,
+                declared,
+                minimum,
+            } => write!(
+                f,
+                "carrier obligation {declared:?} under-mets profile minimum {minimum:?} on axis {axis}"
+            ),
         }
     }
 }
@@ -143,6 +161,30 @@ where
 {
     validate_cost::<A, B, C>(budget)?;
     validate_capacity::<CAP>()
+}
+
+/// Obligation-minimum conformance (**modality ③**; C10 step 2): the carrier's
+/// declared obligation class must be no weaker than the profile's obligation
+/// minimum, axis by axis (resource declared ≤ minimum; delivery declared
+/// ≥ minimum per the `DeliveryKind` strength order `NotApplicable <
+/// MechanizedFullClosed`; reference/lifecycle axes not yet judged — they are
+/// kept as declarations without fabrication).
+///
+/// This turns `Profile::obligation_min` from a placeholder into an enforceable
+/// assembly gate: the same topology assembled under a different profile changes
+/// not only the cost budget but the obligation floor (T6, obligations included).
+pub fn validate_obligation_min(
+    declared: crate::obligation::ObligationClass,
+    minimum: crate::obligation::ObligationClass,
+) -> Result<(), ContractError> {
+    match declared.meets_min(&minimum) {
+        Ok(()) => Ok(()),
+        Err(axis) => Err(ContractError::ObligationUnderMet {
+            axis,
+            declared,
+            minimum,
+        }),
+    }
 }
 
 #[cfg(all(test, feature = "std"))]

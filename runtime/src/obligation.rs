@@ -101,8 +101,26 @@ pub enum Modality {
 /// 投递态轴的机械化程度（delivery.rs 的模态声明）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryKind {
+    /// 投递态不适用（同步直通/无缓冲/无背压的接缝：投递要么发生要么不发生）。
+    NotApplicable,
     /// Full/Closed 已机械化（②③），Timeout/Cancelled 声明（④）。
     MechanizedFullClosed,
+}
+
+impl DeliveryKind {
+    /// 投递态义务的强度偏序：`NotApplicable < MechanizedFullClosed`。
+    /// 下限为 N/A 时任何载体都满足（更强的能力不违规）；下限为机械化时
+    /// 直通接缝（N/A）不满足——服务形式的投递接缝必须机械化 Full/Closed。
+    pub fn is_at_least(self, minimum: DeliveryKind) -> bool {
+        matches!(
+            (minimum, self),
+            (DeliveryKind::NotApplicable, _)
+                | (
+                    DeliveryKind::MechanizedFullClosed,
+                    DeliveryKind::MechanizedFullClosed
+                )
+        )
+    }
 }
 
 /// 引用有效轴。
@@ -142,8 +160,9 @@ pub struct ObligationClass {
 impl Default for ObligationClass {
     fn default() -> Self {
         ObligationClass {
-            delivery: DeliveryKind::MechanizedFullClosed,
-            resource: CarrierCost::External, // 保守默认：未声明不视为零分配
+            // 保守默认（fail-closed）：未声明不视为已机械化投递态、不视为零分配。
+            delivery: DeliveryKind::NotApplicable,
+            resource: CarrierCost::External,
             reference: ReferenceKind::None,
             lifecycle: LifecycleKind::Unlicensed,
         }
@@ -154,6 +173,21 @@ impl ObligationClass {
     /// 该义务类是否满足给定成本预算（declared ≤ budget；模态③ 判定主体）。
     pub fn satisfies_budget(&self, budget: CarrierCost) -> bool {
         self.resource <= budget
+    }
+
+    /// 义务下限满足度（模态③ 判定主体）：载体的义务声明不弱于剖面下限，逐轴：
+    /// 资源声明 ≤ 下限（更省不违规）、投递态声明 ≥ 下限（更强不违规）。
+    ///
+    /// 引用有效/生命周期轴本阶段**不参与校验**——保留声明、不予判定（A5 诚实：
+    /// 未机械化的轴不得伪造判定；参与待账本第三阶段）。
+    pub fn meets_min(&self, minimum: &ObligationClass) -> Result<(), &'static str> {
+        if !self.satisfies_budget(minimum.resource) {
+            return Err("resource");
+        }
+        if !self.delivery.is_at_least(minimum.delivery) {
+            return Err("delivery");
+        }
+        Ok(())
     }
 }
 
@@ -229,11 +263,32 @@ pub const LEDGER: &[LedgerEntry] = &[
     },
     LedgerEntry {
         seam: "profile::assemble_profile",
-        obligation: "载体成本 ≤ 剖面预算（kernel=零分配 / service=每消息 / tool=外部）",
+        obligation: "双校验（模态③）：载体成本 ≤ 剖面预算 且 载体义务不弱于剖面义务下限（C10 step 2；资源轴声明 ≤ 下限、投递态轴声明 ≥ 下限）",
         modality: Modality::DeploymentValidation,
-        witness: "contract::validate_cost",
-        conformance: "profile.rs: kernel_profile_rejects_per_message_carriers",
-        probe: || crate::profile::assemble_profile::<crate::profile::ToolProfile, ProbeInc, ProbeTriple, crate::carrier::InlineCarrier>().is_ok(),
+        witness: "contract::validate_cost / contract::validate_obligation_min",
+        conformance: "profile.rs: kernel_profile_rejects_per_message_carriers / service_profile_accepts_per_message_carriers_but_not_unmechanized_delivery / obligation_min_splits_profiles",
+        probe: || {
+            let tool_ok = crate::profile::assemble_profile::<
+                crate::profile::ToolProfile,
+                ProbeInc,
+                ProbeTriple,
+                crate::carrier::InlineCarrier,
+            >()
+            .is_ok();
+            let service_rejects_inline = matches!(
+                crate::profile::assemble_profile::<
+                    crate::profile::ServiceProfile,
+                    ProbeInc,
+                    ProbeTriple,
+                    crate::carrier::InlineCarrier,
+                >(),
+                Err(crate::contract::ContractError::ObligationUnderMet {
+                    axis: "delivery",
+                    ..
+                })
+            );
+            tool_ok && service_rejects_inline
+        },
     },
 
     LedgerEntry {
@@ -300,6 +355,20 @@ pub const LEDGER_STD_EXTRA: &[LedgerEntry] = &[
                 |_outcome| crate::event::PushVerdict::Delivered,
             );
             stats.delivered == 3 && stats.total() == 3 && stats.dropped == 0
+        },
+    },
+    LedgerEntry {
+        seam: "slot::SlotDrive::swap_and_drain",
+        obligation: "换装强制处置旧状态（C5 在途值归属）：静默丢弃在类型上不可能（回调必须存在）；代递增（陈旧 Seat 拒绝）",
+        modality: Modality::DeploymentValidation,
+        witness: "slot::SlotDrive::swap_and_drain (core::mem::replace)",
+        conformance: "slot.rs: swap_and_drain_reclaims_inflight_to_closed / swap_and_drain_reports_clean_when_no_inflight / swap_and_drain_delegates_disposition_to_caller",
+        probe: || {
+            let mut live = crate::slot::SlotPending::<i32, i32>::install::<crate::obligation::ProbeInc>(()).commit();
+            let g = live.generation();
+            let _ = live.drive(1);
+            let ok = live.swap_and_drain::<crate::obligation::ProbeTriple, bool>((), |_old| true);
+            ok && live.generation() == g + 1
         },
     },
     LedgerEntry {

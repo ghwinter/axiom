@@ -4,8 +4,11 @@
 # - `cargo bench`: release-only evidence; benches self-skip under debug and
 #   timing gates are flaky on shared runners. Run `cargo bench` manually when
 #   a zero-cost claim needs re-evidence.
-# - `evidence/run.sh|ps1`: the probe corpus still contains old-era (v0 API)
-#   contracts; wire it in only after the probes are triaged against cell_core.
+# - `evidence/run.sh|ps1`: probe corpus TRIAGED (2026-08, see evidence/README.md
+#   "分诊"); survivors E100/R001/R002 are carried by the no_std build, the
+#   topology determinism test, and the dynamic_tax bench respectively; the
+#   rest reference the removed v0 API and stay archived (gitignored). No
+#   standalone probe script is wired in.
 
 name: ci
 

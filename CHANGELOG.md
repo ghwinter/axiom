@@ -38,6 +38,35 @@ expressed by incrementing the minor version).
   (boundary-ontology Prop. 2.7). `redis_like`'s `handle_conn` is now driven by
   the class (selftest byte-identical). Ledger row `event::pump_events` in
   `LEDGER_STD_EXTRA` (modality ③).
+- **Async-seam first layer** (C7, `runtime/src/async_seam.rs`, std): the D2
+  executor-contract skeleton — `Poll`/`Poller` wrap a synchronous cell
+  ("step never awaits"); two of the three waiting points are probed in the
+  sync domain: input arrival and deadline (`poll_until` → `TimedOut`). Honest
+  boundary: `TimedOut` is a sync-poll-domain deadline verdict, not
+  `Delivery::Timeout`'s modality-④ semantics; degenerate deadlines refused
+  (Prop. 2.7). Layer 2 (backpressure carrier, EX future/waker, SlotDrive
+  co-wiring) pending.
+- **Behavioral-equivalence guard** (C8-2, `runtime/tests/behavioral_equivalence.rs`):
+  structural isomorphism ⊬ behavioral equivalence — minimal counterexample
+  search separates shape-identical cells with different behavior on a sampled
+  domain; expected-equivalent composites agree on the same domain (the
+  verifiable fragment of T6, modality ③ sampling, A5 scope note). C8-3:
+  foundations §4.2 "per-port equivalent" anchored to T5 bisimulation
+  (en/zh degradation clause added).
+- **Scale evidence** (C12, `runtime/tests/scale.rs`): 64-cell blueprints
+  (flat `Rep<64, Inc>`, nested `Rep<8, Rep<8, Inc>>`, and a hybrid
+  scheduler-row + deterministic-island + tail-row form) compose, drive to
+  closed forms, stay zero-sized, and prove scale recursion is semantic
+  identity (nested 8×8 == flat 64; subsystem = same-scale cell, note 9.9).
+  T1 wiring legality and typed-hole conformance asserted across the seams.
+- **Hot-swap in-flight disposition** (C5, `slot.rs`): `SlotDrive::swap_and_drain`
+  forces explicit disposition of the old inhabitant's state (in-flight work),
+  making silent discarding type-impossible; `Drainable` declares a state type
+  that may hold in-flight work and yields it as a value (`drain_pending`).
+  `swap` remains the assert-no-in-flight form (deployer responsibility, A5);
+  generations still bump (stale `Seat` rejection). The concurrent shared-variant
+  quiesce protocol is deferred to that form's landing. Ledger row
+  `slot::SlotDrive::swap_and_drain` (modality ③).
 - **Carrier obligation declarations** (C10 step 1): `Carrier::obligation()`
   added — fail-closed default (`External`), truthful overrides for
   `InlineCarrier` (`ZeroAllocInline`) and queue/bounded carriers
@@ -45,6 +74,17 @@ expressed by incrementing the minor version).
   added (zero-alloc steady-state budget). `Profile::obligation_min` remains an
   inert placeholder by honest declaration until the delivery axis grows an
   N/A variant — no fake enforcement.
+- **Obligation floors enforced** (C10 step 2): `DeliveryKind` gains
+  `NotApplicable` (sync pass-through seams) with the strength order
+  `NotApplicable < MechanizedFullClosed`; `ObligationClass::meets_min` judges
+  resource (declared ≤ floor) and delivery (declared ≥ floor) axes; the
+  fail-closed default now claims no delivery mechanization. `Profile::obligation_min`
+  is differentiated per profile (Kernel/Embedded = zero-alloc + N/A delivery,
+  Service = per-message + mechanized Full/Closed, Tool = no floor) and enforced
+  at `assemble_profile` via `contract::validate_obligation_min` (modality ③):
+  a service seam assembled with a pass-through Inline carrier is now rejected
+  (`ObligationUnderMet { axis: "delivery" }`) — obligations follow the profile,
+  not just the cost budget (T6). Reference/lifecycle axes stay unjudged (A5).
 - **Doc drift gate** (`runtime/tests/docgate.rs`, CI step "Docgate"): every
   ```rust fence in the formal docs is compiled against the current API;
   `rust,ignore` fences and `tmp/docgate-ignore.txt` entries are skipped.

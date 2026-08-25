@@ -9,32 +9,40 @@
 //! 装配点按模态③ 校验（[`assemble_profile`]）。白名单因此是规范文档（S/L 构件），
 //! 预算是可执行投影（T 构件）。
 //!
-//! **待办（义务账本第二阶段）**：`obligation_min()` 目前三剖面同返保守默认，下限轴仅立
-//! API 未分化。预期演化：`ServiceProfile` 收紧 `delivery = 机械化 Full/Closed` 下限、
-//! `KernelProfile` 收紧 zero-alloc 资源下限、`ToolProfile` 保持外松；届时随义务账本
-//! 扩行为各剖面配下限校验（模态③）。此为前提言，非承诺。
+//! **义务下限（C10 step 2，已启用）**：`obligation_min()` 已按剖面分化并经
+//! [`contract::validate_obligation_min`](crate::contract::validate_obligation_min)
+//! 在装配点强制（模态③）——载体的义务声明不得弱于剖面下限：
+//! - **资源轴**：声明 ≤ 下限（更省不违规）；Kernel/Embedded 下限零分配，
+//!   Service 下限每消息，Tool 无资源下限。
+//! - **投递态轴**（强度序 `NotApplicable < MechanizedFullClosed`，见
+//!   [`DeliveryKind::is_at_least`](crate::obligation::DeliveryKind::is_at_least)）：
+//!   Service 下限机械化 Full/Closed（直通接缝 N/A 不满足——服务投递接缝必须
+//!   机械化）；Kernel/Embedded/Tool 无投递态下限（任何声明均满足）。
+//! - **引用有效/生命周期轴**：本阶段不参与校验（保留声明、不予判定，A5 诚实；
+//!   参与待义务账本第三阶段）。
 //!
 //! 剖面（meta 命题 7.1 的实例表）：
 //! - **[`KernelProfile`]**：内核形式。白名单 InlineCarrier、BoundedCarrier（有门）；
 //!   预算 ZeroAllocInline（零分配义务）；无超时义务（Timeout/Cancelled 保持④ 声明）。
 //! - **[`ServiceProfile`]**：服务形式。白名单 BoundedCarrier、BoundedMailbox、spawned_flow；
-//!   预算 PerMessageAlloc；Full/Closed 机械化（delivery.rs）。
-//! - **[`ToolProfile`]**：工具形式。默认 InlineCarrier；预算 External（fail-closed 默认）。
+//!   预算 PerMessageAlloc；Full/Closed 机械化下限（delivery.rs）。
+//! - **[`ToolProfile`]**：工具形式。默认 InlineCarrier；预算 External；无义务下限。
+//! - **[`EmbeddedProfile`]**：嵌入式形式（no_std）。预算 ZeroAllocInline（稳态每消息）；
 
 use axiom::cell_core::PortCell;
 
 use crate::carrier::{Carrier, CarrierCost};
 use crate::contract::ContractError;
 use crate::flow::{Driver, drive_link};
-use crate::obligation::ObligationClass;
+use crate::obligation::{DeliveryKind, ObligationClass};
 
 /// 剖面令牌（模态①）：声明"本系统按哪个软件形式的分域承诺装配"。
 pub trait Profile {
     /// 成本预算（经验-D：界 + 装配校验）。
     fn cost_budget() -> CarrierCost;
-    /// 义务类下限（逻辑-D：装配点的义务不弱于该下限）。
-    /// **占位声明（A5 诚实）**：接缝侧义务声明机制尚待 DeliveryKind 语义扩充（N/A 变体），
-    /// 当前三/四剖面同返 default——本字段不参与校验，仅作 API 预留；启用前不得伪造判定。
+    /// 义务类下限（逻辑-D：装配点的义务不弱于该下限；模态③ 于 [`assemble_profile`]
+    /// 校验）。已按剖面分化（C10 step 2）：资源轴声明 ≤ 下限、投递态轴声明 ≥ 下限；
+    /// 引用/生命周期轴保持声明、不予判定（A5 诚实）。
     fn obligation_min() -> ObligationClass;
 }
 
@@ -45,7 +53,11 @@ impl Profile for KernelProfile {
         CarrierCost::ZeroAllocInline
     }
     fn obligation_min() -> ObligationClass {
-        ObligationClass::default()
+        ObligationClass {
+            delivery: DeliveryKind::NotApplicable, // 内核接缝同步直通：无投递态义务
+            resource: CarrierCost::ZeroAllocInline, // 零分配为义务下限
+            ..ObligationClass::default()
+        }
     }
 }
 
@@ -56,18 +68,22 @@ impl Profile for ServiceProfile {
         CarrierCost::PerMessageAlloc
     }
     fn obligation_min() -> ObligationClass {
-        ObligationClass::default()
+        ObligationClass {
+            delivery: DeliveryKind::MechanizedFullClosed, // 服务投递接缝必须机械化 Full/Closed
+            resource: CarrierCost::PerMessageAlloc,
+            ..ObligationClass::default()
+        }
     }
 }
 
-/// 工具形式剖面（F = tool/CLI）。
+/// 工具形式剖面（F = tool/CLI）：无义务下限（外松全集）。
 pub struct ToolProfile;
 impl Profile for ToolProfile {
     fn cost_budget() -> CarrierCost {
         CarrierCost::External
     }
     fn obligation_min() -> ObligationClass {
-        ObligationClass::default()
+        ObligationClass::default() // N/A + External + 无引用/生命周期承诺
     }
 }
 
@@ -80,12 +96,17 @@ impl Profile for EmbeddedProfile {
         CarrierCost::ZeroAllocInline
     }
     fn obligation_min() -> ObligationClass {
-        ObligationClass::default()
+        ObligationClass {
+            delivery: DeliveryKind::NotApplicable, // 单线程直通存储：无投递态义务
+            resource: CarrierCost::ZeroAllocInline,
+            ..ObligationClass::default()
+        }
     }
 }
 
-/// 按剖面装配（模态③）：载体成本 ≤ 剖面预算，越界 = 装配失败；返回 [`drive_link`]
-/// 函数指针（热路径零税）。同一 `A`/`B` 拓扑换剖面 = 换预算门，不改拓扑（T6）。
+/// 按剖面装配（模态③）：载体成本 ≤ 剖面预算 **且** 载体义务不弱于剖面义务下限，
+/// 越界 = 装配失败；返回 [`drive_link`] 函数指针（热路径零税）。同一 `A`/`B` 拓扑
+/// 换剖面 = 换预算门 + 换义务下限，不改拓扑（T6：义务随剖面变化，语义一致）。
 pub fn assemble_profile<P, A, B, C>() -> Result<Driver<A, B>, ContractError>
 where
     P: Profile,
@@ -94,6 +115,8 @@ where
     C: Carrier<A, B>,
 {
     crate::contract::validate_cost::<A, B, C>(P::cost_budget())?;
+    // C10 step 2：义务下限（模态③）——从占位转为可强制的装配门。
+    crate::contract::validate_obligation_min(C::obligation(), P::obligation_min())?;
     Ok(drive_link::<A, B, C>)
 }
 
@@ -125,7 +148,7 @@ mod tests {
 
     #[test]
     fn kernel_profile_rejects_per_message_carriers() {
-        // 内核剖面：零分配预算 → Queue（PerMessageAlloc）装配失败。
+        // 内核剖面：零分配预算 → Queue（PerMessageAlloc）装配失败（成本违约）。
         let link = assemble_profile::<KernelProfile, Inc, Double, InlineCarrier>();
         assert!(link.is_ok());
         let rejected =
@@ -134,10 +157,42 @@ mod tests {
     }
 
     #[test]
-    fn service_profile_accepts_per_message_carriers() {
-        // 服务剖面：PerMessageAlloc 预算 → Queue 通过；Inline 亦通过（预算宽松）。
+    fn service_profile_accepts_per_message_carriers_but_not_unmechanized_delivery() {
+        // 服务剖面：预算 PerMessageAlloc + 投递态机械化下限（C10 step 2）→ Queue 通过；
+        // Inline（同步直通、投递态 N/A）不满足机械化下限 → 义务违约拒绝
+        // （服务投递接缝必须机械化 Full/Closed，直通属内核式义务）。
         assert!(assemble_profile::<ServiceProfile, Inc, Double, QueueCarrier>().is_ok());
-        assert!(assemble_profile::<ServiceProfile, Inc, Double, InlineCarrier>().is_ok());
+        assert!(matches!(
+            assemble_profile::<ServiceProfile, Inc, Double, InlineCarrier>(),
+            Err(ContractError::ObligationUnderMet { axis: "delivery", .. })
+        ));
+    }
+
+    #[test]
+    fn obligation_min_splits_profiles() {
+        // C10 step 2：义务下限按剖面分化——Service 投递态机械化下限、
+        // Kernel/Embedded 零分配资源下限、Tool 外松无下限。
+        assert_eq!(
+            ServiceProfile::obligation_min().delivery,
+            DeliveryKind::MechanizedFullClosed,
+            "服务剖面要求投递态机械化"
+        );
+        assert_eq!(
+            KernelProfile::obligation_min().resource,
+            CarrierCost::ZeroAllocInline
+        );
+        assert_eq!(
+            EmbeddedProfile::obligation_min().resource,
+            CarrierCost::ZeroAllocInline
+        );
+        assert_eq!(
+            ToolProfile::obligation_min().resource,
+            CarrierCost::External,
+            "工具剖面无资源义务下限"
+        );
+        // Tool 外松：任何载体义务都满足下限（Inline 与 Queue 均通过）。
+        assert!(assemble_profile::<ToolProfile, Inc, Double, InlineCarrier>().is_ok());
+        assert!(assemble_profile::<ToolProfile, Inc, Double, QueueCarrier>().is_ok());
     }
 
     #[test]

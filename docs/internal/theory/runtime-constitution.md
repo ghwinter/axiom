@@ -60,7 +60,7 @@ runtime/src/
 4. ✅ 事件层：event.rs（EventStream/ChunkSource/split_lines/pump_events 载体类）+ redis_like 实例化（server.rs 已改由 pump_events 驱动；§9.3 收口）。
 5. ✅ 短路载体：ResultCarrier/MaybeCarrier（§9.2 收账）。
 6. ✅ 示例健壮性：netpath/mmо Result-ify。
-7. ⏳ 终验：tests / no_std / clippy 全绿 + runtime.md en/zh 同步（CI 已配置；本地闭环待定）。
+7. ✅ 终验：tests / no_std / clippy 全绿 + runtime.md en/zh 同步（本地闭环通过：顶层 32 + runtime 59 测试、benches 编译、no_std 双 crate、clippy `-D warnings` 双 crate、docgate 门、en/zh §9.3 同步，全部零发现项）。
 
 每步过 §8.3 封闭判据（无第六概念）：义务类=概念1 失败为值的展开；生命周期=概念4 型位的实现；邮箱/事件=概念5 物理载体的实例；账本=契约（§8.4 物理层义务）。
 
@@ -74,7 +74,7 @@ runtime/src/
 
 **三处边界（非冲突，已声明）**：
 
-1. **同步 flow 签名 vs 真异步库**：`drive_link` 等为同步驱动；真异步库（async 生态）经桥接或未来异步接缝接入，义务层（L/C）保持兼容，拓扑不变。
+1. **同步 flow 签名 vs 真异步库**：`drive_link` 等为同步驱动；真异步库（async 生态）经异步接缝接入（`AsyncCarrier`，D2 已拍板，见 [async-seam.md](../async-seam.md)——设计文书，正式化时移入 docs/），义务层（L/C）保持兼容，拓扑不变。
 2. **自研原语 vs 成熟通道库**：`mailbox`/`BoundedQueue` 自研原语与成熟通道库等价竞争——库 = 一个实现 S 的 Carrier + 义务声明（六元组化）；替换不改变链拓扑（T6 等价类）。
 3. **剖面预算 vs 库自由**：`assemble_profile` 施加预算门（Kernel/Service/Tool）；预算约束的是声明，不是机制——库在 ToolProfile 下宽松、在 KernelProfile 下被义务 ②③ 见证，语义不变。
 
