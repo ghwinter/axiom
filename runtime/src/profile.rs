@@ -33,6 +33,8 @@ pub trait Profile {
     /// 成本预算（经验-D：界 + 装配校验）。
     fn cost_budget() -> CarrierCost;
     /// 义务类下限（逻辑-D：装配点的义务不弱于该下限）。
+    /// **占位声明（A5 诚实）**：接缝侧义务声明机制尚待 DeliveryKind 语义扩充（N/A 变体），
+    /// 当前三/四剖面同返 default——本字段不参与校验，仅作 API 预留；启用前不得伪造判定。
     fn obligation_min() -> ObligationClass;
 }
 
@@ -63,6 +65,19 @@ pub struct ToolProfile;
 impl Profile for ToolProfile {
     fn cost_budget() -> CarrierCost {
         CarrierCost::External
+    }
+    fn obligation_min() -> ObligationClass {
+        ObligationClass::default()
+    }
+}
+
+/// 嵌入式形式剖面（F = embedded/no_std）：预算零分配（稳态每消息），
+/// 白名单 InlineCarrier ＋ [`crate::ring::BoundedRing`] 存储原语
+/// （构造期一次预留，稳态零分配；跨线程变体待 D4 关键节选型）。
+pub struct EmbeddedProfile;
+impl Profile for EmbeddedProfile {
+    fn cost_budget() -> CarrierCost {
+        CarrierCost::ZeroAllocInline
     }
     fn obligation_min() -> ObligationClass {
         ObligationClass::default()

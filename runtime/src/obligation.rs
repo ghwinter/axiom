@@ -244,7 +244,24 @@ pub const LEDGER: &[LedgerEntry] = &[
         conformance: "mailbox.rs: capacity_semantics_include_per_producer_slots",
         probe: || { crate::contract::assert_capacity_nonzero::<8>(); true },
     },
-
+    LedgerEntry {
+        seam: "ring::BoundedRing",
+        obligation: "容量 CAP ≥ 1（模态②门）＋ 计数配对律（N 次成功 push ⟹ 恰 N 次可得 pop）",
+        modality: Modality::ConstantWitness,
+        witness: "contract::assert_capacity_nonzero",
+        conformance: "ring.rs: counter_wraparound_cap3 / long_run_counter_law_via_pairlaw_shape",
+        probe: || {
+            let mut r = crate::ring::BoundedRing::<i32, 2>::new();
+            let mut pushes = 0u64;
+            let mut pops = 0u64;
+            for i in 0..8i32 {
+                if r.push(i).is_ok() { pushes += 1; }
+                if r.pop().is_ok() { pops += 1; }
+            }
+            assert_eq!(pops, pushes);
+            true
+        },
+    },
 ];
 
 

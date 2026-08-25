@@ -21,6 +21,19 @@ expressed by incrementing the minor version).
   build (modality ①); a false probe fails tests (modality ③). Std-gated rows
   (`law`, `delivery`) live in `LEDGER_STD_EXTRA`; no_std builds carry the core
   rows only (`ledger_rows()`).
+- **no_std bounded ring** (`runtime/src/ring.rs`): `BoundedRing<T, CAP>` —
+  LiteOS-style dual-counter FIFO (O(1) push/pop, branch wraparound), typed
+  `Full(v)`/`Empty` verdicts with value conservation, one reserve allocation at
+  construction and zero per-message allocation in steady state. Single-threaded
+  by contract; cross-thread variant awaits the critical-section decision (D4).
+  Serves `EmbeddedProfile`.
+- **Carrier obligation declarations** (C10 step 1): `Carrier::obligation()`
+  added — fail-closed default (`External`), truthful overrides for
+  `InlineCarrier` (`ZeroAllocInline`) and queue/bounded carriers
+  (`PerMessageAlloc` + mechanized Full/Closed delivery). `EmbeddedProfile`
+  added (zero-alloc steady-state budget). `Profile::obligation_min` remains an
+  inert placeholder by honest declaration until the delivery axis grows an
+  N/A variant — no fake enforcement.
 - **Doc drift gate** (`runtime/tests/docgate.rs`, CI step "Docgate"): every
   ```rust fence in the formal docs is compiled against the current API;
   `rust,ignore` fences and `tmp/docgate-ignore.txt` entries are skipped.

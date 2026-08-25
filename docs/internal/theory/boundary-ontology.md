@@ -94,6 +94,18 @@
 
 **Remark 2.6.** The four axes are independent filters, not a hierarchy: "algebraically lawful yet engineering-illegal" (type (3)), "algebraically lawful yet machine-illegal" (type (1)), and "machine-lawful yet algebraically illegal" (type (2)) lie on different axes and are mutually irreducible.
 
+**命题 2.7（第五轴：目的相容 / The Fifth Axis: Admissibility）**。除四轴（可定义、可实现、可行、可验证；命题 2.5）外，存在独立的第五轴——**目的相容（admissibility）**：一个对象可采纳，当且仅当它不与构造的目的条款相抵触，即它不处于**退化态（degenerate state）**。退化态 = 通过四轴（可写、可跑、预算内、可判）却违背目的条款的语义自我否定态；目的过滤器可部分机械化：目的一旦成文，退化的可判子集经模态 ①② 拒绝（如 CAP≥1 门槛、Result 车道（lane）、typestate），残余为价值论声明（模态 ④）。
+
+**证明（纲要）**。四轴合取不蕴含可采纳：构造容量为零的背压队列满足四轴（可写、可跑、预算内、判定平凡），却违背"背压即不丢消息"的目的条款，故不被采纳；因此第五轴独立于四轴。机械化方向：目的条款成文 ⟹ 退化判定转化为可判谓词（编译期门/模态 ①②）或诚实声明（模态 ④）。∎
+
+**Remark 2.7 (The Fifth Axis: Admissibility).** Beyond the four axes (definability, realizability, feasibility, verifiability; Prop. 2.5) there is an independent fifth axis — **admissibility** (purpose-compatibility): an object is admissible iff it does not contradict the purpose clause of its construction, i.e. it is not in a **degenerate state**. A degenerate state = one that passes the four axes (writable, runnable, within budget, decidable) yet semantically negates the purpose clause; the purpose filter is partially mechanizable: once the purpose is written down, the decidable subset of degeneracy is rejected via modalities ①② (e.g. the CAP≥1 gate, the Result lane, typestates), and the residue is an honest declaration (modality ④).
+
+**Proof (sketch).** The conjunction of the four axes does not imply admissibility: a zero-capacity backpressure queue satisfies all four axes (writable, runnable, within budget, trivially decidable) yet violates the purpose clause "backpressure means no message loss", hence is not adopted; therefore the fifth axis is independent of the four. Mechanization direction: purpose written down ⟹ degeneracy testing reduces to decidable predicates (compile-time gates / modalities ①②) or to honest declarations (modality ④). ∎
+
+**注记 2.8（选择轴包含链 / Selection-Axis Inclusion）**。在选择轴（对象经四轴过滤后实际被产生的集合）上成立严格包含链：工程实现 ⊆ 代码可实现 ⊆ 逻辑可定义；收缩因子分别是机器约束与目的过滤器。在表达轴（闭包之间的可表达性关系，定理 3.1 的对象）上不成立（定理 3.1：代数与机器闭包互不包含）。目的过滤器与四轴的关系：四轴回答"能否构造"，第五轴回答"是否应当构造"。
+
+**Remark 2.8 (Selection-Axis Inclusion).** On the selection axis (the set of objects actually produced after the four-axis filtering) the strict inclusion chain holds: engineering implementations ⊆ machine-realizable ⊆ logically definable; the contraction factors are machine constraints and the purpose filter respectively. It does not hold on the expression axis (Thm. 3.1: the algebraic and machine closures do not contain each other). Relation between the purpose filter and the four axes: the four axes answer "can it be constructed", the fifth answers "should it be constructed".
+
 ---
 
 ## 3. 闭包交集定理 / The Closure Intersection Theorem
@@ -286,6 +298,10 @@
 **注记 9.9（同律投影 / Projections of the Same Law）**。§8.3 的"无第六概念"判据、frontier-notes 第 3 条封闭极小规范 API、概念 1 的尺度中立，均为分层律的投影：新增平面须满足闭包判据；封闭极小 API 使可判定域最大化、接缝面最小化；尺度中立使分层律在系统内部递归成立（子系统是同级 cell）。
 
 **Remark 9.9 (Projections of the Same Law)**. The §8.3 "no sixth concept" criterion, frontier-notes item 3 (closed minimal specification API), and the scale neutrality of concept 1 are all projections of the law of stratification: a new plane must satisfy the closure criterion; a closed minimal API maximizes the decidable domain and minimizes the seam surface; scale neutrality makes the law hold recursively inside a system (a subsystem is a same-scale cell).
+
+**注记 9.10（矛盾分类学 / Taxonomy of Contradictions）**。分层律的经验注记：清晰的定义并不消灭矛盾，而把矛盾从"散落隐含"改写为"定位展出"。三类矛盾的命运各异：(i) **类别矛盾**（构造期不可写、语义不可静默）——被定义**消除**（A1 拒绝 + 四轴分类）；(ii) **边界矛盾**（层间接口、语言表达力；定理 3.1 的闭包差异）——被定义**定位**到接缝，由四模态承接（② 见证、③ 验证、④ 声明，定理 9.6 (L₂)）；(iii) **经验矛盾**（性能、工具链）——被定义**展出**（经验-D 的 E1 界 + 监测）。故被完备封闭的是概念层（构造拒绝区）；实现层的矛盾残余在接缝被展出而非被消灭，这正是"无第六概念"判据只约束概念层、而不禁止实现层新增机制的原因（新机制仍须满足 §8.3 闭包判据）。
+
+**Remark 9.10 (Taxonomy of Contradictions).** An empirical note on the law of stratification: precise definitions do not eliminate contradictions; they rewrite them from "scattered and implicit" to "located and exhibited". The three kinds of contradictions have different fates: (i) **categorical contradictions** (unwritable at construction time, not silently semantic) — **eliminated** by definition (A1 refusal + the four-axis taxonomy); (ii) **boundary contradictions** (inter-plane interfaces / language expressiveness, the closure difference of Thm. 3.1) — **located** by definition at the seam, carried by the four modalities (witness ②, deployment validation ③, declaration ④; Theorem 9.6 (L₂)); (iii) **empirical contradictions** (performance, toolchain) — **exhibited** by definition (the empirical-D E1 bound + instrumentation). Hence it is the conceptual plane that is completely closed (the construction-refusal region); the residual contradictions of the implementation plane are exhibited at the seam rather than eliminated — which is precisely why the "no sixth concept" criterion constrains only the conceptual plane and does not forbid new mechanisms in the implementation plane (new mechanisms still must satisfy the §8.3 closure criterion).
 
 ---
 

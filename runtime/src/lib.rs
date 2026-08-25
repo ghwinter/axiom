@@ -97,6 +97,7 @@ pub mod slot;
 pub mod buffer;
 
 /// 静态路径：声明为静态的子图在编译期内联展开（零运行时对象）。Stability: **stable**。
+pub mod ring;
 pub mod static_path;
 
 /// `wire!` 声明宏：编译期展开的"连线 + 载体 + 验证"一次完成（宏/编译期技巧）。Stability: **stable**。

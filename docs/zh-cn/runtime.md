@@ -47,6 +47,8 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 | `BoundedCarrier<CAP>`（std） | 有界通道中转（`CAP >= 1` 编译期强制） | 每消息分配 | 单线程内 | carrier.rs |
 | `spawned_flow`（std） | mpsc 通道 + 独立线程，`B::State` 在专用线程；worker panic 经回执传播 | 每消息分配 + 同步 | **跨线程** | carrier.rs |
 
+存储原语（非 Carrier；泵/邮箱之下的有界 FIFO）：ing::BoundedRing<T, CAP>——no_std+alloc，LiteOS 式双计数器（readable/writable），O(1) push/pop 且满/空为类型化判定（Full(v) 值随错误回传 / Empty，值守恒）；构造期一次预留分配、稳态每消息零分配。契约上单线程；跨线程变体待关键节选型裁定。服务 EmbeddedProfile（稳态零分配预算）。
+
 每种载体**独立可选、可替换**：换一个实现不改拓扑（T6 多物理实现）。
 
 > **放置连续谱（衔接 `foundations.md` §8.6 第 7–8 条）**：表中"单线程 / 跨线程"**不是两个

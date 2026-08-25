@@ -52,6 +52,13 @@ The carrier catalog (`runtime/src/carrier.rs`):
 | `BoundedCarrier<CAP>` (std) | Bounded-channel relay (`CAP ≥ 1` enforced at compile time) | Per-message allocation | Within a single thread | carrier.rs |
 | `spawned_flow` (std) | mpsc channel + dedicated thread, `B::State` on the dedicated thread; worker panic propagates via reply channel | Per-message allocation + synchronization | **Cross-thread** | carrier.rs |
 
+Storage primitive (not a `Carrier`; the bounded FIFO beneath pumps/mailboxes):
+`ring::BoundedRing<T, CAP>` — no_std+alloc, LiteOS-style dual counters (`readable`/`writable`),
+O(1) push/pop with **typed** `Full(v)`/`Empty` verdicts (value conservation), one reserve
+allocation at construction and zero per-message allocation in steady state. Single-threaded
+by contract; a cross-thread variant awaits the critical-section decision. Serves the
+`EmbeddedProfile` (zero-alloc steady-state budget).
+
 Each carrier is **independently selectable and replaceable**: swapping one implementation
 does not change the topology (T6, multiple physical implementations).
 

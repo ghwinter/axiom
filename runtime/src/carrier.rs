@@ -38,6 +38,12 @@ where
         CarrierCost::External
     }
 
+    /// 本载体接缝的义务类声明（C10 分化）。默认**保守 fail-closed**（资源=External）；
+    /// 每个实现者应覆写：resource 取 [`Self::cost`] 同值，有投递语义者再补 delivery 轴。
+    fn obligation() -> crate::obligation::ObligationClass {
+        crate::obligation::ObligationClass::default()
+    }
+
     /// 把 `A` 的一个输入流经 `A`，再经本载体流入 `B`，返回 `B` 的输出。
     ///
     /// `flow(state_a, state_b, input) -> B::Out`
@@ -59,6 +65,13 @@ where
 {
     fn cost() -> CarrierCost {
         CarrierCost::ZeroAllocInline
+    }
+
+    fn obligation() -> crate::obligation::ObligationClass {
+        crate::obligation::ObligationClass {
+            resource: CarrierCost::ZeroAllocInline,
+            ..crate::obligation::ObligationClass::default()
+        }
     }
 
     #[inline(always)]
@@ -89,6 +102,14 @@ where
 {
     fn cost() -> CarrierCost {
         CarrierCost::PerMessageAlloc
+    }
+
+    fn obligation() -> crate::obligation::ObligationClass {
+        crate::obligation::ObligationClass {
+            delivery: crate::obligation::DeliveryKind::MechanizedFullClosed,
+            resource: CarrierCost::PerMessageAlloc,
+            ..crate::obligation::ObligationClass::default()
+        }
     }
 
     #[inline(always)]
@@ -127,6 +148,14 @@ where
 {
     fn cost() -> CarrierCost {
         CarrierCost::PerMessageAlloc
+    }
+
+    fn obligation() -> crate::obligation::ObligationClass {
+        crate::obligation::ObligationClass {
+            delivery: crate::obligation::DeliveryKind::MechanizedFullClosed,
+            resource: CarrierCost::PerMessageAlloc,
+            ..crate::obligation::ObligationClass::default()
+        }
     }
 
     fn flow(sa: &mut A::State, sb: &mut B::State, input: A::In) -> B::Out {
