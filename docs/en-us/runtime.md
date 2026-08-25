@@ -53,7 +53,7 @@ The carrier catalog (`runtime/src/carrier.rs`):
 | `spawned_flow` (std) | mpsc channel + dedicated thread, `B::State` on the dedicated thread; worker panic propagates via reply channel | Per-message allocation + synchronization | **Cross-thread** | carrier.rs |
 
 Storage primitive (not a `Carrier`; the bounded FIFO beneath pumps/mailboxes):
-`ring::BoundedRing<T, CAP>` — no_std+alloc, LiteOS-style dual counters (`readable`/`writable`),
+`ring::BoundedRing<T, CAP>` — no_std+alloc, dual counters (`readable`/`writable`),
 O(1) push/pop with **typed** `Full(v)`/`Empty` verdicts (value conservation), one reserve
 allocation at construction and zero per-message allocation in steady state. Single-threaded
 by contract; a cross-thread variant awaits the critical-section decision. Serves the
@@ -124,8 +124,8 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   `Full` / `Closed` mechanized from `mpsc` errors with the rejected value preserved (②③);
   `Timeout` / `Cancelled` **declared** as modality ④ (mechanization is a physical choice:
   timer / request-scoped channels), no fabricated witnesses.
-- **`mailbox` module** (`runtime/src/mailbox.rs`, `std`) — the anti-starvation bounded mailbox
-  (actix-type): capacity = `CAP` buffer slots **plus one guaranteed slot per producer**;
+- **`mailbox` module** (`runtime/src/mailbox.rs`, `std`) — the anti-starvation bounded mailbox:
+  capacity = `CAP` buffer slots **plus one guaranteed slot per producer**;
   three send modes—`try_send` (strict, `Full(v)` with the value returned), `send` (blocking
   backpressure, parks on its own guaranteed slot), `fire` (best-effort: buffer first, then the
   producer's own slot); `recv` is blocking and never returns `Empty` (`try_recv` observes the
@@ -141,8 +141,7 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   impls cannot be whitelisted at the type level—honest A5 note).
 - **`law` module** (`runtime/src/law.rs`, `std`) — runtime-law probes (T-component
   deepening): pairing law (N sends ↔ N verdicts; received ≤ delivered), sequence monotonicity,
-  broadcast fan-out counting; `debug_assertions`-gated, release zero-overhead (LiteOS
-  `LOS_ASSERT` precedent).
+  broadcast fan-out counting; `debug_assertions`-gated, release zero-overhead.
 - **`assemble_link` / `assemble_seam`** (`runtime/src/flow.rs`) — the wired **modality ③
   entries**: validate cost (and, for bounded seams, capacity) once at the deployment assembly
   point and return the `drive_link` function pointer (`Driver<A,B>`); a budget violation is an
@@ -302,9 +301,17 @@ short-circuit) → **bounded channel (backpressure)** → a store worker thread 
 `StoreState` (`DataStore` total, no panic path) → RESP reply routing with per-connection
 FIFO order and write-half close on EOF.
 - Layer: **runtime** (an event substrate is just a class of carrier/driver).
-- Direction: distill an event substrate (event-substrate), so that external events become a
-  replaceable class of input carrier/driver; `redis_like --tcp` is the reference implementation
-  of this seam; formalizing the carrier-class interface itself remains open.
+- **Carrier class formalized and landed** (`runtime/src/event.rs`): an event stream
+  (`EventStream`, item-level input source) + chunk-source adapter (`ChunkSource`:
+  `io::Read` raw source + splitter + per-source cross-chunk state, with the general
+  line splitter `split_lines`) + pump driver (`pump_events`: transform cell →
+  delivery verdict `PushVerdict` → pair-law accounting `EventPumpStats`).
+  `redis_like --tcp` is the reference implementation of this seam; `server.rs::handle_conn`
+  is now driven by the class (behavior unchanged, selftest byte-identical). Failures are
+  data (parse errors are forwarded through the channel as `-ERR` replies, not swallowed
+  by the pump); a consumer teardown stops the pump (`dropped` counted, no silent
+  continuation); chunk capacity N≥1 refuses the degenerate state via the modality ② gate
+  (boundary-ontology Prop. 2.7). Ledger row: `event::pump_events` (LEDGER_STD_EXTRA).
 
 ### 9.4 Failure × Backpressure Occurring Simultaneously
 Resolved by `bounded_pump_try`: when the buffer is full and a step fails at the same time,

@@ -1,6 +1,6 @@
-//! 有界环形队列（no_std＋alloc；LiteOS 双计数器先验的机械化——C4）。
+//! 有界环形队列（no_std＋alloc；双计数器有界 FIFO 的机械化——C4）。
 //!
-//! 双计数器语义（LiteOS los_queue 先例）：`readable`/`writable` 两计数器，构造时
+//! 双计数器语义：`readable`/`writable` 两计数器，构造时
 //! 初始化为 0/CAP。判满＝writable==0，判空＝readable==0，均为一次比较；下标回绕用
 //! 分支而非取模。**满/空是两个不同的类型化结果**（`Full(v)` 值随错误回传 /
 //! `Empty`），静默丢失被逐出（宪法 L1）。
@@ -46,7 +46,7 @@ impl<T, const CAP: usize> BoundedRing<T, CAP> {
         CAP
     }
 
-    /// 当前可读数（O(1)；LiteOS 计数器直读）。
+    /// 当前可读数（O(1) 直读）。
     pub const fn readable(&self) -> usize {
         self.readable
     }

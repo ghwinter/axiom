@@ -276,6 +276,33 @@ pub const LEDGER_STD_EXTRA: &[LedgerEntry] = &[
         conformance: "law.rs: pairing_law_holds_for_verdicts",
         probe: || { let l = PairLaw::new(); l.on_send(); l.on_verdict(&Delivery::Delivered::<i32>); l.assert_pairing(); true },
     },    LedgerEntry {
+        seam: "event::pump_events",
+        obligation: "配对律：N 条事件 ↔ N 个判定（delivered+dropped）；失败也是数据（不短路吞值）；消费端断连 ⟹ 停止拉取（拆除，不静默延续）；块容量 N≥1（模态②门，退化态拒绝）",
+        modality: Modality::DeploymentValidation,
+        witness: "event::EventPumpStats / event::split_lines",
+        conformance: "event.rs: pump_pair_law_totals_match / pump_teardown_stops_pulling_and_counts_dropped",
+        probe: || {
+            use std::io::Cursor;
+            let mut source = crate::event::ChunkSource::<Cursor<&[u8]>, _, String, i32, 16>::new(
+                Cursor::new(&b"1\n2\n3\n"[..]),
+                String::new(),
+                |buf: &mut String, chunk: &[u8]| {
+                    crate::event::split_lines(buf, chunk)
+                        .into_iter()
+                        .map(|l| l.trim().parse::<i32>().unwrap_or(0))
+                        .collect()
+                },
+            );
+            let mut a = ();
+            let stats = crate::event::pump_events::<crate::obligation::ProbeFail, _, _>(
+                &mut a,
+                &mut source,
+                |_outcome| crate::event::PushVerdict::Delivered,
+            );
+            stats.delivered == 3 && stats.total() == 3 && stats.dropped == 0
+        },
+    },
+    LedgerEntry {
         seam: "buffer::BoundedQueue::push",
         obligation: "断连时值随错误回传（不静默丢值）",
         modality: Modality::DeploymentValidation,

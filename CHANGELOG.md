@@ -22,11 +22,22 @@ expressed by incrementing the minor version).
   (`law`, `delivery`) live in `LEDGER_STD_EXTRA`; no_std builds carry the core
   rows only (`ledger_rows()`).
 - **no_std bounded ring** (`runtime/src/ring.rs`): `BoundedRing<T, CAP>` —
-  LiteOS-style dual-counter FIFO (O(1) push/pop, branch wraparound), typed
+  dual-counter FIFO (O(1) push/pop, branch wraparound), typed
   `Full(v)`/`Empty` verdicts with value conservation, one reserve allocation at
   construction and zero per-message allocation in steady state. Single-threaded
   by contract; cross-thread variant awaits the critical-section decision (D4).
   Serves `EmbeddedProfile`.
+- **Event-substrate carrier class** (`runtime/src/event.rs`, std): `EventStream`
+  (item-level input source) / `ChunkSource` (`io::Read` raw source + splitter +
+  per-source cross-chunk state, const `N` chunk buffer) / `split_lines` /
+  `pump_events` (transform cell → delivery verdict → pair-law accounting) —
+  formalizes the §9.3 IO seam: external events formally become the `in` of a
+  causal flow. Failures are data (forwarded to the sink, not short-circuited);
+  consumer teardown stops the pump (`dropped` counted, no silent continuation);
+  chunk capacity N≥1 refuses the degenerate state via the modality ② gate
+  (boundary-ontology Prop. 2.7). `redis_like`'s `handle_conn` is now driven by
+  the class (selftest byte-identical). Ledger row `event::pump_events` in
+  `LEDGER_STD_EXTRA` (modality ③).
 - **Carrier obligation declarations** (C10 step 1): `Carrier::obligation()`
   added — fail-closed default (`External`), truthful overrides for
   `InlineCarrier` (`ZeroAllocInline`) and queue/bounded carriers

@@ -81,9 +81,14 @@ pub mod law;
 #[cfg(feature = "std")]
 pub mod delivery;
 
-/// 有界邮箱（actix 型反饥饿背压）：CAP + 每生产者保底席位，三投递模式 fire/try/block。Stability: **experimental**。
+/// 有界邮箱（反饥饿背压）：CAP + 每生产者保底席位，三投递模式 fire/try/block。Stability: **experimental**。
 #[cfg(feature = "std")]
 pub mod mailbox;
+
+/// 事件基座载体类（§9.3 接缝）：事件流（EventStream/ChunkSource）+ 泵驱动
+/// （pump_events：变换＋有界投递＋配对计数）。Stability: **experimental**。
+#[cfg(feature = "std")]
+pub mod event;
 
 /// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。Stability: **stable**。
 pub mod flow;
@@ -122,6 +127,10 @@ pub mod prelude_all {
     pub use crate::delivery::{Delivery, Receipt};
     #[cfg(feature = "std")]
     pub use crate::mailbox::{BoundedMailbox, Producer};
+    #[cfg(feature = "std")]
+    pub use crate::event::{
+        ChunkSource, EventPumpStats, EventStream, PushVerdict, pump_events, split_lines,
+    };
     pub use crate::obligation::{
         DeliveryKind, LedgerEntry, LifecycleKind, Modality, ObligationClass, ReferenceKind, LEDGER,
     };

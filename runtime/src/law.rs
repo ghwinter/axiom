@@ -1,4 +1,4 @@
-//! 运行期律探针（六元组 T 构件深化；LiteOS LOS_ASSERT 先例：`debug_assertions` 门控，
+//! 运行期律探针（六元组 T 构件深化；`debug_assertions` 门控，
 //! release 零开销）。运行期律是定理（boundary-ontology §9 分层的"可判定合法性"）在
 //! 运行期侧的执行：**配对律**（N 次投递 ↔ N 个区分性判定）、**序列单调律**（FIFO 序
 //! 保持）、**扇出计数律**（广播 N 份源消息 ⟹ 恰好 N×fanout 条分支产出）。

@@ -1,4 +1,4 @@
-//! 文档代码块编译漂移门（C11；dsh type-equiv 先例的极简版）。
+//! 文档代码块编译漂移门（C11）。
 //!
 //! 抽取 `docs/{en-us,zh-cn}` 的 ```rust 围栏块（跳过 ```rust,ignore），写入一次性
 //! crate 的 src/bin/ 并 `cargo check`。任何块失败 ⟹ 文档陈述与当前 API 脱钩。

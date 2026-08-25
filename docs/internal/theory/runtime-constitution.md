@@ -37,7 +37,7 @@ runtime/src/
   delivery.rs   投递四态：Full/Closed 机械化（②③），Timeout/Cancelled 声明（④，机械化为物理选择）
   slot.rs       typestate 生命周期：SlotPending → SlotLive → retired；Seat 代戳（模态①）
   mailbox.rs    有界邮箱反饥饿：容量 = buffer + 每生产者席位；三投递模式 fire/try/block
-  event.rs      事件基座载体类：EventSource + pump_events（§9.3 从首案例到载体类）
+  event.rs      事件基座载体类：EventStream + ChunkSource + pump_events（§9.3 从首案例到载体类）✅
   flow.rs       驱动：drive_link / assemble_link|seam / drive_seq / drive_try / TryChain / drive_feedback_inline
   buffer.rs     BoundedQueue（对齐 DeliveryState）
   carrier.rs    Carrier trait + Inline/Queue/Bounded + ResultCarrier/MaybeCarrier
@@ -54,13 +54,13 @@ runtime/src/
 
 ## 6. 执行阶段 / Execution Phases
 
-1. 契约层：obligation.rs + delivery.rs + contract.rs 账本与落位律测试（A3–A6 机械）。
-2. 生命周期层：slot.rs typestate + Seat 代戳。
-3. 背压层：mailbox.rs + bounded_pump 换底。
-4. 事件层：event.rs + redis_like 实例化。
-5. 短路载体：ResultCarrier/MaybeCarrier（§9.2 收账）。
-6. 示例健壮性：netpath/mmо Result-ify。
-7. 终验：tests / no_std / clippy 全绿 + runtime.md en/zh 同步。
+1. ✅ 契约层：obligation.rs + delivery.rs + contract.rs 账本与落位律测试（A3–A6 机械）。
+2. ✅ 生命周期层：slot.rs typestate + Seat 代戳。
+3. ✅ 背压层：mailbox.rs + bounded_pump 并存（教学形态保留）。
+4. ✅ 事件层：event.rs（EventStream/ChunkSource/split_lines/pump_events 载体类）+ redis_like 实例化（server.rs 已改由 pump_events 驱动；§9.3 收口）。
+5. ✅ 短路载体：ResultCarrier/MaybeCarrier（§9.2 收账）。
+6. ✅ 示例健壮性：netpath/mmо Result-ify。
+7. ⏳ 终验：tests / no_std / clippy 全绿 + runtime.md en/zh 同步（CI 已配置；本地闭环待定）。
 
 每步过 §8.3 封闭判据（无第六概念）：义务类=概念1 失败为值的展开；生命周期=概念4 型位的实现；邮箱/事件=概念5 物理载体的实例；账本=契约（§8.4 物理层义务）。
 

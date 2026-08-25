@@ -169,13 +169,33 @@
 >
 > **Table note**: "hardware" and "environment" in the table are empirical-D (Definition 1.4)—not logical starting points but bounded assumptions; their honesty duty is bounds and monitoring (SLAs, telemetry, load tests), not logical coherence.
 
+**注记 7.1（图范式覆盖 / Coverage of the Graph Paradigm）**。"节点 + 边"图是计算机科学最通用的描述与驱动范式，分布于十个领域：深度学习计算图、流处理数据流图（Beam/Flink/Ray）、工作流 DAG（Airflow/Temporal）、ECS＋场景图、渲染图（Scene/Frame Graph、wgpu）、构建依赖图（Cargo/Make/Bazel/Ninja）、响应式信号图（Dioxus/SolidJS/egui）、Actor/服务调用图、区块链状态机、编译器 IR（CFG/DFG/调用图）。按**边的语义**三分，其与 axiom 的关系各异：
+
+| 类别 | 边语义 | 代表 | 与 axiom 的关系 |
+|---|---|---|---|
+| (1) | 值流（因果数据流） | 深度学习静态计算图、流处理、构建依赖图、渲染图、Actor 邮箱、区块链状态机、基本块内数据流 | **原生**：节点 = PortCell，边 = Wire，拓扑 = 组合子；扇出/扇入 = `Broadcast`/`Merge`；背压 = 物理层有界载体；增量构建缓存 = `Seat` 代戳（引用有效性）；控制流 = `Choice`/`Opt`/`Feedback`（控制编码为值） |
+| (2) | 控制/时序依赖 | 工作流 DAG、GPU barrier、ECS 系统调度 | **编码或物理化**：完成依赖编码为令牌值流；隐式布线仲裁归物理层调度器；World 共享状态违反 M1，经载体物理化 |
+| (3) | 非因果约束/隐式关系 | 反向传播（梯度为沿边反向的第二流）、电路/多体仿真（方程组）、响应式隐式订阅 | **axiom 边界**：落入三归宿（接缝声明/降级编码/类型强化）与分层律（L₂）的接缝位置 |
+
+结论：所有图范式共享同一 M 结构（开放系统 = cell、布线 = wiring、宿主 = 载体、组合 = 组合子），差异只在公理区放置与物理载体选择——这是命题 7.1（形式即放置）与 theory-archive.md §1.2（三种组织策略："开放系统 + 布线 + 实例 + 组合，仅布线隐/显、宿主形态、组合打包不同"）的更大跨度实例。axiom 是**因果数据流图的最小封闭内核（五概念，§8.3）+ 物理层载体市场**，不是一切图的元模型。
+
+**Remark 7.1 (Coverage of the Graph Paradigm).** The node-and-edge graph is the most general description-and-driving paradigm in computing, instantiated across ten domains: DL computation graphs, streaming dataflow graphs (Beam/Flink/Ray), workflow DAGs (Airflow/Temporal), ECS + scene graphs, render graphs (Scene/Frame Graph, wgpu), build dependency graphs (Cargo/Make/Bazel/Ninja), reactive signal graphs (Dioxus/SolidJS/egui), actor/service call graphs, blockchain state machines, and compiler IR (CFG/DFG/call graphs). Classified by **edge semantics**, three kinds differ in their relation to axiom:
+
+| Class | Edge semantics | Representatives | Relation to axiom |
+|---|---|---|---|
+| (1) | Value flow (causal dataflow) | DL static graphs, streaming, build graphs, render graphs, actor mailboxes, blockchain state machines, intra-block dataflow | **Native**: a node is a PortCell, an edge is a Wire, topology is the combinators; fan-out/fan-in are `Broadcast`/`Merge`; backpressure is a bounded physical carrier; incremental caching is `Seat`-generation reference validity; control flow is `Choice`/`Opt`/`Feedback` (control encoded as values) |
+| (2) | Control/timing dependencies | Workflow DAGs, GPU barriers, ECS system scheduling | **Encoded or physicalized**: completion dependencies become token-valued flows; implicit wiring arbitration belongs to the physical scheduler; shared World state violates M1 and is physicalized through carriers |
+| (3) | Non-causal constraints / implicit relations | Backpropagation (gradients: a second reverse flow), circuit/multi-body simulation (equation systems), reactive implicit subscription | **Axiom boundary**: falls into the three settlements (seam admission / encoding degradation / type strengthening) and the stratification-law (L₂) seam |
+
+All graph paradigms share the same M-structure (open system = cell, wiring, host = carrier, composition = combinators); differences are only axiom placement and physical carrier choice—a larger instantiation of Prop. 7.1 (forms are placements) and of the archived theory-archive.md §1.2 conclusion (three organization strategies: "open system + wiring + instance + composition, differing in implicit/explicit wiring, host form, and composition packaging"). Axiom is the **minimal closed kernel of causal dataflow graphs (five concepts, §8.3) plus a physical-layer carrier market**, not a meta-model of all graphs.
+
 **命题 7.2（普遍性 / Universality）**。所有软件形式共享同一 M 结构；参数 = 公理区放置。义务代数是构成的语法，M 是构成的语义：每条接缝的声明义务 + 装配校验，是把"该系统的公理区放在何处"写成可检查句子。锚点：topos 宇宙（命题 4.2）；Lamport 2002（TLA+：规约语言即构成语言）；逆向数学（基底选择可度量）。
 
 **Proposition 7.2 (Universality)**. All software forms share the same M-structure; the parameter is the axiom placement. The obligation algebra is the syntax of constitutions; M is their semantics: the declared obligation plus assembly validation of each seam writes "where this system's axiom region lies" as a checkable sentence.
 
-**命题 7.3（形式混合 / Hybrid Forms）**。真实系统是多形式杂交体：同一项目内嵌多个 C(F)，M 在形式之间的接缝处逐段重新提问。实据：bevy 引擎含 kernel 行内容（帧预算、确定性固定步长驱动器）嵌于 tool 行宿主；exclusive system 是 tool 行世界中的 kernel 行孤岛。
+**命题 7.3（形式混合 / Hybrid Forms）**。真实系统是多形式杂交体：同一项目内嵌多个 C(F)，M 在形式之间的接缝处逐段重新提问。实据：Linux 内核将确定性实时内容（SCHED_FIFO/SCHED_RR 实时调度类）与通用任务调度同驻于单一内核——实时孤岛是通用宿主中的 kernel 行内容；应用侧同理，确定性驱动（固定步长模拟、音频实时回调）嵌于通用应用宿主，构成 tool 行世界中的 kernel 行孤岛。
 
-**Proposition 7.3 (Hybrid Forms)**. Real systems are multi-form hybrids: one project embeds several C(F), and M re-arises per boundary between forms. Evidence: the bevy engine embeds kernel-row content (frame budget, deterministic fixed-step driver) inside a tool-row host; exclusive systems are kernel-row islands in a tool-row world.
+**Proposition 7.3 (Hybrid Forms)**. Real systems are multi-form hybrids: one project embeds several C(F), and M re-arises per boundary between forms. Evidence: the Linux kernel hosts deterministic real-time content (the SCHED_FIFO/SCHED_RR real-time scheduling classes) alongside general task scheduling in a single kernel—real-time islands are kernel-row content in a general host; likewise on the application side, deterministic drivers (fixed-step simulation, real-time audio callbacks) embedded in a general application host constitute kernel-row islands in a tool-row world.
 
 **命题 7.4（实现域的标准化体系 / Standardization of Implementations）**。实例实现的标准化在业界已成熟，其普遍解剖为六元组 (S, L, T, C, V, R)：
 
@@ -189,6 +209,42 @@
 最佳完整实例：WebAssembly（规范正文＋形式操作语义＋参考解释器＋符合性套件＋核心/扩展分层——P 区达①级形态语义）；OSI 服务原语四元组（REQUEST/INDICATION/RESPONSE/CONFIRMATION，1984）是投递态分类学的先驱形态。反例张力：Rust 长期以 rustc 为事实规范——de Bruijn 判据未满足（检查器不小），Ferrocene 语言规范是补位尝试。MISRA C:2012 是文法区的标准化（对不安全语言施加可检查子集）；ARINC 653 与 ISO 26262 是义务类的标准化。推论：约束经六个通道作用于实现域——表面契约、强度分级、外部认证、剖面子集、版本代计、治理程序；独立发明收敛到同一结构，是构成理论的经验证据。
 
 **Proposition 7.4 (Standardization of Implementations)**. Implementation standardization is mature industrial practice; its universal anatomy is the six-tuple (S, L, T, C, V, R): S interface-and-observable-behavior contracts (mechanism-free, surface-bound) = the industrial form of the slot-license surface; L normative-strength language (RFC 2119/8174 MUST/SHOULD/MAY) = the deontic axis, orthogonal to the epistemic modalities ①②③④—MUST only binds the obligation, whose discharge still requires a modality assignment per the Placement Law (Definition 1.10): a conformance test (③) or a textual declaration (④); SHOULD's documented-deviation clause is the honesty rule in standards language; MAY is placement freedom. T conformance testing and certification = mechanized external audit (Proposition 5.1). C profiles/levels (PSE51–54, ASIL A–D, DAL A–E, RVA20/22) = standardized axiom placements (Proposition 7.1). V versioning = generation-counting for ecosystem-time interoperability—same shape as handle stamps, different effect (mixing across ecosystem time vs stale references within system lifetime; analogy bounded per Remark 6.2 style). R governance/amendment procedure (IETF rough consensus, ISO committees, USB-IF board) = the industrial form of the rule of recognition (Proposition 8.5); without R, V has no engine. Best complete instance: WebAssembly; OSI service primitives (1984) prefigure the delivery-state taxonomy; Rust-as-rustc is the running tension against the de Bruijn criterion (Ferrocene FLS as remedy). Corollary: constraints act on implementations through six channels—independent inventions converging on one structure is empirical evidence for constitution theory.
+
+**命题 7.5（系统间接缝与契约型位 / Inter-System Seams and Contractual Slots）**。跨系统交互面（设备树、插件系统、客户端-服务端、跨机器微服务）是同一结构的四种绑定形态：
+
+- **契约型位（contractual slot）**：交互面在编译期以"类型 = 契约"存在（外部系统的签名：消息类型、方向、义务类、模态），实现在未来/运行期被安装；外部系统**不在编译图中**——所在构成独立编译，不编译对方实现。参数 = **绑定时刻 × 绑定机制**：设备树（构建期编译 + 运行期枚举，match 表配对）、插件系统（运行期加载，接口注册）、客户端-服务端（连接建立，地址 + 协议握手）、微服务（网络载体，契约 + 投递态）。
+- **可判定性分界**：凡"关于已存在之物"的相合性 → 可判（证明性：契约相合 ①③、自身实现内部性质 ①②③）；凡"关于未来实现或外部语义"的行为 → 不可判（编译期），只能采样验证（运行期测试）或诚实声明（④）＋监测（经验-D）。
+- **占位角色**：占位（stub/mock）使宿主内集成在编译期闭合——它验证**契约-宿主相合**，不验证**真实端-宿主相合**（占位通过 ⊬ 真实端通过）；真实端的行为等价属运行期（T6 类）。
+- **可判定性全景**：
+
+| 验证对象 | 判定性 | 执行时刻 |
+|---|---|---|
+| 契约相合（型位 ↔ 契约） | 可判（②③） | 编译期/装配 |
+| 自身实现内部性质（组合/全函数/义务） | 可判（①②③） | 编译期/装配 |
+| 占位/真实端与契约相合（实现存在时） | 可判 | 构建期 |
+| 跨端行为等价 | 采样验证 | 运行期 |
+| 未来实现的行为正确性 | 不可判 → ④＋监测 | 未来/运行期 |
+| 交互序列语义（时序/断连/延迟） | 经验-D（界＋监测） | 运行期 |
+
+- **理论落位**：这是概念 4（型位）的最大尺度应用、系统间接缝命题（多个构成经系统间载体互连、契约相合 ∀ 编译期验证、存在 ∃ 运行期绑定、缺失 = 投递态 Closed）；也是命题 7.1/7.3（形式即放置/形式混合）的跨项目形式。工业收敛实例：Linux 设备模型（驱动-设备配对）、FIDL/协议 schema（protobuf/OpenAPI）、consumer-driven contract testing（Pact）、FFI/ABI 边界——均为同一结构的特化；axiom 给出其最小内核（型位 + 四模态 + 义务代数），并借分层律（定理 9.6）把不可判部分定位到接缝（L₂）而非隐藏。
+
+**Proposition 7.5 (Inter-System Seams and Contractual Slots)**. Cross-system interaction surfaces (device trees, plugin systems, client–server, cross-machine microservices) are four binding forms of one structure:
+
+- **Contractual slot**: the interaction surface exists at compile time as "type = contract" (the external system's signature: message type, direction, obligation class, modality); the implementation is installed in the future / at runtime, and the external system is **absent from the compilation graph**—each constitution compiles independently without compiling the counterpart. The parametrization is **binding time × binding mechanism**: device trees (build-time compilation + runtime enumeration, match-table pairing), plugin systems (runtime loading, interface registration), client–server (connection establishment, address + protocol handshake), microservices (network carrier, contract + delivery states).
+- **Decidability boundary**: every conformance "about an existent object" is decidable (proof-like: contract conformance ①③, self-implementation internal properties ①②③); every behavior "about a future implementation or external semantics" is undecidable at compile time—only sampling (runtime tests) or honest declaration (④) plus monitoring (empirical-D) apply.
+- **Placeholder role**: a placeholder makes host-internal integration closed at compile time—it verifies **contract–host conformance**, not **counterpart–host conformance** (placeholder passing ⊬ counterpart passing); counterpart behavioral equivalence is a runtime matter (T6 class).
+- **Decidability panorama**:
+
+| Verification target | Decidability | When |
+|---|---|---|
+| Contract conformance (slot ↔ contract) | decidable (②③) | compile/assembly |
+| Self-implementation internal properties (composition/totality/obligations) | decidable (①②③) | compile/assembly |
+| Placeholder/counterpart conformance (when implemented) | decidable | build time |
+| Cross-end behavioral equivalence | sampling | runtime |
+| Future implementation behavior | undecidable → ④ + monitoring | future/runtime |
+| Interaction-sequence semantics (timing/teardown/latency) | empirical-D (bounds + monitoring) | runtime |
+
+- **Theoretical placement**: the largest-scale application of concept 4 (typed hole); the inter-system seam proposition (multiple constitutions interconnected via inter-system carriers, contract conformance ∀ verified at compile time, existence ∃ bound at runtime, absence = delivery state Closed); also the cross-project form of Props. 7.1/7.3. Industrial convergences: the Linux device model (driver–device matching), FIDL/protocol schemas (protobuf/OpenAPI), consumer-driven contract testing (Pact), FFI/ABI boundaries—all specializations of one structure; axiom provides the minimal kernel (typed hole + four modalities + obligation algebra) and, via the law of stratification (Thm. 9.6), locates the undecidable part at the seam (L₂) instead of hiding it.
 
 ---
 

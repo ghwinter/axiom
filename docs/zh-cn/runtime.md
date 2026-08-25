@@ -47,7 +47,7 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 | `BoundedCarrier<CAP>`（std） | 有界通道中转（`CAP >= 1` 编译期强制） | 每消息分配 | 单线程内 | carrier.rs |
 | `spawned_flow`（std） | mpsc 通道 + 独立线程，`B::State` 在专用线程；worker panic 经回执传播 | 每消息分配 + 同步 | **跨线程** | carrier.rs |
 
-存储原语（非 Carrier；泵/邮箱之下的有界 FIFO）：ing::BoundedRing<T, CAP>——no_std+alloc，LiteOS 式双计数器（readable/writable），O(1) push/pop 且满/空为类型化判定（Full(v) 值随错误回传 / Empty，值守恒）；构造期一次预留分配、稳态每消息零分配。契约上单线程；跨线程变体待关键节选型裁定。服务 EmbeddedProfile（稳态零分配预算）。
+存储原语（非 Carrier；泵/邮箱之下的有界 FIFO）：`ring::BoundedRing<T, CAP>`——no_std+alloc，双计数器式（readable/writable），O(1) push/pop 且满/空为类型化判定（Full(v) 值随错误回传 / Empty，值守恒）；构造期一次预留分配、稳态每消息零分配。契约上单线程；跨线程变体待关键节选型裁定。服务 EmbeddedProfile（稳态零分配预算）。
 
 每种载体**独立可选、可替换**：换一个实现不改拓扑（T6 多物理实现）。
 
@@ -101,7 +101,7 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 - **`delivery` 模块**（`runtime/src/delivery.rs`，std）——投递四态税则：`Full`/`Closed` 自
   `mpsc` 错误机械化且被拒值随错误回传（②③）；`Timeout`/`Cancelled` **声明**为模态④
   （机械化为物理选择：定时器/请求域通道），不伪造见证。
-- **`mailbox` 模块**（`runtime/src/mailbox.rs`，std）——反饥饿有界邮箱（actix 型）：容量 =
+- **`mailbox` 模块**（`runtime/src/mailbox.rs`，std）——反饥饿有界邮箱：容量 =
   `CAP` 缓冲槽 **+ 每生产者 1 个保底席位**；三投递模式——`try_send`（严格，满即
   `Full(v)` 值回传）、`send`（阻塞背压，占自身保底席位等待）、`fire`（尽力：缓冲槽优先，
   再占自身席位）；`recv` 阻塞且不返回 `Empty`（空态由 `try_recv` 观察）；关闭排空后投递
@@ -114,7 +114,7 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
   （开放 `Carrier` impl 无法在类型层禁入——A5 诚实声明）。
 - **`law` 模块**（`runtime/src/law.rs`，std）——运行期律探针（T 构件深化）：配对律
   （N 投递 ↔ N 判定；已收 ≤ 已投）、序列单调律、广播扇出计数律；`debug_assertions`
-  门控、release 零开销（LiteOS `LOS_ASSERT` 先例）。
+  门控、release 零开销。
 - **`assemble_link` / `assemble_seam`**（`runtime/src/flow.rs`）——**模态③ 的接线入口**：在
   部署装配点**一次**校验成本（有界接缝还校验容量），通过后返回 `drive_link` 函数指针
   （`Driver<A,B>`）；预算越界 = **装配失败**，绝非运行期静默成本。（`BoundedCarrier` 自带的
@@ -243,8 +243,14 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 → 持有 `StoreState` 的存储工作线程（`DataStore` 全函数，无 panic 路径）→ RESP 回执路由
 （每连接 FIFO 顺序、EOF 时写半关闭）。
 - 落层：**runtime**（事件基座即一类载体/驱动）。
-- 方向：提炼事件基座（event-substrate），使外部事件成为一类可替换的输入载体/驱动；
-  `redis_like --tcp` 是该接缝的参考实现；载体类接口本身的形式化仍开放。
+- **载体类已形式化并落地**（`runtime/src/event.rs`）：事件流（`EventStream`，
+  条目级输入源）+ 块源适配（`ChunkSource`：`io::Read` 原始源 + 分割器 + 跨块状态，
+  含通用行分割 `split_lines`）+ 泵驱动（`pump_events`：变换 cell → 投递裁决
+  `PushVerdict` → 配对计数 `EventPumpStats`）。`redis_like --tcp` 是该接缝的
+  参考实现，`server.rs::handle_conn` 已用本载体类驱动（行为不变，selftest 字节级一致）；
+  失败也是数据（解析错误经通道转发为 `-ERR`，不被泵短路吞值）；消费端断连 ⟹ 泵
+  停止拉取（拆除，`dropped` 计数，不静默延续）；块容量 N≥1 经模态②门拒绝退化态
+  （boundary-ontology 命题 2.7）。账本行：`event::pump_events`（LEDGER_STD_EXTRA）。
 
 ### 9.4 失败 × 背压同时发生
 已由 `bounded_pump_try` 闭合：缓冲满与处理失败同时出现时，失败值短路（不投队列、

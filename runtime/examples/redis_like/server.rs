@@ -13,6 +13,8 @@
 //!      └── 回写 ◀── 回执通道（队列顺序保持） ◀────────────────────────┘
 //! ```
 //!
+//! ---------------- §9.3 事件基座载体类驱动（首案例）：字节块 → 行 → CmdParse → 有界回程 ----------------//
+//!
 //! 关键点：① 解析发生在连接线程（失败为值、短路，不触碰存储）；② 回程通道有界
 //! （`JOBS_CAP`），存储工作线程忙时连接线程在投递处阻塞——背压经 TCP 滑动窗口上传；
 //! ③ 回执以每连接 FIFO 保持应答顺序；④ 连接 EOF 后，回执通道关闭即触发写半关闭
@@ -24,6 +26,8 @@ use std::sync::mpsc::{SyncSender, channel, sync_channel, Receiver, Sender};
 use std::thread;
 
 use axiom::cell_core::PortCell;
+
+use axiom_runtime::event::{ChunkSource, PushVerdict, pump_events};
 
 use crate::cells::{Cmd, CmdParse, DataStore, Error, LineSplit, StoreDemux, StoreState};
 
@@ -44,8 +48,10 @@ fn store_worker(mut store: StoreState, jobs: Receiver<Job>) {
     }
 }
 
-/// 单连接处理：读字节流 → LineSplit（每连接独立缓冲）→ CmdParse → 有界回程；
-/// 回执由专职写线程实时回写（顺序=该连接入队顺序），EOF 后经通道关闭触发写半关闭。
+/// 单连接处理：事件基座驱动——`ChunkSource`（块源 + 跨块行分割，每连接独立缓冲）
+/// → `pump_events`（`CmdParse` 变换，失败短路计数）→ 有界回程（满则阻塞 = 背压）；
+/// 消费端断连 ⟹ 泵停止拉取（拆除，不静默延续）；回执由专职写线程实时回写
+/// （顺序 = 该连接入队顺序），EOF 后经通道关闭触发写半关闭。
 fn handle_conn(stream: TcpStream, jobs_tx: SyncSender<Job>) {
     let (reply_tx, reply_rx) = channel::<String>();
     let writer_stream = stream.try_clone().expect("TcpStream clone");
@@ -59,25 +65,24 @@ fn handle_conn(stream: TcpStream, jobs_tx: SyncSender<Job>) {
         let _ = w.shutdown(Shutdown::Write); // 回执通道关闭 → 写半关闭 → 客户端 EOF
     });
 
-    let mut buf = String::new(); // LineSplit 状态（每连接）
-    let mut read_buf = [0u8; 1024];
-    let mut stream = stream;
-    loop {
-        match stream.read(&mut read_buf) {
-            Ok(0) => break, // 对端半关 → EOF
-            Ok(n) => {
-                let chunk = String::from_utf8_lossy(&read_buf[..n]).into_owned();
-                for line in LineSplit::step(&mut buf, chunk) {
-                    let parsed = CmdParse::step(&mut (), line);
-                    // 有界回程：满则阻塞（背压）；每条携带一份回执 Sender（FIFO）。
-                    if jobs_tx.send((parsed, reply_tx.clone())).is_err() {
-                        break;
-                    }
-                }
-            }
-            Err(_) => break,
+    // 事件基座（§9.3 载体类）：字节块 → 行（跨块拼接，同 LineSplit 语义）→ CmdParse。
+    let mut source = ChunkSource::<TcpStream, _, String, String, 1024>::new(
+        stream,
+        String::new(), // LineSplit 状态（每连接）
+        |buf: &mut String, chunk: &[u8]| {
+            let text = String::from_utf8_lossy(chunk).into_owned();
+            LineSplit::step(buf, text)
+        },
+    );
+    let _stats = pump_events::<CmdParse, _, _>(&mut (), &mut source, |parsed| {
+        // 有界回程：满则阻塞（背压）；每条携带一份回执 Sender（FIFO）。
+        // 存储线程已断连（拆除）⟹ Closed：泵停止拉取，本条计 dropped（诚实账，不静默）。
+        if jobs_tx.send((parsed, reply_tx.clone())).is_err() {
+            PushVerdict::Closed
+        } else {
+            PushVerdict::Delivered
         }
-    }
+    });
     drop(reply_tx); // 本连接全部入队后释放回执源：队列剩余作业耗尽即关写半
     let _ = writer.join();
 }
