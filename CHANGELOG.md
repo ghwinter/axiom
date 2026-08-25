@@ -5,6 +5,32 @@ follows [Keep a Changelog](https://keepachangelog.com/), and versioning follows
 [Semantic Versioning](https://semver.org/) (before 1.0, breaking changes are
 expressed by incrementing the minor version).
 
+## [Unreleased]
+
+### Added — runtime constitution phase: honesty debts (C9/C11)
+
+- **Dynamic-tax bench** (`runtime/benches/dynamic_tax.rs`): same topology
+  (`Inc -> Double`) across four channels — hand-written baseline / static
+  generic `drive_link<Inline>` / erased `SlotDrive` / generation-checked `Seat`.
+  Headline (stable): erased seam ≈ **+2.0 ns/op** (fn-pointer indirect +
+  downcast), `Seat` adds ≈ +0.25 ns/op, `swap` ≈ **30 ns** incl. one heap
+  allocation. Channel B is layout-sensitive across builds (~0%…+50%) and is
+  documented as such instead of being quoted as a single number.
+- **Executable obligation ledger**: each `LedgerEntry` now carries a `probe`
+  that executes its *witness symbol* — renaming/deleting a witness breaks the
+  build (modality ①); a false probe fails tests (modality ③). Std-gated rows
+  (`law`, `delivery`) live in `LEDGER_STD_EXTRA`; no_std builds carry the core
+  rows only (`ledger_rows()`).
+- **Doc drift gate** (`runtime/tests/docgate.rs`, CI step "Docgate"): every
+  ```rust fence in the formal docs is compiled against the current API;
+  `rust,ignore` fences and `tmp/docgate-ignore.txt` entries are skipped.
+  Current state: 12/12 blocks pass.
+
+### Fixed
+
+- `flow::drive_link`: missing cross-crate `#[inline(always)]` cost a real call
+  per drive in some layouts (+45%…+89% on the C9 bench) — zero-cost promise
+  restoration.
 ## [0.3.0] — 2026-08 — Axiometric core (current design baseline)
 
 The crate is the **four-constituent compile-time core** (`cell_core`) plus a

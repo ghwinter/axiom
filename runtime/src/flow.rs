@@ -22,6 +22,10 @@ where
 ///
 /// 载体 `C` 决定物理实现（Inline=零分配内联 / Queue=队列中转 / Bounded=有界通道）。
 /// 在驱动前做编译期布线验证（`Conforms<Wire<A,B>>`，失败即编译错误）——验证在编译期，运行期零开销。
+///
+/// `#[inline(always)]`：跨 crate 泛型的单态化实例必须可内联，否则热路径每次驱动付一次
+/// 真实调用（动态税基准 C9：未标注时实测出现 +45%~+89% 的调用税；标注后残余差值随代码布局在噪声带与一个调用边界之间波动——诚实记录为布局敏感项，不以单次数字立论）。
+#[inline(always)]
 pub fn drive_link<A, B, C>(sa: &mut A::State, sb: &mut B::State, input: A::In) -> B::Out
 where
     A: PortCell,

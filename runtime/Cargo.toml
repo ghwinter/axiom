@@ -23,3 +23,7 @@ std = ["axiom/std"]
 [[bench]]
 name = "carrier"
 harness = false
+
+[[bench]]
+name = "dynamic_tax"
+harness = false

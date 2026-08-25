@@ -40,6 +40,11 @@ jobs:
           cargo test
           cargo test --manifest-path runtime/Cargo.toml
 
+      # Doc drift gate (C11): every ```rust block in formal docs must compile
+      # against the current API. Ignore list: tmp/docgate-ignore.txt.
+      - name: Docgate (docs rust blocks compile)
+        run: cargo test --manifest-path runtime/Cargo.toml --test docgate -- --ignored
+
       # no_std promise: both crates must build without the std feature.
       - name: Build no_std
         run: |
