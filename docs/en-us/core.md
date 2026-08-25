@@ -212,6 +212,17 @@ pub fn assert_wiring<A, B>() where A: PortCell, B: PortCell<In = A::Out> {
 
 ---
 
+## 4b. Verification Responsibility Boundary (type-level constraints vs macro checks)
+
+By the placement law: a property goes into **trait/type-level constraints** when its
+violation must be *unrepresentable* (structural witness, modality ① — e.g. `Conforms`,
+`CAP` gates, port-symmetry); it goes into **macro-emit checks** (`compile_error!`) when
+it is decidable but *representable-with-diagnostic* is more usable than unrepresentable
+(e.g. blueprint lint: "every registered slot has an inhabitant"). Properties that are
+undecidable stay declarations (modality ④). A macro never *proves* — it only relocates
+a ②/③ check earlier with better diagnostics; any claim of proof from a macro is a
+pseudo-verification defect.
+
 ## 5. Theory ↔ Rust Correspondence
 
 | Theoretical Object | Rust Correspondence | Cost |

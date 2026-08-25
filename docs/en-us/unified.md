@@ -186,6 +186,16 @@ compile-time-unknown implementation):
    or dead-code-eliminate unselected implementations; all candidates stay resident.
 5. **Space**: resident candidate implementations + dispatch structures.
 
+> **Measured instance (C9, `benches/dynamic_tax.rs`, stable readings)**: for the
+> `SlotDrive` erased seam the per-touch tax decomposes exactly as item 1 —
+> **function-pointer indirect call + `downcast_mut` type-id compare ≈ +2.0 ns/op**
+> over a hand-written baseline (noise floor 0.1–1%); `Seat` adds ≈ +0.25 ns/op for
+> the generation compare; **swap ≈ 30 ns** including one heap allocation. The
+> static-generic channel (`drive_link<Inline>` with `#[inline(always)]`) sits at
+> the noise band across builds. These numbers are the budgetable form of items
+> 1/3: per-touch tax is O(1) and predictable; load/unload dominates only when
+> swaps are frequent.
+
 **Neutrality (why axiom stays sound)**: the dynamic tax is a function of the **physical boundary
 mechanism**, not of axiom's abstraction. axiom neither creates nor inflates it, and by keeping the
 non-dynamic majority static, **localizes it to the seam**. axiom's zero-cost promise

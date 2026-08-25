@@ -61,3 +61,12 @@ jobs:
       # re-evidence (see benches/bench_common.rs and CHANGELOG C9 notes).
       - name: Bench compile (release)
         run: cargo bench --no-run --manifest-path runtime/Cargo.toml
+
+      # Feature matrix (convergence 2026-08): seam-family features must each
+      # compile standalone against the core family — prevents gate rot
+      # (no-default-features + one feature at a time).
+      - name: Feature matrix compile
+        run: |
+          cargo build --manifest-path runtime/Cargo.toml --no-default-features --features telemetry
+          cargo build --manifest-path runtime/Cargo.toml --no-default-features --features event
+          cargo build --manifest-path runtime/Cargo.toml --no-default-features --features async-seam

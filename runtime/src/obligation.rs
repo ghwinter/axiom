@@ -341,7 +341,11 @@ pub const LEDGER_STD_EXTRA: &[LedgerEntry] = &[
         witness: "law.rs 探针（debug_assertions 门控）",
         conformance: "law.rs: pairing_law_holds_for_verdicts",
         probe: || { let l = PairLaw::new(); l.on_send(); l.on_verdict(&Delivery::Delivered::<i32>); l.assert_pairing(); true },
-    },    LedgerEntry {
+    },
+    // 依赖闭包纪律（结构收敛 2026-08）：探针引用 `crate::event` 符号——本行随
+    // `event` 特性同门控（关 `event` 时本行不进账本，避免 no-feature 构建失败）。
+    #[cfg(all(feature = "std", feature = "event"))]
+    LedgerEntry {
         seam: "event::pump_events",
         obligation: "配对律：N 条事件 ↔ N 个判定（delivered+dropped）；失败也是数据（不短路吞值）；消费端断连 ⟹ 停止拉取（拆除，不静默延续）；块容量 N≥1（模态②门，退化态拒绝）",
         modality: Modality::DeploymentValidation,

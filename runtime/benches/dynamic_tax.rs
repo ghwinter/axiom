@@ -167,6 +167,13 @@ fn main() {
     let _ = std::hint::black_box(&live3);
     let el = t0.elapsed();
     let _ = std::hint::black_box(g);
+    // 阈值断言钩子（C14-A2）：钉扎硬件上设置 DYNAMIC_TAX_MAX_NS_OP（ns/op）即可回归监视擦除缝。
+    if let Ok(mx) = std::env::var("DYNAMIC_TAX_MAX_NS_OP") {
+        let mx: f64 = mx.parse().expect("DYNAMIC_TAX_MAX_NS_OP 应为数字");
+        let per_op = c as f64 / ITERS as f64;
+        assert!(per_op <= mx, "erased seam per-touch tax {per_op:.2} ns/op exceeds threshold {mx:.2}");
+    }
+
     println!(
         "-- 换装税 --\n  swap ×{SWAPS}: {:>8.2} ns/次（含 1 次堆分配）",
         el.as_nanos() as f64 / SWAPS as f64

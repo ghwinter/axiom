@@ -87,16 +87,19 @@ pub mod mailbox;
 
 /// 事件基座载体类（§9.3 接缝）：事件流（EventStream/ChunkSource）+ 泵驱动
 /// （pump_events：变换＋有界投递＋配对计数）。Stability: **experimental**。
-#[cfg(feature = "std")]
+/// 门控：`event` 特性（接缝载体族，结构收敛 2026-08）。
+#[cfg(feature = "event")]
 pub mod event;
 
 /// 异步接缝（D2 executor 契约第一层）：可轮询单元（Poll/Poller/poll_until
-/// 期限探测）。Stability: **experimental**。
-#[cfg(feature = "std")]
+/// 期限探测＋SeamPoller 背压等待点＋Executor 契约）。Stability: **experimental**。
+/// 门控：`async-seam` 特性（接缝载体族）。
+#[cfg(feature = "async-seam")]
 pub mod async_seam;
 
 /// 观测面接口（B1）：每接缝遥测（投递/深度/延迟），默认 no-op 零成本。
-/// Stability: **experimental**。
+/// Stability: **experimental**。门控：`telemetry` 特性（接缝载体族）。
+#[cfg(feature = "telemetry")]
 pub mod telemetry;
 
 /// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。Stability: **stable**。
@@ -140,22 +143,23 @@ pub mod prelude_all {
     pub use crate::delivery::{Delivery, Receipt};
     #[cfg(feature = "std")]
     pub use crate::mailbox::{BoundedMailbox, Producer};
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", feature = "event"))]
     pub use crate::event::{
         ChunkSource, EventPumpStats, EventStream, PushVerdict, pump_events, split_lines,
     };
-    #[cfg(feature = "std")]
-    pub use crate::async_seam::{Poll, PollResult, Poller};
+    #[cfg(all(feature = "std", feature = "async-seam"))]
+    pub use crate::async_seam::{Executor, Poll, PollResult, Poller, SeamPoller, ThreadExec};
+    #[cfg(feature = "telemetry")]
     pub use crate::telemetry::{
         BufTelemetry, MeteredPush, NoOpTelemetry, Telemetry, VerdictView,
     };
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", feature = "telemetry"))]
     pub use crate::telemetry::ConsoleTelemetry;
     pub use crate::obligation::{
         DeliveryKind, LedgerEntry, LifecycleKind, Modality, ObligationClass, ReferenceKind, LEDGER,
     };
     pub use crate::profile::{
-        KernelProfile, Profile, ServiceProfile, ToolProfile, assemble_profile,
+        GameProfile, KernelProfile, Profile, ServiceProfile, ToolProfile, assemble_profile,
         assemble_profile_gated,
     };
     #[cfg(feature = "std")]

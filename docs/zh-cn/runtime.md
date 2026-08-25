@@ -49,6 +49,18 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 
 存储原语（非 Carrier；泵/邮箱之下的有界 FIFO）：`ring::BoundedRing<T, CAP>`——no_std+alloc，双计数器式（readable/writable），O(1) push/pop 且满/空为类型化判定（Full(v) 值随错误回传 / Empty，值守恒）；构造期一次预留分配、稳态每消息零分配。契约上单线程；跨线程变体待关键节选型裁定。服务 EmbeddedProfile（稳态零分配预算）。
 
+> **有界 FIFO 消歧表（2026-08；外部审计对账）**。三个有界 FIFO 按设计并存，非冗余：
+>
+> | 原语 | 阻塞语义 | 生产者 | 饱和面 | 归属 |
+> |---|---|---|---|---|
+> | `BoundedQueue` | `push` 阻塞；`try_push` → `Full(v)` | 多（std 通道） | Block / Fail（调用侧选择） | buffer.rs（std） |
+> | `BoundedMailbox` | `send` 驻留自身保底席位；`try_send`/`fire` 非阻塞 | 多，**反饥饿（每生产者一席）** | Block / Fail / 尽力（三模式） | mailbox.rs（std） |
+> | `BoundedRing` | 无（仅存储）；`push` 立即 `Full(v)` | 单（单线程契约） | 尝试 push = 判定 | ring.rs（no_std+alloc） |
+>
+> `BoundedCarrier<CAP>` 现由 `BoundedQueue` 承载；中期把其内脏换到 `BoundedMailbox`
+> （消一层包装）并为 `BoundedQueue` 开弃用轨道为开放项；上表先行回应"堆砌"观感。
+> 另记（docgate 盲区）：正文散文中的 API 名无法机检——仅 ```rust 围栏被编译；已知边界。
+
 ### 载体目录六元组（S/L/T/C/V/R；2026-08）
 
 | 载体 | S（接口与可观察行为） | L（规范强度） | T（符合性） | C（剖面） | V | R |
@@ -134,6 +146,13 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
   `ToolProfile`（外部）；剖面 = 模态① 类型令牌 + 模态③ 预算门——`assemble_profile<P,A,B,C>()`
   拒绝超预算载体，同一拓扑换剖面即换预算门、不改拓扑（T6）。载体白名单为规范文档
   （开放 `Carrier` impl 无法在类型层禁入——A5 诚实声明）。
+
+> **ToolProfile 旗舰案例（真实业务证据，按设计缺席）**：redacted-project——仅以
+> cell_core 构建的 公开行情源 行情数据流 → 列存归档 CLI（四个 PortCell＋类型级 SeqTopo
+> 布线）——已处理 **大规模行、verify 零错误**。其并行形态约 50 行标准库通道；
+> 未使用任何 runtime 模块。这是*设计判断*而非遗漏：工具形式用手写最小机制满足
+> 其物理，axiom-runtime 为物理面生长时待命（有界判定/剖面/热替换）。一个能演示
+> 自身应在何处缺席的框架，才具备可信度。
 - **`law` 模块**（`runtime/src/law.rs`，std）——运行期律探针（T 构件深化）：配对律
   （N 投递 ↔ N 判定；已收 ≤ 已投）、序列单调律、广播扇出计数律；`debug_assertions`
   门控、release 零开销。

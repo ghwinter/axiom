@@ -16,8 +16,16 @@ categories = ["concurrency", "rust-patterns", "embedded"]
 axiom = { path = "..", version = "0.3.0", default-features = false }
 
 [features]
-default = ["std"]
+default = ["std", "event", "async-seam", "telemetry"]
 std = ["axiom/std"]
+# ── 接缝载体族（结构收敛 2026-08：细粒度门控＋伞默认）────────────
+# 默认全开（保持现状编译面）；按需取用者可 `--no-default-features` 只取核心族
+# （carrier/contract/obligation/flow/profile/slot/delivery/law 等），或单特性
+# 选接缝。门控纪律：账本探针引用符号必须与其模块同门控（obligation.rs
+# `event::pump_events` 行随 `event`）；CI 特性矩阵见 ci.yml。
+event = ["std"]
+async-seam = ["std"]
+telemetry = []
 
 # ── 性能基准（构建用例，保留）：衡量不同载体的时空成本 ──────────────
 [[bench]]
@@ -26,4 +34,8 @@ harness = false
 
 [[bench]]
 name = "dynamic_tax"
+harness = false
+
+[[bench]]
+name = "profile_workloads"
 harness = false

@@ -59,6 +59,21 @@ allocation at construction and zero per-message allocation in steady state. Sing
 by contract; a cross-thread variant awaits the critical-section decision. Serves the
 `EmbeddedProfile` (zero-alloc steady-state budget).
 
+> **Bounded-FIFO disambiguation (2026-08, external-audit reconciliation).** Three bounded
+> FIFOs coexist by design; they are not redundant:
+>
+> | Primitive | Blocking semantics | Producers | Saturation surface | Home |
+> |---|---|---|---|---|
+> | `BoundedQueue` | `push` blocks; `try_push` → `Full(v)` | many (std channel) | Block / Fail via caller choice | buffer.rs (std) |
+> | `BoundedMailbox` | `send` parks on own guaranteed seat; `try_send`/`fire` nonblocking | many, **anti-starvation (one seat per producer)** | Block / Fail / best-effort (three modes) | mailbox.rs (std) |
+> | `BoundedRing` | none (storage only); `push` immediate `Full(v)` | one (single-threaded contract) | attempted push = verdict | ring.rs (no_std+alloc) |
+>
+> `BoundedCarrier<CAP>` is **carried by `BoundedQueue`** today; a mid-term swap of its
+> innards onto `BoundedMailbox` (removing one wrapper layer) and a deprecation track for
+> `BoundedQueue` are open; the disambiguation table above answers the "stacked look"
+> objection in the meantime. Also recorded (docgate blind spot): prose API names in the
+> docs are not machine-checkable — only ```rust fences are compiled; known boundary.
+
 ### Carrier catalog entries, six-tuple (S/L/T/C/V/R) — 2026-08
 
 | Carrier | S (interface & observable behavior) | L (normative strength) | T (conformance) | C (profile) | V | R |
@@ -163,6 +178,16 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   rejects carriers exceeding the profile budget, so the same topology swaps profiles without
   touching the graph (T6). Carrier whitelists remain normative documentation (open `Carrier`
   impls cannot be whitelisted at the type level—honest A5 note).
+
+> **ToolProfile flagship case (real-world evidence, by design absent)**:
+> `redacted-project` — a 公开行情源 `行情数据流` → columnar-archive CLI built on
+> `cell_core` alone (four `PortCell`s, typed `SeqTopo` wiring) — has processed
+> **large-scale row count with zero verify errors**. Its parallel form is ~50 lines
+> of std channels; no runtime module was required. This is a *design judgment*,
+> not an omission: the tool form satisfies its physics with hand-written
+> minimal mechanisms, and `axiom-runtime` exists for when that physics surface
+> grows (bounded verdicts, profiles, hot-swap). A framework that demonstrates
+> where it should be absent gains credibility.
 - **`law` module** (`runtime/src/law.rs`, `std`) — runtime-law probes (T-component
   deepening): pairing law (N sends ↔ N verdicts; received ≤ delivered), sequence monotonicity,
   broadcast fan-out counting; `debug_assertions`-gated, release zero-overhead.

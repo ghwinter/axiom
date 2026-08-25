@@ -44,6 +44,12 @@ runtime/src/
   static_path.rs / macros.rs / lib.rs（prelude 按新结构导出）
 ```
 
+> **门控注（结构收敛 2026-08）**：接缝载体族按细粒度特性门控——`event` /
+> `async-seam` / `telemetry`（+ 伞默认 `default = ["std", "event", "async-seam",
+> "telemetry"]`）；核心机制族（carrier/contract/obligation/flow/profile/slot/
+> delivery/law）与物理原语族（buffer/ring/mailbox）永不被 feature 关。
+> 纪律：账本探针引用符号与其模块同门控；CI 特性矩阵见 ci.yml。
+
 ## 5. 破坏性 API 变更清单 / Breaking-Change List
 
 1. `SlotDrive` typestate 化：`install → SlotPending`，`commit() → SlotLive`；`retire()` 终结；未 commit 不可驱动（模态①，零运行期检查）。
