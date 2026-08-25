@@ -510,6 +510,26 @@ Runtime freedom over structure is **parameterized** by "the target interface mus
    causality/timing realized). **Legality / existence** belongs to 2/4 (compile time); **efficacy
    (ordering / causality / timing)** belongs to this concept (runtime).
 
+> **Activation obligation (authorization ≠ acquisition; 2026-08 supplement, C15-T1).**
+> Concept 5 covers *efficacy* (ordering / causality / timing), and the Slot license covers
+> *authorization* (Pending → Live → Cleaned). What was not spelled out is **acquisition** —
+> activation's resource-taking face (threads, connections, pollers, buffers) and its failure
+> modes. Supplement:
+> - **Authorization axis vs acquisition axis**: the license governs "who may drive, when, and
+>   when it ends"; activation obligations govern "obtaining deployable resources (threads,
+>   sockets, poll loops)", their deploy-time failure (modality ③: resource unavailable, budget
+>   exceeded), and their release (ownership semantics — `Drop` / `retire`; cleanup is ownership
+>   transfer, not a second protocol).
+> - **Placement**: activation obligations are physical-layer / deploy-time (runtime); they are
+>   never construction concepts (1–5 unchanged, §8.3).
+> - **Honesty**: an acquisition failure is a deploy-time verdict (③), declared on the obligation
+>   lattice (resources axis); "claiming activation without a resource to activate on" is a
+>   degenerate state (Prop. 2.7) — refused by gates, not faked (async-seam: a poller without a
+>   deadline; a carrier without capacity).
+> - **Code form**: runtime-side `install_trying`-shaped acquisition (fallible, configurable
+>   acquisition at the seam), not core-level `init`; the total-construction preference
+>   (paradigm §4) keeps core constructors infallible.
+
 ### 8.2 Everything is an instance; there is no sixth concept
 
 - Pure transformation = 1 with `State = ()`;

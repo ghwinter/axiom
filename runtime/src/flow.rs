@@ -53,6 +53,31 @@ where
     Ok(drive_link::<A, B, C>)
 }
 
+/// **panic 边界驱动（A3）**：以 `catch_unwind` 包裹一次因果驱动
+/// （`A::step` → 载体 → `B::step`），cell 内 panic 不跨信任边界裸奔。
+///
+/// **成本标注（External 级）**：本边界是**高成本**接缝——反传播检查 + 状态不可信
+/// （panic 后 `A::State`/`B::State` 可能半更新，属接缝责任，不由本函数修复）。
+/// 热路径**不付此税**：工程约定"cell 内禁 panic"（失败必须是值，`Out = Result`；
+/// 违反者为声明者责任，runtime.md §8）。本边界仅用于跨信任边界防护
+/// （插件/外部代码宿主）；`spawned_flow`/`bounded_pump*` 已传播跨线程 panic
+/// （断连与拆解显式化）。
+#[cfg(feature = "std")]
+pub fn drive_catch<A, B>(
+    sa: &mut A::State,
+    sb: &mut B::State,
+    input: A::In,
+) -> Result<B::Out, Box<dyn core::any::Any + Send>>
+where
+    A: PortCell,
+    B: PortCell<In = A::Out>,
+{
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mid = A::step(sa, input);
+        B::step(sb, mid)
+    }))
+}
+
 /// 部署期装配（模态③）：有界接缝的**合并校验**——成本预算 **和** 容量（`CAP >= 1`）
 /// 在装配点一次通过，返回驱动入口（同上：一次校验、热路径零税）。
 ///
@@ -342,5 +367,31 @@ mod no_std_tests {
         let link = link.expect("Inline 满足零分配预算");
         let (mut sa, mut sb) = ((), ());
         assert_eq!(link(&mut sa, &mut sb, 5), 12);
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn drive_catch_contains_panic_and_passes_clean_drives() {
+        // A3：panic 边界——违约 cell（step 中 panic）被捕获为 Err（不裸奔）；
+        // 守约 cell 正常路径零干扰（Ok）。
+        struct PanicCell;
+        impl PortCell for PanicCell {
+            type In = i32;
+            type Out = i32;
+            type State = ();
+            #[inline(always)]
+            fn step(_: &mut (), x: i32) -> i32 {
+                if x < 0 {
+                    panic!("cell violated the no-panic convention");
+                }
+                x + 1
+            }
+        }
+
+        let (mut sa, mut sb) = ((), ());
+        // 违约路径：panic 被截获，边界返回 Err（payload 在值内）。
+        assert!(crate::flow::drive_catch::<PanicCell, Double>(&mut sa, &mut sb, -1).is_err());
+        // 守约路径：正常通过。
+        assert_eq!(crate::flow::drive_catch::<PanicCell, Double>(&mut sa, &mut sb, 5), Ok(12));
     }
 }

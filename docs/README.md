@@ -24,3 +24,17 @@ definition–activation, schemas — axiom's upgraded design beyond the static b
 > **Maintenance rule:** English is the authoritative default. When a spec changes, update the
 > English document first, then mirror the change into the Chinese document. Each English document
 > links to its Chinese counterpart and vice versa, using **relative paths** (never absolute).
+
+## Version and Stability Policy (A5)
+
+- **`cell_core` (the compile-time core) = stable**: semantic changes are constitution-level
+  decisions (closed-boundary checklist, §8.3); semantic regressions are rejected. New
+  combinators may be added only as instances of concepts 1–5 (collective ruling if in doubt).
+- **runtime modules carry per-module `Stability` markers**: `stable` (carrier basics, flow
+  drivers), `experimental` (obligation/contract/system under active constitution work).
+- **Versioning**: before 1.0, breaking changes bump the **minor** version (SemVer); each
+  breaking change ships a **concept-migration note** (which names moved, which semantics
+  shifted, where the concept lives now) even without a compatibility layer.
+- **`forbid(unsafe_code)` persists**; if unsafe ever becomes necessary, it is isolated into a
+  dedicated feature with a documented obligation proof (`docs`, modality ④ exhibition), never
+  into the stable core.

@@ -317,6 +317,17 @@ pub const LEDGER: &[LedgerEntry] = &[
             true
         },
     },
+    LedgerEntry {
+        seam: "degenerate-assembly (C13)",
+        obligation: "退化态拒绝汇编（boundary-ontology 命题 2.7 的机械落点）：容量 0（rendezvous 非背压）、同步直通冒充机械化投递态、未授权驱动（typenstate）、反饥饿席位缺席、零容量块源——可判退化态经模态②门与 fail-closed 默认拒绝",
+        modality: Modality::ConstantWitness,
+        witness: "contract::assert_capacity_nonzero / ObligationClass::default",
+        conformance: "runtime/tests/degenerate_states.rs (4 tests)",
+        probe: || {
+            crate::contract::assert_capacity_nonzero::<1>();
+            crate::obligation::ObligationClass::default().delivery == DeliveryKind::NotApplicable
+        },
+    },
 ];
 
 

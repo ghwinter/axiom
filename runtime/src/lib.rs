@@ -95,12 +95,20 @@ pub mod event;
 #[cfg(feature = "std")]
 pub mod async_seam;
 
+/// 观测面接口（B1）：每接缝遥测（投递/深度/延迟），默认 no-op 零成本。
+/// Stability: **experimental**。
+pub mod telemetry;
+
 /// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。Stability: **stable**。
 pub mod flow;
 
 /// 型位的运行期存在化（∃ 绑定，物理侧）。Stability: **experimental**。
 #[cfg(feature = "std")]
 pub mod slot;
+
+/// 枚举式型位（A4）：编译期已知候选集的零擦除存在化（vs `Slot` 的 dyn 擦除）。
+/// Stability: **experimental**。
+pub mod enum_slot;
 
 /// 有界缓冲 / 背压原语（§9.1，std）。Stability: **experimental**。
 #[cfg(feature = "std")]
@@ -117,8 +125,8 @@ pub mod macros;
 /// 核心 prelude。
 pub mod prelude_all {
     pub use crate::carrier::{
-        Carrier, CarrierCost, InlineCarrier, MaybeCarrier, ResultCarrier, ShortCircuit,
-        drive_try_carrier,
+        Carrier, CarrierCost, InlineCarrier, MaybeCarrier, ResultCarrier, Registered,
+        SaturationPolicy, ShortCircuit, drive_try_carrier,
     };
     #[cfg(feature = "std")]
     pub use crate::buffer::BoundedQueue;
@@ -138,11 +146,17 @@ pub mod prelude_all {
     };
     #[cfg(feature = "std")]
     pub use crate::async_seam::{Poll, PollResult, Poller};
+    pub use crate::telemetry::{
+        BufTelemetry, MeteredPush, NoOpTelemetry, Telemetry, VerdictView,
+    };
+    #[cfg(feature = "std")]
+    pub use crate::telemetry::ConsoleTelemetry;
     pub use crate::obligation::{
         DeliveryKind, LedgerEntry, LifecycleKind, Modality, ObligationClass, ReferenceKind, LEDGER,
     };
     pub use crate::profile::{
         KernelProfile, Profile, ServiceProfile, ToolProfile, assemble_profile,
+        assemble_profile_gated,
     };
     #[cfg(feature = "std")]
     pub use crate::law::{PairLaw, assert_fanout, assert_monotonic};
@@ -155,6 +169,7 @@ pub mod prelude_all {
     pub use crate::flow::drive_seq;
     #[cfg(feature = "std")]
     pub use crate::slot::{Seat, SlotDrive, SlotPending};
+    pub use crate::enum_slot::EnumSlot;
     pub use crate::static_path::{run_declared_static, run_static};
     pub use crate::wire;
 }

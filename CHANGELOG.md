@@ -38,6 +38,75 @@ expressed by incrementing the minor version).
   (boundary-ontology Prop. 2.7). `redis_like`'s `handle_conn` is now driven by
   the class (selftest byte-identical). Ledger row `event::pump_events` in
   `LEDGER_STD_EXTRA` (modality ③).
+- **Cost semantics formalized** (Z1, runtime.md en/zh §10): edge cost = f(carrier,
+  placement, types) as a formal grammar (per-class cost map, composition = max per C4,
+  modality-③ budgets) plus the declarative proof skeleton of family-A cross-thread
+  irreducibility (relative equality + contradiction; statement at the Rice boundary,
+  modality ④).
+- **Session-protocol port** (C1, `runtime/tests/session_protocol.rs`): ruling — session
+  duality is the T1 typed-hole duality (In/Out exchange) plus `Choice` tags; protocol
+  progress is an explicit state-phase cell (concept-1 instance); illegal transitions are
+  typed failures (values, never silent). The v0 `is_dual`/`project` thesis is resettled.
+- **Effect-annotation direction** (C2, frontier-notes #7): Alloc/Block/Async/Fail as
+  demand-side signing (the obligation lattice's reverse side) — no new concept, but
+  annotation burden requires fail-closed defaults and inferability; design document
+  first.
+- **Scalable-carrier registry** (C3, `carrier.rs` + `profile.rs`): `Registered` is a
+  sealed family (crate-internal impl only — an external carrier cannot register, a
+  modality-① fact); `Profile::GATED` marks Kernel/Service; `assemble_profile_gated`
+  requires `C: Registered` at compile time (unregistered third-party carriers fail to
+  build on gated profiles; the Bounded family is registered for any CAP). Whitelists
+  move from documentation to compile-time facts without sealing `Carrier` itself.
+- **Resource-budget subset** (C4, runtime.md §8 en/zh + `runtime/tests/resource_budget.rs`):
+  thread count countable (one thread per spawned flow), allocation summable
+  (chain class = max over segments per the `CarrierCost` order), stack depth honestly
+  unbounded (no fake derivation).
+- **Executor contract** (C7 layer 3, `async_seam.rs`): `Executor` trait (park step,
+  the minimal surface for external executors; axiom ships no executor) + `ThreadExec`
+  reference implementation; EX-generic wiring and SlotDrive co-evolution follow with
+  adapters.
+- **Observation interfaces** (B1, `runtime/src/telemetry.rs`): `Telemetry` trait with
+  `on_verdict/on_depth/on_latency` (empty defaults = no-op, zero cost at compile
+  time), `NoOp`/`Buf`/`Console` implementations (console = one output destination),
+  and `MeteredPush` as the wiring point; module is no_std ready.
+- **Role-layered example** (B2, `examples/layered`): cells/topology/main three-file
+  organization — domain authors expose `PortCell`, integrators write blueprints,
+  deployers choose carriers with the modality-③ cost gate and T6 cross-physical
+  equivalence; a multi-crate workspace is this structure modularized.
+- **Embedded-shape evidence** (B3, `runtime/tests/embedded_shape.rs`): compositions
+  using only cell_core (Id/Diamond/Rep) drive to closed forms with stack-tuple
+  states; CI no_std builds are the second witness.
+- **Control/observation co-form example** (B4, `examples/control_seam`): control is
+  a value — instruction-source cell + State write (mode switch keeps counts),
+  `Opt` pause gate, `SlotPending → SlotDrive` swap (ops surface); observation wired
+  via Console/Buf (constitution §8 semantics).
+- **Saturation policies** (A1, `carrier.rs`): `SaturationPolicy{Block, DropNewest,
+  DropOldest, Fail, NotApplicable}` declared per carrier via `Carrier::saturation()`
+  (conservative `Block` default; sync pass-through = `NotApplicable`); tests pin the
+  declaration to the behavior (Block retains the value until space, Fail returns
+  `Full(v)`, disconnect returns the value).
+- **Backpressure waiting point** (C7 layer 2, `async_seam.rs`): `SeamPoller<A>`
+  delivers `A::Out` through a real bounded channel with deadline polling
+  (`roll_until`): Block = retained value re-delivered on space (no loss, no recompute),
+  Fail/disconnect = value returned with the verdict. Theory supplements: T1 activation
+  obligation (foundations §8.1, authorization ≠ acquisition) and T2 error algebra
+  (runtime.md §9.2, E policy tiers; type-level E∈Out already forced).
+- **Panic boundary carrier** (A3, `flow::drive_catch`): `catch_unwind` guards a causal
+  drive; no-panic convention documented (runtime.md §8, en/zh) — failure must be a value,
+  violators own the responsibility; External-class high cost at trust boundaries only.
+- **Enumerated slot** (A4, `runtime/src/enum_slot.rs`): `EnumSlot<A,B>` — zero-erasure
+  existential with a compile-time-known candidate set (index match, no downcast/boxing;
+  both candidate states resident). The two cost curves vs `SlotDrive` are documented;
+  a concept-4 instance (§8.3).
+- **Version/stability policy** (A5, docs/README.md en/zh): `cell_core` stable at
+  constitution level, per-module runtime Stability, 0.x minor breakage with
+  concept-migration notes, unsafe isolated behind a dedicated feature.
+- **Degenerate-state assembly** (C13, `runtime/tests/degenerate_states.rs`): the
+  fifth-axis (admissibility, Prop. 2.7) mechanical landing point — capacity-0
+  gates, fake mechanized delivery (fail-closed N/A), uncommitted-slot typestate
+  refusal, anti-starvation, and zero-capacity chunk sources are assembled into
+  one checkable surface; ledger row `degenerate-assembly (C13)` (probe: gate
+  symbol + fail-closed default).
 - **Async-seam first layer** (C7, `runtime/src/async_seam.rs`, std): the D2
   executor-contract skeleton — `Poll`/`Poller` wrap a synchronous cell
   ("step never awaits"); two of the three waiting points are probed in the

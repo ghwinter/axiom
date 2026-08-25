@@ -59,6 +59,30 @@ allocation at construction and zero per-message allocation in steady state. Sing
 by contract; a cross-thread variant awaits the critical-section decision. Serves the
 `EmbeddedProfile` (zero-alloc steady-state budget).
 
+### Carrier catalog entries, six-tuple (S/L/T/C/V/R) — 2026-08
+
+| Carrier | S (interface & observable behavior) | L (normative strength) | T (conformance) | C (profile) | V | R |
+|---|---|---|---|---|---|---|
+| `InlineCarrier` | direct pass-through; saturated N/A; zero allocation | MUST: pure relay (T1) | topology tests + C9 bench | Kernel/Embedded/Tool | 0.3 | registry (C3) |
+| `QueueCarrier` (std) | heap relay; Block (conservative) | MUST: per-message alloc declared | cost gate (`validate_cost`) | Service/Tool | 0.3 | registry (C3) |
+| `BoundedCarrier<CAP>` | bounded relay; CAP≥1 gate; Block | MUST: capacity witness (②) | `assert_capacity_nonzero` + bounded tests | Kernel/Service | 0.3 | registry (C3) |
+| `spawned_flow` (std) | dedicated thread; panic propagates | MUST: family-A Sync declared (Z1) | cross-thread equivalence (T6) + teardown tests | Service/Tool | 0.3 | registry (C3) |
+| `ResultCarrier`/`MaybeCarrier` | X-lane: Ok passes, Err short-circuits (B not run) | MUST: failure-as-value | short-circuit tests (§9.2) | Tool | 0.3 | registry (C3) |
+| `event` substrate (`ChunkSource`/`pump_events`) | external events → `A::In`; teardown = stop pulling | MUST: pairing law (N↔N) | pump tests + ledger row | Service/Tool | 0.3 | ledger (C11) |
+| `async_seam` (`Poller`/`SeamPoller`) | poll; deadline verdict (sync-domain TimedOut) | MUST: step never awaits (D2) | async-seam tests + ledger row | Service/Tool | 0.3 | ledger (C11) |
+
+### Third-party adapter guide (2026-08)
+
+To attach a physical implementation **without touching the core**: (1) implement
+`Carrier<A, B>` for your seam (S: interface + observable behavior; L: declare
+`cost()`/`obligation()`/`saturation()` truthfully); (2) test it as an external consumer
+(examples/tests style; T6 sampling equivalence where claimed); (3) use open profiles
+(`Tool`/`Embedded`, `assemble_profile`) or, for gated profiles, request registration —
+`Registered` is sealed (C3), so unregistered adapters are refused at compile time on
+gated profiles by design (whitelist = official catalog); (4) async executors implement
+the `Executor` contract (C7 layer 3) instead of axiom shipping one (zero-dependency
+promise, D6). Each entry point is a declaration + a check, never a silent default.
+
 Each carrier is **independently selectable and replaceable**: swapping one implementation
 does not change the topology (T6, multiple physical implementations).
 
@@ -241,6 +265,19 @@ reference (`git show main:runtime/examples/<name>/main.rs`).
   (synchronization/wakeup/visibility) is a physical toll that an equivalent hand-written
   multi-threaded program pays as well, and is not an "abstraction tax" (linking to
   `foundations.md` §8.6 item 8).
+- **No-panic convention (A3; 2026-08)**: engineering convention — a cell's `step` must not
+  panic; failure must be a value (`Out = Result`); a violator is the declarer's responsibility.
+  Cross-trust-boundary defense uses `flow::drive_catch` (`catch_unwind`; **External-class
+  high cost** — after a panic the states may be half-updated and are the seam's
+  responsibility); hot paths do not pay this tax. `spawned_flow` / `bounded_pump*` already
+  propagate cross-thread panics (teardown is explicit).
+- **Topology-level resource budget (C4 feasible subset; 2026-08)**: thread count is
+  countable (`spawned_flow` acquires exactly one thread per flow; assembly-time
+  arithmetic); allocation is summable (chain per-message class = max over segments,
+  per the `CarrierCost` order; `validate_cost` enforces per-seam budgets); stack depth is
+  generally undecidable — compile-time stack-depth derivation is NOT promised (honest
+  boundary; no fake derivation). Mechanical subset pinned at
+  `runtime/tests/resource_budget.rs`.
 
 ---
 
@@ -291,6 +328,21 @@ short-circuit carriers.
   (`flow.rs`): `Ok` enters the bounded queue (full = blocking backpressure); `Err`
   short-circuits (not queued) and is counted.
 
+> **Error algebra policy (C15-T2; 2026-08 supplement).** "Failure as a value" (§8.2
+> concept-1 instance) needs its propagation rules written down. The status:
+> - **Type level (already forced)**: `E` is part of `Out = Result<X, E>`; a seam whose
+>   `B::In ≠ A::Out` fails to compile — cross-segment error-type compatibility is enforced
+>   by T1, not by convention (netpath's single shared `NetErr` is the type fact, not sugar).
+> - **Policy level (free, decided by the driver/seam, documented here)**:
+>   - *Fail-fast* (first error aborts): `TryChain` / `drive_try_carrier` — E is not merged;
+>   - *Collect* (aggregate E): requires an explicit adapter cell (E stays a value; no hidden
+>     collection in cores);
+>   - *Union/lifting* (join different E per segment): requires an adapter cell;
+>   - *Degrade* (fallback value on Err): `MaybeCarrier` — `None` replaces the failure.
+>   The policy is a **driver-side placement** (L4), never a core notion; it can be verified
+>   by sampling on a bounded domain (C8-2 counterexample search), never by structure alone
+>   (T5).
+
 ### 9.3 The Seam for Attaching External Input Sources (IO Events ↔ flow)
 The documentation has declared "IO is physical/carrier-replaceable", but the grounding
 interface for "how the external world (socket events, etc.) formally becomes the `in` of a
@@ -320,7 +372,37 @@ on the full queue — failure and backpressure are orthogonal and each is explic
 
 ---
 
-## 10. Conclusion
+## 10. Cost Semantics (Z1; the formalized core of the zero-cost promise)
+
+The runtime's cost claims as a formal grammar — **edge cost = f(carrier, placement, types)**:
+
+```
+edge_cost(seam) := class(f):
+  class(Inline, static, ZST)        → ZeroAllocInline
+  class(Queue|Bounded, static, …)   → PerMessageAlloc            (per-message heap)
+  class(spawned_flow, static, …)    → PerMessageAlloc + Sync     (family A)
+  class(Slot existential, …, erase) → PerInstallAlloc + indirect (dynamic tax, C9)
+  class(any, …, dyn-erased)         → + downcast per drive
+
+composition (C4, pinned):  chain class = max over segments.
+budget (modality ③):       declared ≤ budget at each seam (validate_cost);
+                           obligation floor per profile (C10).
+```
+
+**Family-A irreducibility (declarative proof skeleton; modality ④).** Claim: the
+cross-thread additive (`Sync` + per-message synchronization) **cannot be eliminated by
+abstraction** — only transferred equitably. Skeleton: (1) causal flow across threads
+requires shared memory plus synchronization (wakeup/visibility) at the seam; (2) the
+zero-cost promise is **relative equality** (`foundations.md` §0: runtime cost ≡ cost of an
+equivalent hand-written program) — a hand-written multithreaded program pays the same
+toll; (3) were the family-A tax eliminable, a zero-synchronization cross-thread value
+transfer would exist, contradicting causal ordering/observability of the flow; hence
+elimination leads to contradiction. The skeleton is a statement, not a machine proof
+(Rice boundary, modality ④). Measurement-corpus witnesses: `dynamic_tax.rs` (C9) and
+`bench_common.rs`'s noise-floor method; recognized layout sensitivity is recorded as
+such, never as a single number.
+
+## 11. Conclusion
 
 > runtime = the `cell_core` **physical-layer implementation use case**: a carrier catalog
 > (Inline/Queue/Bounded/spawned_flow/static_path/wire!) + redemption verification, modular and

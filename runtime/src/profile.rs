@@ -44,11 +44,16 @@ pub trait Profile {
     /// 校验）。已按剖面分化（C10 step 2）：资源轴声明 ≤ 下限、投递态轴声明 ≥ 下限；
     /// 引用/生命周期轴保持声明、不予判定（A5 诚实）。
     fn obligation_min() -> ObligationClass;
+    /// 是否为**注册门剖面**（C3）：若为 `true`，装配须经
+    /// [`assemble_profile_gated`]（编译期要求 `C: Registered`——白名单升为
+    /// 模态①事实；未注册载体编译失败）。
+    const GATED: bool = false;
 }
 
-/// 内核形式剖面（F = kernel）。
+/// 内核形式剖面（F = kernel）：**注册门**（C3）——仅注册载体可装配。
 pub struct KernelProfile;
 impl Profile for KernelProfile {
+    const GATED: bool = true;
     fn cost_budget() -> CarrierCost {
         CarrierCost::ZeroAllocInline
     }
@@ -61,9 +66,10 @@ impl Profile for KernelProfile {
     }
 }
 
-/// 服务形式剖面（F = service/server）。
+/// 服务形式剖面（F = service/server）：**注册门**（C3）。
 pub struct ServiceProfile;
 impl Profile for ServiceProfile {
+    const GATED: bool = true;
     fn cost_budget() -> CarrierCost {
         CarrierCost::PerMessageAlloc
     }
@@ -107,6 +113,11 @@ impl Profile for EmbeddedProfile {
 /// 按剖面装配（模态③）：载体成本 ≤ 剖面预算 **且** 载体义务不弱于剖面义务下限，
 /// 越界 = 装配失败；返回 [`drive_link`] 函数指针（热路径零税）。同一 `A`/`B` 拓扑
 /// 换剖面 = 换预算门 + 换义务下限，不改拓扑（T6：义务随剖面变化，语义一致）。
+///
+/// **开放入口**：不校验注册（C3）——适用于开放剖面（Tool/Embedded，`GATED=false`）。
+/// 注册门剖面（Kernel/Service，`GATED=true`）必须使用 [`assemble_profile_gated`]
+/// （编译期要求 `C: Registered`）；对门剖面误用本入口 = 声明者责任（诚实边界：
+/// 两入口纪律，lint 原型见 C11 待办）。
 pub fn assemble_profile<P, A, B, C>() -> Result<Driver<A, B>, ContractError>
 where
     P: Profile,
@@ -118,6 +129,19 @@ where
     // C10 step 2：义务下限（模态③）——从占位转为可强制的装配门。
     crate::contract::validate_obligation_min(C::obligation(), P::obligation_min())?;
     Ok(drive_link::<A, B, C>)
+}
+
+/// **注册门装配**（C3；模态①）：与 [`assemble_profile`] 同语义，另要求
+/// `C: Registered`（官方载体）——未注册（第三方）载体在注册门剖面
+/// （Kernel/Service）**编译失败**：白名单从文档约定升为编译期事实。
+pub fn assemble_profile_gated<P, A, B, C>() -> Result<Driver<A, B>, ContractError>
+where
+    P: Profile,
+    A: PortCell,
+    B: PortCell<In = A::Out>,
+    C: Carrier<A, B> + crate::carrier::Registered,
+{
+    assemble_profile::<P, A, B, C>()
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -193,6 +217,17 @@ mod tests {
         // Tool 外松：任何载体义务都满足下限（Inline 与 Queue 均通过）。
         assert!(assemble_profile::<ToolProfile, Inc, Double, InlineCarrier>().is_ok());
         assert!(assemble_profile::<ToolProfile, Inc, Double, QueueCarrier>().is_ok());
+    }
+
+    #[test]
+    fn gated_assembly_requires_registered_carrier() {
+        // C3：注册门剖面经 gated 入口装配官方载体（Registered）成功；
+        // 未注册载体在该剖面编译失败（sealed 保证不可外部注册——负测试不可写，
+        // 即模态① 的形态：违反在编译期被类型系统拒绝）。
+        assert!(assemble_profile_gated::<KernelProfile, Inc, Double, InlineCarrier>().is_ok());
+        assert!(assemble_profile_gated::<ServiceProfile, Inc, Double, QueueCarrier>().is_ok());
+        // Bounded 族注册覆盖任意 CAP。
+        assert!(assemble_profile_gated::<ServiceProfile, Inc, Double, crate::carrier::BoundedCarrier<4>>().is_ok());
     }
 
     #[test]

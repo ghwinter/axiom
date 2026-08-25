@@ -53,3 +53,11 @@ jobs:
         run: |
           cargo build --no-default-features
           cargo build --no-default-features --manifest-path runtime/Cargo.toml
+
+      # Bench compile gate (A2, partial): release benches must compile against the
+      # current API. Threshold comparison (E1 automation) stays manual on shared
+      # runners — timing gates are flaky; run `cargo bench` with the noise-floor
+      # method (min-of-N + self-noise floor) when a zero-cost claim needs
+      # re-evidence (see benches/bench_common.rs and CHANGELOG C9 notes).
+      - name: Bench compile (release)
+        run: cargo bench --no-run --manifest-path runtime/Cargo.toml

@@ -49,6 +49,28 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 
 存储原语（非 Carrier；泵/邮箱之下的有界 FIFO）：`ring::BoundedRing<T, CAP>`——no_std+alloc，双计数器式（readable/writable），O(1) push/pop 且满/空为类型化判定（Full(v) 值随错误回传 / Empty，值守恒）；构造期一次预留分配、稳态每消息零分配。契约上单线程；跨线程变体待关键节选型裁定。服务 EmbeddedProfile（稳态零分配预算）。
 
+### 载体目录六元组（S/L/T/C/V/R；2026-08）
+
+| 载体 | S（接口与可观察行为） | L（规范强度） | T（符合性） | C（剖面） | V | R |
+|---|---|---|---|---|---|---|
+| `InlineCarrier` | 直通；饱和 N/A；零分配 | MUST：纯中转（T1） | 拓扑测试＋C9 基准 | Kernel/Embedded/Tool | 0.3 | 注册表（C3） |
+| `QueueCarrier`（std） | 堆中转；Block（保守） | MUST：声明每消息分配 | 成本门（validate_cost） | Service/Tool | 0.3 | 注册表（C3） |
+| `BoundedCarrier<CAP>` | 有界中转；CAP≥1 门；Block | MUST：容量见证（②） | assert_capacity_nonzero＋有界测试 | Kernel/Service | 0.3 | 注册表（C3） |
+| `spawned_flow`（std） | 专用线程；panic 传播 | MUST：族 A Sync 声明（Z1） | 跨线程等价（T6）＋拆解测试 | Service/Tool | 0.3 | 注册表（C3） |
+| `ResultCarrier`/`MaybeCarrier` | X-lane：Ok 直通、Err 短路（B 不执行） | MUST：失败为值 | 短路测试（§9.2） | Tool | 0.3 | 注册表（C3） |
+| 事件基座（`ChunkSource`/`pump_events`） | 外部事件 → `A::In`；断连停止拉取 | MUST：配对律（N↔N） | 泵测试＋账本行 | Service/Tool | 0.3 | 账本（C11） |
+| 异步接缝（`Poller`/`SeamPoller`） | 轮询；期限判定（同步域 TimedOut） | MUST：step 永不等（D2） | 异步接缝测试＋账本行 | Service/Tool | 0.3 | 账本（C11） |
+
+### 第三方适配器指南（2026-08）
+
+接入物理实现而不触碰核心：(1) 为你的接缝实现 `Carrier<A,B>`（S：接口与可观察行为；
+L：如实声明 `cost()`/`obligation()`/`saturation()`）；(2) 以外部消费者视角测试
+（examples/tests 形态；声称处做 T6 采样等价）；(3) 使用开放剖面（`Tool`/`Embedded`，
+`assemble_profile`）——注册门剖面（Kernel/Service）需注册，`Registered` 密封（C3），
+未注册适配器在门剖面按设计编译拒绝（白名单 = 官方目录）；(4) 异步执行器实现
+`Executor` 契约（C7 三层），axiom 不随附执行器（零依赖承诺，D6）。每个入口 =
+声明＋检查，绝无静默默认。
+
 每种载体**独立可选、可替换**：换一个实现不改拓扑（T6 多物理实现）。
 
 > **放置连续谱（衔接 `foundations.md` §8.6 第 7–8 条）**：表中"单线程 / 跨线程"**不是两个
@@ -195,6 +217,15 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 - **零成本承诺的作用域**：承诺的是**族 B 为零**（抽象不因区分需求收费）；跨线程边的**族 A**
   （同步/唤醒/可见性）是等价手写多线程程序同样付的物理对价，不在"抽象税"之列（衔接
   `foundations.md` §8.6 第 8 条）。
+- **cell 内禁 panic 约定（A3；2026-08）**：工程约定——cell 的 `step` 不得 panic；
+  失败必须是值（`Out = Result`）；违反者为声明者责任。跨信任边界防护用
+  `flow::drive_catch`（`catch_unwind`；**External 级高成本**——panic 后状态可能
+  半更新，属接缝责任）；热路径不付此税。`spawned_flow`/`bounded_pump*` 已传播
+  跨线程 panic（拆解显式化）。
+- **拓扑级资源预算（C4 可行子集；2026-08）**：线程数可数（`spawned_flow` 每实例
+  一条线程；装配期算术）；分配可由 `CarrierCost` 代数求和（链每消息类 = 各段最
+  大，按声明序；`validate_cost` 已逐缝强制预算）；栈深一般不可判——编译期栈深
+  推导不承诺（诚实划界，无伪推导）。机械子集锁定于 `runtime/tests/resource_budget.rs`。
 
 ---
 
@@ -235,6 +266,19 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
   已由 `bounded_pump_try`（`flow.rs`）落地：`Ok` 投入有界队列（满=阻塞背压），
   `Err` 短路（不投队列、计数）。
 
+> **错误代数政策（C15-T2；2026-08 补充）**。"失败为值"（概念 1 实例）的**传播规则**
+> 现成文：
+> - **类型层（已强制）**：`E` 是 `Out = Result<X,E>` 的一部分；`B::In ≠ A::Out`
+>   的接缝无法编译——跨段错误类型兼容由 T1 强制，非约定（netpath 的单一共享
+>   `NetErr` 是类型事实，不是糖）。
+> - **政策层（自由，由 driver/接缝决定，此处成文）**：
+>   - *fail-fast*（首错即止）：`TryChain`/`drive_try_carrier`——E 不合并；
+>   - *collect*（聚合 E）：须显式适配 cell（E 保持为值，core 内无隐式聚合）；
+>   - *union/提升*（各段 E 联合）：须适配 cell；
+>   - *degrade*（Err 时回退值）：`MaybeCarrier`——`None` 取代失败。
+>   政策是 **driver 侧放置（L4）**，绝非 core 概念；可经有界域采样验证（C8-2
+>   反例搜索），绝不可由结构单独判定（T5）。
+
 ### 9.3 外部输入源的接入接缝（IO 事件 ↔ flow）
 文档已声明"IO 是物理/载体可替换"，但"外部世界（socket 事件等）如何正式成为一条因果流
 的 `in`"这一落地接口未形式化。**首案例已落地**：`redis_like`
@@ -258,7 +302,32 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 
 ---
 
-## 10. 结论
+## 10. 成本语义（Z1；零成本承诺的形式化核心）
+
+运行时成本主张的形文法——**边成本 = f(载体, 放置, 类型)**：
+
+```text
+edge_cost(seam) := class(f):
+  class(Inline, static, ZST)        → ZeroAllocInline
+  class(Queue|Bounded, static, …)   → PerMessageAlloc            （每消息堆）
+  class(spawned_flow, static, …)    → PerMessageAlloc + Sync     （族 A）
+  class(Slot 存在化, …, erase)      → PerInstallAlloc + 间接    （动态税，C9）
+  class(any, …, dyn 擦除)           → + 每次驱动 downcast
+
+组合（C4，已钉）：链成本 = 各段最大。
+预算（模态③）：     逐缝 declared ≤ budget（validate_cost）；
+                     剖面义务下限（C10）。
+```
+
+**族 A 不可消（陈述性证明骨架；模态④）**。断言：跨线程增量（Sync＋每消息同步）
+**不可被抽象消去**——只能等价转移。骨架：(1) 因果流跨线程必然经共享内存＋同步
+（唤醒/可见性）于接缝；(2) 零成本承诺是**相对等式**（foundations §0：runtime 成本
+≡ 等价手写程序成本）——手写多线程程序付同税；(3) 若族 A 税可消，则存在零同步的
+跨线程传值，违背流的因果序/可观测性——矛盾。骨架是陈述而非机器证明（Rice 边界，
+模态④）。测量语料见证：`dynamic_tax.rs`（C9）与 `bench_common.rs` 噪声底方法；
+布局敏感性如实记录，绝不以单次数字立论。
+
+## 11. 结论
 
 > runtime = `cell_core` 的**物理层实现用例**：载体目录（Inline/Queue/Bounded/
 > spawned_flow/static_path/wire!）+ 兑现验证，模块化可替换，解释并验证"同一张静态图可插进多种物理

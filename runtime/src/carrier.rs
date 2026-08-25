@@ -23,6 +23,60 @@ pub enum CarrierCost {
 // `validate_cost` 用 `declared <= budget` 判定：budget 取 `ZeroAllocInline` 时
 // 仅零分配载体合格（默认未声明的 External 会被拒绝——保守）。
 
+/// 背压饱和策略（A1；饱和政策轴的形式化——"饱和时值如何处置"的目的条款）。
+///
+/// 第五轴机械化（boundary-ontology 命题 2.7）：策略是目的条款，枚举化使
+/// "饱和行为可声明、可装配校验"。默认 [`Block`](SaturationPolicy::Block)
+/// （保守：不静默丢值）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SaturationPolicy {
+    /// 饱和时阻塞（背压上传；值绝不丢弃）。
+    #[default]
+    Block,
+    /// 饱和时丢弃**新值**并随错误回传（`Full(v)` 形态，值不消失）。
+    DropNewest,
+    /// 饱和时丢弃**最旧值**（新值入列；旧值随错误回传）。
+    DropOldest,
+    /// 饱和即失败（`try_send` 语义；值随 `Full(v)` 回传，调用方裁决）。
+    Fail,
+    /// 饱和不适用（同步直通：无缓冲、无背压，投递要么发生要么不发生）。
+    NotApplicable,
+}
+
+// ── 注册载体（C3；密封白名单）─────────────────────────────────────────────
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+/// 注册载体（C3）：**密封**（外部不可实现）的官方载体族标记。
+///
+/// 白名单从"文档约定"升为**编译期事实**（模态①）：注册门剖面
+/// （`Profile::GATED`，Kernel/Service）的装配入口
+/// [`assemble_profile_gated`](crate::profile::assemble_profile_gated) 要求
+/// `C: Registered`——未注册（第三方）载体在该剖面**编译失败**。
+/// 生态开放不受损（§7 机制自由）：未注册载体仍可用于开放剖面
+/// （Tool/Embedded）与直接驱动；注册是"官方载体目录"的语义，不是 Carrier 的
+/// 许可。
+pub trait Registered: sealed::Sealed {}
+
+macro_rules! register_carrier {
+    ($($t:ty),+ $(,)?) => {
+        $(impl sealed::Sealed for $t {}
+        impl Registered for $t {})+
+    };
+}
+
+register_carrier!(InlineCarrier);
+// 队列与有界族为 std 载体（no_std 构建仅 Inline——与"no_std 下仅零分配载体"
+// 的声明一致）。
+#[cfg(feature = "std")]
+register_carrier!(QueueCarrier);
+#[cfg(feature = "std")]
+impl<const CAP: usize> sealed::Sealed for BoundedCarrier<CAP> {}
+#[cfg(feature = "std")]
+impl<const CAP: usize> Registered for BoundedCarrier<CAP> {}
+
 /// 一个载体：把 cell `A` 的因果输出流动到 cell `B` 的输入。
 ///
 /// 类型层保证 `A: PortCell, B: PortCell<In = A::Out>`（即这条因果流本身合法，T1）。
@@ -42,6 +96,13 @@ where
     /// 每个实现者应覆写：resource 取 [`Self::cost`] 同值，有投递语义者再补 delivery 轴。
     fn obligation() -> crate::obligation::ObligationClass {
         crate::obligation::ObligationClass::default()
+    }
+
+    /// 本载体的背压饱和策略声明（A1）。默认 [`Block`](SaturationPolicy::Block)
+    /// （保守：不静默丢值）；同步直通载体应声明
+    /// [`NotApplicable`](SaturationPolicy::NotApplicable)（无缓冲、无饱和点）。
+    fn saturation() -> SaturationPolicy {
+        SaturationPolicy::Block
     }
 
     /// 把 `A` 的一个输入流经 `A`，再经本载体流入 `B`，返回 `B` 的输出。
@@ -72,6 +133,10 @@ where
             resource: CarrierCost::ZeroAllocInline,
             ..crate::obligation::ObligationClass::default()
         }
+    }
+
+    fn saturation() -> SaturationPolicy {
+        SaturationPolicy::NotApplicable // 同步直通：无缓冲、无饱和点
     }
 
     #[inline(always)]
@@ -345,5 +410,58 @@ mod short_circuit_tests {
             drive_try_carrier::<MaybeCarrier, Fallible, Double, _, _>(&mut sa, &mut sb, 7),
             Ok(16) // Ok(8) -> Double 16
         );
+    }
+
+    mod saturation_tests {
+        use super::*;
+
+        struct Inc;
+        impl PortCell for Inc {
+            type In = i32;
+            type Out = i32;
+            type State = ();
+            #[inline(always)]
+            fn step(_: &mut (), x: i32) -> i32 {
+                x.wrapping_add(1)
+            }
+        }
+
+        #[test]
+        fn saturation_declared_honestly_per_carrier() {
+            // A1：策略声明与载体语义一致——直通无饱和点（N/A），有界/队列有背压点。
+            assert_eq!(
+                <InlineCarrier as Carrier<Inc, Double>>::saturation(),
+                SaturationPolicy::NotApplicable,
+                "同步直通：无缓冲、无饱和点"
+            );
+            assert_eq!(
+                <QueueCarrier as Carrier<Inc, Double>>::saturation(),
+                SaturationPolicy::Block,
+                "保守默认：不静默丢值"
+            );
+            // 默认 trait 行为 = Block（保守）。
+            fn default_saturation<C, A, B>() -> SaturationPolicy
+            where
+                C: Carrier<A, B>,
+                A: PortCell,
+                B: PortCell<In = A::Out>,
+            {
+                C::saturation()
+            }
+            assert_eq!(default_saturation::<QueueCarrier, Inc, Double>(), SaturationPolicy::Block);
+        }
+
+        #[test]
+        fn boundary_state_block_is_not_rendezvous() {
+            // 容量 ≥ 1 由装配门保证（退化态拒绝）；Block 策略下满值是显式判定而非丢值。
+            const { crate::contract::assert_capacity_nonzero::<1>() };
+            let (tx, _rx) = std::sync::mpsc::sync_channel::<i32>(1);
+            // 容量 1 的空通道：一次 try_send 成功；第二次即显式 Full（值保留）。
+            assert!(tx.try_send(1).is_ok());
+            match tx.try_send(2) {
+                Err(std::sync::mpsc::TrySendError::Full(v)) => assert_eq!(v, 2, "值随判定回传"),
+                other => panic!("expected Full(2), got {other:?}"),
+            }
+        }
     }
 }
