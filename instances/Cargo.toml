@@ -1,0 +1,37 @@
+[package]
+name = "axiom-instances"
+version = "0.3.0"
+edition = "2024"
+# Edition 2024 stabilized in Rust 1.85 (Feb 2025); matches core/runtime.
+rust-version = "1.85"
+description = "axiom 实例层：经 socket（Executor/Carrier/Telemetry）接入可替换物理实现。官方标准集 = 融合单 crate + feature 门控（tokio），默认全关；第三方实例可自建独立 crate 走开放路径（双形态边界，instance-layer-design §3）。"
+license = "MIT"
+repository = "https://github.com/ghwinter/axiom"
+homepage = "https://github.com/ghwinter/axiom"
+documentation = "https://docs.rs/axiom-instances"
+keywords = ["dataflow", "carrier", "zero-cost", "compile-time", "executor", "tokio"]
+categories = ["concurrency", "asynchronous", "rust-patterns"]
+
+[dependencies]
+# 依赖方向单向：core(runtime) ← instances，符合 workspace M6 组合法则。
+# default-features=false：默认<无实例>——实例层 feature 门控（默认全关），
+# 只拉需要的接缝；不隐式启用 runtime 的空闲缺省载族。
+axiom = { path = "..", version = "0.3.0", default-features = false }
+axiom-runtime = { path = "../runtime", version = "0.3.0", default-features = false }
+
+# ── 实例层 feature 门控（默认全关，推演既定）──────────────────────────
+#   default = []            （空实例面：合法，无替换发生）
+#   async   = 拉起 runtime 的异步接缝（Executor/SeamPoller）
+#   tokio   = async + 可选外部依赖 tokio（真外部依赖只在开启时入图）
+#   embedded= 预留嵌入式流（无外部依赖；副作用是启用 runtime std）
+[features]
+default = []
+async = ["axiom-runtime/async-seam"]
+tokio = ["async", "dep:tokio"]
+embedded = ["axiom-runtime/std"]  # 预留：嵌入式流适配（后续落）
+
+[dependencies.tokio]
+version = "1"
+optional = true
+default-features = false
+features = ["time", "rt-multi-thread"]  # time: 期限语义; rt-multi-thread: 多线程 Runtime::new（全局 timer, block_on 从任意线程可 driver）。不拉全套 IO/net

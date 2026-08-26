@@ -207,7 +207,7 @@ impl ObligationClass {
 pub struct LedgerEntry {
     /// 接缝名（代码定位）。
     pub seam: &'static str,
-    /// 义务的内容（一句话）。
+    /// 义务的内容（概括）。
     pub obligation: &'static str,
     /// 落位模态（A3）。
     pub modality: Modality,

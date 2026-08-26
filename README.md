@@ -38,6 +38,21 @@ dataflow it provides replaceable physical options for "how values flow" —
 worker panic propagated), and the `wire!` declaration macro. Modular and replaceable:
 a new carrier can be plugged in by implementing the `Carrier` trait without changing the topology.
 
+## instances (`axiom-instances` · third constituent)
+
+The **instance layer** plugs replaceable physical/ecosystem implementations into the core
+through the seams (`Executor` / `Carrier` / `Telemetry`). Official instances ship as one
+fused crate with feature gating, **all off by default**; third parties self-build separate
+crates (dual-form boundary — fused standard set vs. open path).
+
+| feature | pulls | provides |
+|---|---|---|
+| `async` | `axiom-runtime/async-seam` | async seam (the `Executor` contract) |
+| `tokio` | `async` + optional `tokio` dep | `TokioExec`: seam wait-point adapter toward tokio |
+| `embedded` | `axiom-runtime/std` | reserved embedded flow |
+
+Dependency direction is one-way, enforced by the workspace member table: `axiom ← axiom-runtime ← axiom-instances`. The core and runtime keep their zero-dependency promise; `tokio` lives only as an optional dep of instances.
+
 ## Examples
 
 | File | Demonstrates |
@@ -50,13 +65,16 @@ a new carrier can be plugged in by implementing the `Carrier` trait without chan
 ## Build & verify
 
 ```text
-cargo build --lib        # core (zero dependency; no_std via --no-default-features)
-cargo test               # core: 21 unit + 6 blueprint-integration assertions (benches excluded)
-cargo bench --bench dag  # diamond zero-cost proof (composite ≈ handwritten, Δ≈±1%) — release-only evidence
-cargo test --manifest-path runtime/Cargo.toml   # runtime (incl. contract validation)
-cargo run --example pipeline          # run an example
-cargo run --manifest-path runtime/Cargo.toml --example threaded_flow
+cargo build --workspace                    # core + runtime (+ instances 骨架)
+cargo test --workspace                     # core + runtime unit/integration
+cargo bench --bench dag                    # diamond zero-cost proof (composite ≈ handwritten, Δ≈±1%) — release-only evidence
+cargo build -p axiom-instances --features tokio   # 实例层（tokio feature 门控；默认全关）
+cargo test -p axiom-instances --features tokio    # 实例层 + 对照对拍（T6 多物理语义等价）
+cargo run --example pipeline               # run an example
+cargo run -p axiom-runtime --example threaded_flow
 ```
+
+`--workspace` 依根 `Cargo.toml` 的 `[workspace]` 统一解析（收敛旧双 manifest 分治）；单一 `Cargo.lock`/`target`。`no_std` 承诺：`cargo build -p axiom --no-default-features`、`cargo build -p axiom-runtime --no-default-features`（实例层不参与 no_std）。
 
 > Benchmarks are meaningful only in release profiles; under debug builds they
 > skip themselves instead of emitting misleading numbers.

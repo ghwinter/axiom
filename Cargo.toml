@@ -35,3 +35,13 @@ harness = false
 [[bench]]
 name = "dag"
 harness = false
+
+# ── Workspace（实例层形态落地；instance-layer-design.md）──────────────
+# 三构件单向依赖：axiom ← axiom-runtime ← axiom-instances。
+# 本根 package 自动是 workspace 启的成员；统一 Cargo.lock/target，
+# 消除与 runtime 的分散双 manifest（CI 之前用 `--manifest-path runtime`）。
+# 依赖方向单向由成员表强制；任何反向依赖（runtime/instances ←– core 依赖
+# 外部实例）均属 M6 不可组合对象，拒绝。
+[workspace]
+resolver = "2"
+members = ["runtime", "instances"]

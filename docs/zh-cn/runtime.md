@@ -166,7 +166,7 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 - **`assemble_link` / `assemble_seam`**（`runtime/src/flow.rs`）——**模态③ 的接线入口**：在
   部署装配点**一次**校验成本（有界接缝还校验容量），通过后返回 `drive_link` 函数指针
   （`Driver<A,B>`）；预算越界 = **装配失败**，绝非运行期静默成本。（`BoundedCarrier` 自带的
-  编译期门是模态②；`assemble_seam` 在部署期兜底无门载体。）
+  编译期门是模态②；`assemble_seam` 在部署期承接无门载体的校验。）
 
 两类均安全（`#![forbid(unsafe_code)]`）；`SlotDrive` 为 `std` 门控，`drive_seq` 与
 `drive_feedback_inline` 非 `std` 门控——动态税局部化到缝上（见

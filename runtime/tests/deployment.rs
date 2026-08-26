@@ -34,7 +34,7 @@ impl PortCell for Double {
 }
 
 // 无编译期门的"有界"载体：模态③ 容量校验的对象——模态② 的 `assert_capacity_nonzero`
-// 只覆盖自带门的 `BoundedCarrier` 自身，无门载体由模态③ 在部署期兜底。
+// 只覆盖自带门的 `BoundedCarrier` 自身，无门载体由模态③ 在部署期承接校验。
 struct NoGateBounded<const CAP: usize>;
 
 impl<A, B, const CAP: usize> Carrier<A, B> for NoGateBounded<CAP>
@@ -83,7 +83,7 @@ fn assemble_seam_combines_cost_and_capacity() {
 
 #[test]
 fn assemble_seam_rejects_zero_capacity_at_deploy_time() {
-    // 模态③ 部署期拒绝 CAP=0（无门载体不由模态② 覆盖，由本入口兜底）。
+    // 模态③ 部署期拒绝 CAP=0（无门载体不由模态② 覆盖，由本入口承接）。
     let seam = assemble_seam::<Inc, Double, NoGateBounded<0>, 0>(CarrierCost::PerMessageAlloc);
     assert!(matches!(seam, Err(ContractError::ZeroCapacity)));
 }

@@ -12,7 +12,7 @@ keywords = ["dataflow", "carrier", "zero-cost", "compile-time", "execution"]
 categories = ["concurrency", "rust-patterns", "embedded"]
 
 [dependencies]
-# 默认 no_std：runtime 的 `std` feature 显式映射 `axiom/std`，使 "no_std 组合" 在依赖层闭环。
+# 默认 no_std：runtime 的 `std` feature 显式映射 `axiom/std`，使 "no_std 组合" 在依赖层闭合。
 axiom = { path = "..", version = "0.3.0", default-features = false }
 
 [features]

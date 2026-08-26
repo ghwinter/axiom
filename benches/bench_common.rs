@@ -10,7 +10,7 @@
 //!    variant.
 //! 3. **Min-of-N** — the per-variant statistic is the MINIMUM pass time. Noise
 //!    only ever adds time, so the minimum converges to true steady-state cost;
-//!    means/medians would re-absorb the artifacts we are trying to exclude.
+//!    means/medians would re-absorb the artifacts the method intends to exclude.
 //! 4. **Self-noise floor** — the baseline variant gets a second independent
 //!    min-of-N set; the |delta| between the two baselines is printed as the
 //!    measurement's own uncertainty. A headline delta is credible only if it

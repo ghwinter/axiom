@@ -108,6 +108,31 @@ where
             }
         }
     }
+
+    /// 带期限轮询，等待点交给调用方提供的 [`Executor`]（EX 泛型化；instance-layer-design §4）。
+    ///
+    /// 语义与 [`poll_until`](Poller::poll_until) 相同，但 `Pending` 间隙的
+    /// 递延经 `ex.park(tick)` 交给执行器（替代硬编码 `thread::sleep`）。
+    /// `ThreadExec`（sleep）与第三方 executor（如 `axiom-instances` 的 tokio
+    /// 桥接）经此接管等待点。**additive**：不改动既有入口，现有调用语义不变。
+    pub fn poll_with<EX: Executor>(
+        &mut self,
+        ex: &mut EX,
+        deadline: Instant,
+        tick: Duration,
+    ) -> PollResult<A::Out> {
+        loop {
+            match self.poll() {
+                Poll::Ready(o) => return PollResult::Ready(o),
+                Poll::Pending => {
+                    if Instant::now() >= deadline {
+                        return PollResult::TimedOut;
+                    }
+                    ex.park(tick); // 等待点交给 executor（替代硬编码 thread::sleep）
+                }
+            }
+        }
+    }
 }
 
 /// 单轮投递裁决（背压接缝，C7 第二层）。
@@ -212,6 +237,30 @@ where
                         return PollResult::TimedOut;
                     }
                     std::thread::sleep(tick);
+                }
+                other => return PollResult::Ready(other),
+            }
+        }
+    }
+
+    /// 带期限轮询，等待点交给调用方提供的 [`Executor`]（EX 泛型化；instance-layer-design §4）。
+    ///
+    /// 同 [`roll_until`](SeamPoller::roll_until)，但 `Idle`/`Blocked` 间隙的
+    /// 递延经 `ex.park(tick)` 交给执行器（替代硬编码 `thread::sleep`）——
+    /// 背压等待点同样可被第三方 executor（tokio 桥接）接管。**additive**。
+    pub fn roll_with<EX: Executor>(
+        &mut self,
+        ex: &mut EX,
+        deadline: Instant,
+        tick: Duration,
+    ) -> PollResult<SeamRoll<A::Out>> {
+        loop {
+            match self.roll() {
+                SeamRoll::Idle | SeamRoll::Blocked => {
+                    if Instant::now() >= deadline {
+                        return PollResult::TimedOut;
+                    }
+                    ex.park(tick); // 等待点交给 executor（替代硬编码 thread::sleep）
                 }
                 other => return PollResult::Ready(other),
             }
@@ -332,5 +381,76 @@ mod tests {
             PollResult::Ready(SeamRoll::Accepted) => {}
             other => panic!("expected Ready(Accepted), got {other:?}"),
         }
+    }
+
+    // ── EX 泛型化（instance-layer-design §4）：等待点经 executor.park ──
+
+    /// 计数执行器：park 只计数、绝不真正休眠——证明等待点已接管到 executor，
+    /// 而非硬编码 `thread::sleep`（否则本测试会真实阻塞 1ms × 轮数）。
+    struct CountingExec {
+        parks: u32,
+    }
+    impl Executor for CountingExec {
+        fn park(&mut self, _dur: Duration) {
+            self.parks += 1;
+        }
+    }
+
+    #[test]
+    fn poll_with_parks_via_executor_not_hardcoded_sleep() {
+        // 输入不预置：poll_with 在期限内反复 Pending，等待点经 executor.park
+        // 驱动（计数 executor 永不真实休眠）→ 到期限 TimedOut。
+        let mut ex = CountingExec { parks: 0 };
+        let mut p = Poller::<Inc>::new((), None); // 输入永不就绪
+        let result = p.poll_with(
+            &mut ex,
+            Instant::now() + Duration::from_millis(30),
+            Duration::from_millis(1),
+        );
+        assert_eq!(result, PollResult::TimedOut, "输入不抵达 → 期限超时");
+        assert!(ex.parks >= 1, "等待点必须经 executor.park（而非硬编码休眠）");
+    }
+
+    #[test]
+    fn poll_with_ready_when_input_available_before_any_park() {
+        // 输入即就绪：首拍 Ready，不需等待点 → 不 park（现值语义不变）。
+        let mut ex = CountingExec { parks: 0 };
+        let mut p = Poller::<Inc>::new((), Some(43));
+        let result = p.poll_with(
+            &mut ex,
+            Instant::now() + Duration::from_millis(200),
+            Duration::from_millis(1),
+        );
+        assert_eq!(result, PollResult::Ready(44), "43 → Inc(+1) = 44");
+        assert_eq!(ex.parks, 0, "有输入即 Ready，进不了 Pending 等待点");
+    }
+
+    #[test]
+    fn poll_with_times_out_before_park_when_deadline_passed() {
+        // 期限已过：第一拍 Pending → 立即 TimedOut，不调用 park（偶不需要等待点）。
+        let mut ex = CountingExec { parks: 0 };
+        let mut p = Poller::<Inc>::new((), None); // 输入永不就绪
+        let result = p.poll_with(&mut ex, Instant::now() - Duration::from_millis(1), Duration::from_millis(1));
+        assert_eq!(result, PollResult::TimedOut, "期限先于等待点 → 立即超时");
+        assert_eq!(ex.parks, 0, "未到等待点 → 不 park");
+    }
+
+    #[test]
+    fn roll_with_parks_via_executor_and_retains_value_on_block() {
+        // 背压 Block 语义复用，但等待点经 executor.park（计数 executor 不真实休眠）。
+        let (tx, rx) = std::sync::mpsc::sync_channel::<i32>(1);
+        tx.try_send(99).expect("占满容量 1");
+        let mut ex = CountingExec { parks: 0 };
+        let mut p = SeamPoller::<Inc>::new((), Some(5), tx, SaturationPolicy::Block);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(60));
+            let _ = rx.recv(); // 腾位
+            std::thread::sleep(Duration::from_millis(60)); // 保持 rx 存活防断连
+        });
+        match p.roll_with(&mut ex, Instant::now() + Duration::from_millis(300), Duration::from_millis(5)) {
+            PollResult::Ready(SeamRoll::Accepted) => {}
+            other => panic!("expected Ready(Accepted), got {other:?}"),
+        }
+        assert!(ex.parks >= 1, "背压等待点亦须经 executor.park");
     }
 }

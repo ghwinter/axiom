@@ -82,7 +82,7 @@ where
 /// 在装配点一次通过，返回驱动入口（同上：一次校验、热路径零税）。
 ///
 /// 模态② 的编译期门（`assert_capacity_nonzero`）覆盖自带门的载体；本入口用
-/// [`validate_seam`](crate::contract::validate_seam) 在部署期兜底无门载体。
+/// [`validate_seam`](crate::contract::validate_seam) 在部署期承接无门载体的校验。
 pub fn assemble_seam<A, B, C, const CAP: usize>(
     budget: CarrierCost,
 ) -> Result<Driver<A, B>, crate::contract::ContractError>
