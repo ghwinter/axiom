@@ -101,6 +101,17 @@ promise, D6). Each entry point is a declaration + a check, never a silent defaul
 Each carrier is **independently selectable and replaceable**: swapping one implementation
 does not change the topology (T6, multiple physical implementations).
 
+> **Replaceability layers (constitution)**: pluggability is *stratified*, not universal.
+> ① **Mechanism layer — open by mandate**: carriers, short-circuit forms, executors,
+> telemetry sinks, event sources, profiles are trait sockets; third parties plug in via
+> their own crates (`axiom-tokio` pattern). A new socket opens only when a second
+> implementer or a real requirement exists (minimal-basis law). ② **Policy layer —
+> semi-open**: saturation strategies and profile floors are declared per deployment.
+> ③ **Vocabulary/constitution layer — closed**: the five concepts, `Delivery`/`Modality`
+> lattices, obligation axes are the language itself; replacing them is another framework,
+> extending them requires the closure-checklist procedure (collective adjudication).
+> Layer ③ being non-pluggable is what makes layer ① interoperate.
+
 > **Placement continuum (linking to `foundations.md` §8.6 items 7–8)**: "single-threaded /
 > cross-thread" in the table are **not two models, but the two ends of one physical-placement
 > decision spectrum** — the same blueprint, via placement, decides where each edge sits on the
