@@ -5,7 +5,7 @@
 > **性质**：axiom 的**物理层架构规范**。回答"axiom 的物理层是什么"：核心
 > `cell_core` 只声明**因果数据流**（`A.out -> B.in`），runtime 回答唯一一个问题——
 > **这条流的值怎么从 `A.out` 到 `B.in`，以何种时空成本**。本卷描述 runtime 的形态，
-> 与已收敛的实现（`runtime/src/{carrier,flow,static_path,macros,contract,slot,buffer,lib}.rs`）一致。
+> 与已收敛的实现（分层：`runtime/src/{checks,movers,seams,drive}/*.rs`）一致。
 >
 > **规范性**：自洽的权威规范，专注 axiom 物理层自身的形态。
 >
@@ -75,7 +75,7 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 
 ### 第三方适配器指南（2026-08）
 
-接入物理实现而不触碰核心：(1) 为你的接缝实现 `Carrier<A,B>`（S：接口与可观察行为；
+接入物理实现而不触碰核心：(1) 为接缝实现 `Carrier<A,B>`（S：接口与可观察行为；
 L：如实声明 `cost()`/`obligation()`/`saturation()`）；(2) 以外部消费者视角测试
 （examples/tests 形态；声称处做 T6 采样等价）；(3) 使用开放剖面（`Tool`/`Embedded`，
 `assemble_profile`）——注册门剖面（Kernel/Service）需注册，`Registered` 密封（C3），
@@ -255,9 +255,9 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 
 ---
 
-## 9. 已知开放边界（诚实记录）
+## 9. 已知开放边界（薄边）
 
-> 下列是 runtime 定位内的**薄边**，由真实用例暴露，当前**未解决但已如实记录**。它们
+> 下列是 runtime 定位内的**薄边**，由真实用例暴露，当前**未解决**。它们
 > 属于"工程叠加/优化 + 一处理论边界"，不改核心（`cell_core`）的既有构成。
 
 ### 9.1 背压 / 有界缓冲
@@ -359,4 +359,28 @@ edge_cost(seam) := class(f):
 > spawned_flow/static_path/wire!）+ 兑现验证，模块化可替换，解释并验证"同一张静态图可插进多种物理
 > 执行（内联/队列/跨线程），每种有可验证的语义等价"。载体可通过实现 `Carrier` trait
 > 挂入而不改拓扑，使物理层具备可扩展性；已闭合项（背压、失败×背压）与边界内的
-> 开放问题（IO 接缝、一等短路载体）已如实记录，作为后续迭代的驱动输入。
+> 开放问题（IO 接缝、一等短路载体）作为后续迭代的驱动输入。
+
+---
+
+## 附录：源码布局与异步路径
+
+源码按层分组：`checks/`（接线检查与承诺账本：contract、profile、obligation、law、
+delivery）、`movers/`（值的搬运器：carrier、buffer、ring、mailbox）、`seams/`（等待、
+事件、观测：async_seam、event、telemetry）、`drive/`（流通组合与驱动：flow、slot、
+enum_slot、static_path、macros）。`instances/src` 下为 `backend/`（async_driver 与
+tokio_exec）；`examples/sql-over-redis/src` 下为 `plans/`（sql_plan、redis_plan）。
+
+异步路径：runtime 声明 `Executor` 契约（`seams::async_seam`）；实际异步路径在
+`axiom-instances`（`backend::async_driver`）：等待挂进 tokio reactor，期限来自 tokio
+定时器（`tokio::time::timeout` 包裹输入等待），等待期间新指令可经通道馈入。输出与
+同步路径逐行一致（T6；综合用例核对 195/195 行）。`backend::tokio_exec` 为占位。观测是普通模块（用例侧 收集 → 汇总 → 打印），默认不接入。并发演示：单线程
+服务 N 会话，墙钟与 N 无关；逐步校准（release，min-of-N + 自噪音下限）：sync
+≈ 0.5µs/行，async ≈ 0.9µs/行。本主机上 tokio 计时等待量子 ≈ 15.6ms。
+
+tokio 是异步默认后端（`tokio` 特性在 `async` 门后引入引擎）。第三方物理实现适配
+（异步运行时替换层、第二后端）推迟；适配协议在第二实现者出现时定义（接缝先于
+socket）。
+
+开放项：负载下多核心并行未实测；账本行 Timeout 升 ②③ 待权威变更；真实网络异步 IO
+（tokio `net`）未接——现用通道馈入。

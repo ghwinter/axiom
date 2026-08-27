@@ -7,7 +7,7 @@
 > **causal data flows** (`A.out -> B.in`), and the runtime answers the single question —
 > **how the value of this flow gets from `A.out` to `B.in`, at what space–time cost**. This
 > volume describes the shape of the runtime, consistent with the converged
-> implementation (`runtime/src/{carrier,flow,static_path,macros,contract,slot,buffer,lib}.rs`).
+> implementation (layered: `runtime/src/{checks,movers,seams,drive}/*.rs`).
 >
 > **Normativity**: a self-consistent authoritative specification, focused
 > on the shape of axiom's physical layer itself.
@@ -71,7 +71,7 @@ by contract; a cross-thread variant awaits the critical-section decision. Serves
 > `BoundedCarrier<CAP>` is **carried by `BoundedQueue`** today; a mid-term swap of its
 > innards onto `BoundedMailbox` (removing one wrapper layer) and a deprecation track for
 > `BoundedQueue` are open; the disambiguation table above answers the "stacked look"
-> objection in the meantime. Also recorded (docgate blind spot): prose API names in the
+> objection in the meantime. Also noted (docgate blind spot): prose API names in the
 > docs are not machine-checkable — only ```rust fences are compiled; known boundary.
 
 ### Carrier catalog entries, six-tuple (S/L/T/C/V/R) — 2026-08
@@ -317,10 +317,10 @@ reference (`git show main:runtime/examples/<name>/main.rs`).
 
 ---
 
-## 9. Known Open Boundaries (Honest Record)
+## 9. Known Open Boundaries
 
 > The following are **thin edges** within the runtime's positioning, exposed by the real use
-> cases, currently **unresolved but faithfully recorded**. They belong to "engineering
+> cases, currently **unresolved but acknowledged**. They belong to "engineering
 > accretion/optimization + a handful of theoretical boundaries" and do not change the existing
 > composition of the core (`cell_core`).
 
@@ -435,7 +435,7 @@ toll; (3) were the family-A tax eliminable, a zero-synchronization cross-thread 
 transfer would exist, contradicting causal ordering/observability of the flow; hence
 elimination leads to contradiction. The skeleton is a statement, not a machine proof
 (Rice boundary, modality ④). Measurement-corpus witnesses: `dynamic_tax.rs` (C9) and
-`bench_common.rs`'s noise-floor method; recognized layout sensitivity is recorded as
+`bench_common.rs`'s noise-floor method; recognized layout sensitivity is acknowledged as
 such, never as a single number.
 
 ## 11. Conclusion
@@ -447,5 +447,33 @@ such, never as a single number.
 > equivalence". Carriers can be attached by implementing the `Carrier` trait without changing
 > the topology, giving the physical layer extensibility; the resolved items (backpressure,
 > failure × backpressure) and the open questions within its boundaries (IO seams,
-> first-class short-circuit carriers) have been faithfully recorded as driver
+> first-class short-circuit carriers) serve as driver
 > input for subsequent iteration.
+
+---
+
+## Appendix: Source Layout and Async Path
+
+The source is grouped by layer: `checks/` (hookup checks and promise book: contract, profile,
+obligation, law, delivery), `movers/` (value movers: carrier, buffer, ring, mailbox), `seams/`
+(wait, event, observation: async_seam, event, telemetry), `drive/` (composition and drivers:
+flow, slot, enum_slot, static_path, macros). `instances/src` has `backend/` (async_driver and
+tokio_exec); `examples/sql-over-redis/src` has `plans/` (sql_plan, redis_plan).
+
+The async path: the runtime declares the `Executor` contract (`seams::async_seam`). The real
+async path lives in `axiom-instances` (`backend::async_driver`): waits suspend on the tokio
+reactor, deadlines come from tokio's timer (`tokio::time::timeout` around the input wait), and
+commands can arrive while waiting (channel feeding). Output equals the sync path line by line
+(T6; the composite use case checks 195/195 rows). `backend::tokio_exec` is a placeholder. Observation is an ordinary module (collect → summary → print in the
+example), disabled by default. The concurrency demo serves N sessions on one thread with wall
+time independent of N; per-step calibration (release, min-of-N with self-noise floor): sync
+≈ 0.5 µs/line, async ≈ 0.9 µs/line. On this host, tokio timed waits quantize at ≈ 15.6 ms.
+
+`tokio` is the default async backend (the feature adds the engine behind the `async` door).
+Third-party physical adapters (an async-runtime replacement layer, a second backend) are
+postponed; the adapter protocol is defined when a second implementer appears
+(seam-before-socket rule).
+
+Open items: multi-core parallelism under load is unmeasured; the ledger row for Timeout
+modality ②③ awaits an authority change; real network async I/O (tokio `net`) is open — the
+current feed is channel-based.

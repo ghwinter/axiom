@@ -13,7 +13,7 @@
 > **In one sentence**: axiom core layer = **compile-time DSL + verifier**: all
 > "intelligence" (analysis, verification, type constraints, graph construction) is exhausted
 > at **compile time**; the product is **ordinary Rust code**. axiom has no "runtime" — only
-> the two phases "compile time" and "post-compile". This naturally satisfies the zero-cost
+> the two phases "compile time" and "post-compile". This satisfies the zero-cost
 > promise (no axiom objects after compilation).
 
 ---
@@ -166,7 +166,7 @@ pub const fn blueprint_is_zero_sized<TOP>() -> bool {
 
 > **Conclusion (bridging to `foundations.md` §5.5 / 4.1)**: in the mainstream of compiled
 > languages (Rust), "modifying code/topology at runtime" has no necessary universal example;
-> engineering **clearly leans toward compile time**. Blueprints are defined directly in Rust
+> engineering **leans toward compile time**. Blueprints are defined directly in Rust
 > code (types / macro invocations describe the static graph structure); **no JSON/value-form
 > is needed as a first-class expression**.
 

@@ -164,7 +164,7 @@ the interface/type rules, T1). All derivations are proven well-typed — not eac
   length.
 - **Potentially infinite / reactive**: **guarded coinduction / bisimulation** (the T5 side).
 
-> **One statement**: a schema is a grammar whose rules are the interface/type rules; "future
+> **Schema as grammar**: a schema is a grammar whose rules are the interface/type rules; "future
 > modules are legal" = the grammar is a well-typed scheme whose derivability is proven by
 > (co)induction over structure once — **logical closure, not instance closure.**
 
@@ -223,7 +223,7 @@ non-dynamic majority static, **localizes it to the seam**. axiom's zero-cost pro
     inside the core**, rather than static-in-core + dynamic-at-physical.
 - **Boundary**: full general dynamic graphs are not compile-time-provable → physical/verification
   boundary (the explicit exception).
-- **One sentence**: axiom is not "a system that composes one static graph"; it is **the algebra of
+- **Characterization**: axiom is not "a system that composes one static graph"; it is **the algebra of
   definition** — a typed-substitution calculus whose objects range from a single static graph up to
   *generative schemas and loadable typed holes*, all provable at compile time and freely activatable or
   left unactivated at runtime.

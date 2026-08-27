@@ -43,6 +43,23 @@ expressed by incrementing the minor version).
   modality-③ budgets) plus the declarative proof skeleton of family-A cross-thread
   irreducibility (relative equality + contradiction; statement at the Rice boundary,
   modality ④).
+
+### Added — instance layer, async path & layered structure (2026-08)
+
+- **Workspace restructure**: virtual root manifest; the core package lives at `core/`;
+  source directories mirror semantics — `runtime/src/{checks,movers,seams,drive}`,
+  `instances/src/backend`, `examples/sql-over-redis/src/plans`.
+- **Async path** (`instances/src/backend/async_driver.rs`): waits suspend on the tokio
+  reactor with deadlines from tokio's timer (`tokio::time::timeout` around input waits);
+  channel feeding delivers commands while waiting (`Poller::put`, additive); output equals
+  the sync path line by line (composite use case, 195/195 rows).
+- **Comprehensive use case** (`examples/sql-over-redis`): SQL-over-Redis composite plan;
+  sync and async drivers; three-stage observation as an ordinary module; latency bench
+  (min-of-N; async ≈ +90% per step); concurrency demo (single thread serves N sessions,
+  wall time independent of N). tokio timed waits quantize at ≈ 15.6 ms on this host.
+- Third-party physical adapters (an async replacement layer, a second backend) are
+  postponed; tokio is the default async backend; the adapter protocol is defined by the
+  second implementer (seam-before-socket rule).
 - **Session-protocol port** (C1, `runtime/tests/session_protocol.rs`): ruling — session
   duality is the T1 typed-hole duality (In/Out exchange) plus `Choice` tags; protocol
   progress is an explicit state-phase cell (concept-1 instance); illegal transitions are

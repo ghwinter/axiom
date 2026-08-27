@@ -21,6 +21,12 @@ definition–activation, schemas — axiom's upgraded design beyond the static b
 > ([theory-archive](internal/theory/theory-archive.md)) live under
 > [`docs/internal/theory/`](internal/theory/README.md). On conflicts, the formal specification prevails.
 
+> **Workspace layout (non-normative):** the workspace is layered — `core/` (compile-time
+> core), `runtime/` (physical layer; source under checks/movers/seams/drive), `instances/`
+> (ready-made swap-ins; feature doors closed by default; tokio async backend), `examples/`
+> (cross-layer comprehensive use cases, e.g. SQL-over-Redis). The async path, observation,
+> and the postponed third-party adapters are covered in the runtime volume appendix.
+
 > **Maintenance rule:** English is the authoritative default. When a spec changes, update the
 > English document first, then mirror the change into the Chinese document. Each English document
 > links to its Chinese counterpart and vice versa, using **relative paths** (never absolute).

@@ -235,7 +235,7 @@ Any "free variable" that does not belong to the internal state of some open syst
 **Premises**: δ: S×Γ_in → S'×Γ_out; wiring consists of directed causal edges (A.out → B.in).
 **Derivation**: the KPN proof—as long as nodes are deterministic + channels are FIFO + blocking-read, the network is automatically well-defined and deterministic, and cycles are unremarkable; causality manifests through data arrival order (channel FIFO). Cycles require **no Delay declaration whatsoever** at the abstraction layer.
 **Formalization**: abstraction layer G = (C, Γ, W), W = directed causal edges (no timing marks). Whether cycles are well-defined is decided by the **physical carrier**, unrelated to the abstraction layer:
-- Carrier = channels/queues (Kahn-style, buffered, asynchronous) → cycles are naturally well-defined, zero abstraction constraints;
+- Carrier = channels/queues (Kahn-style, buffered, asynchronous) → cycles are automatically well-defined, zero abstraction constraints;
 - Carrier = inline direct call (zero-buffered, synchronous) → cycles are synchronous algebraic feedback loops, requiring a Moore guarantee.
 **Necessity**: necessary (the determinacy theorem of KPN).
 **Corollary**: the Moore machine and channel buffering are not "Delays of the abstraction layer," but rather **two means by which the physical carrier realizes causality** (state isolation / tick isolation). Timing belongs to the runtime (physical layer) and is declared by the carrier.
@@ -385,7 +385,7 @@ A connection instance γ : w is a transient channel of wiring w, carrying a type
 > This section deduces the conclusions of the axioms and theorems into the form axiom as a system ought to take. This is the formal answer to "what axiom should be."
 
 ### 5.1 Two-Plane Separation Is the First Structure
-From A4 / D1 / I1 / B2: axiom is naturally a two-layer structure of **type plane + instance plane**. The type plane is static, verifiable, and can be unfolded at zero cost; the instance plane is dynamic, created/destroyed with its host. Any "module/connection/instance" simultaneously has both a "class (static)" and an "instance (dynamic)" side, bridged by the instantiation judgment m:M ∧ H⊨m.
+From A4 / D1 / I1 / B2: axiom is a two-layer structure of **type plane + instance plane**. The type plane is static, verifiable, and can be unfolded at zero cost; the instance plane is dynamic, created/destroyed with its host. Any "module/connection/instance" simultaneously has both a "class (static)" and an "instance (dynamic)" side, bridged by the instantiation judgment m:M ∧ H⊨m.
 
 ### 5.2 Zero-Cost = Compile-Time Folding, and a Conservation Law
 From Z1 / ZT / T7: axiom's runtime cost can (and must) only equal the cost of a hand-written equivalent program, the difference arising only from compiler-optimization noise. The only extra overhead allowed is **compilation time** (monomorphization, inlining). This requires axiom's core to be a **compile-time model**: "intelligence" is exhausted at compile time, the compiled product is ordinary Rust, with no runtime axiom objects.
@@ -397,7 +397,7 @@ From A2 / T2 / §4.1: wiring is a **relation** (fan-out/fan-in/cycles/any combin
 From T3 / §4.4: the wiring of the abstraction layer is only directed causal edges, **containing no timing marks**. Delay, buffering, blocking, dropping, synchronous/asynchronous, and threading are all replaceable attributes of the physical carrier (runtime). A blueprint only declares "there is a typed causal data flow."
 
 ### 5.5 Blueprint-as-Code; No JSON / Value-Form Intermediate Layer
-From T9 / §5.4: within the mainstream of compiled languages (Rust), "modifying code/topology at runtime" has no necessary universal example; engineering clearly leans toward compile-time (T9's first kind, self-selection, is dominant; genuine structural modification is rare and requires an explicit loading mechanism). Further: since blueprints are static, **there is no reason to define software using non-.rs files**—blueprints are defined directly in Rust code (types/macro invocations characterize the static graph structure), **with no need for JSON/value-forms as a first-class expression**. JSON is at most "a tool input that generates this Rust code," not a first-class form.
+From T9 / §5.4: within the mainstream of compiled languages (Rust), "modifying code/topology at runtime" has no necessary universal example; engineering leans toward compile-time (T9's first kind, self-selection, is dominant; genuine structural modification is rare and requires an explicit loading mechanism). Further: since blueprints are static, **there is no reason to define software using non-.rs files**—blueprints are defined directly in Rust code (types/macro invocations characterize the static graph structure), **with no need for JSON/value-forms as a first-class expression**. JSON is at most "a tool input that generates this Rust code," not a first-class form.
 
 ### 5.6 Staticity Requires Explicit Declaration
 From Z1 / T7 / §4.3: not every composition must/can/ought to be monomorphized; there must be an **explicit staticity declaration**.
