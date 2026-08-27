@@ -6,7 +6,7 @@
 
 /// 声明一条因果流 `source -> sink`，返回一个驱动闭包 `F: Fn(&mut A::State, &mut B::State, A::In) -> B::Out`。
 ///
-/// 默认用 [`InlineCarrier`](crate::carrier::InlineCarrier)（栈上直接传，零分配内联）。
+/// 默认用 [`InlineCarrier`](crate::movers::carrier::InlineCarrier)（栈上直接传，零分配内联）。
 /// 宏在编译期展开为 `B::step(&mut *, A::step(&mut *, input))` —— 即手写等价（T7）。
 /// `A`/`B` 由 `source`/`sink` 类型指定。
 ///

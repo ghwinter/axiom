@@ -12,7 +12,7 @@
 //! （首案例）；本类是它的泛化形态，`server.rs::handle_conn` 已改为由本类驱动。
 //!
 //! **概念归属**（§8.3 封闭判据）：不引入新概念——事件流是物理层输入侧的迭代器形态
-//! （与 [`flow::bounded_pump`](crate::flow::bounded_pump) 使用 `IntoIterator`
+//! （与 [`flow::bounded_pump`](crate::drive::flow::bounded_pump) 使用 `IntoIterator`
 //! 同属机器类）；泵驱动是 driver 的一个实例。
 //!
 //! **义务（A3 落位）**：
@@ -25,7 +25,7 @@
 //!   （同 `bounded_pump` 断连语义）；未投递条数进 `dropped`（不静默丢值）。
 //! - 退化态拒绝（第五轴，boundary-ontology 命题 2.7）：块容量 `N = 0` 使源无法推进，
 //!   违背目的条款"源能推进"——构造点经模态②门
-//!   （[`contract::assert_capacity_nonzero`](crate::contract::assert_capacity_nonzero)）
+//!   （[`contract::assert_capacity_nonzero`](crate::checks::contract::assert_capacity_nonzero)）
 //!   编译期拒绝（同 CAP≥1 门）。
 //! - 成本（D4）：事件流持有一个复用读缓冲 `[u8; N]`（构造期一次预留），稳态每事件
 //!   零分配（除分割器产出的条目本身）。
@@ -104,7 +104,7 @@ where
 {
     /// 新建（模态②门：`N = 0` 编译期拒绝——零容量块源是退化态）。
     pub fn new(reader: R, state: SS, split: F) -> Self {
-        const { crate::contract::assert_capacity_nonzero::<N>() };
+        const { crate::checks::contract::assert_capacity_nonzero::<N>() };
         Self {
             reader,
             split,

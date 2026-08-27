@@ -15,8 +15,8 @@
 #![cfg(feature = "std")]
 
 use axiom::cell_core::PortCell;
-use axiom_runtime::mailbox::BoundedMailbox;
-use axiom_runtime::ring::BoundedRing;
+use axiom_runtime::movers::mailbox::BoundedMailbox;
+use axiom_runtime::movers::ring::BoundedRing;
 use std::time::Instant;
 
 struct Inc;
@@ -87,7 +87,7 @@ fn main() {
         let mut acc = 0i32;
         for i in 0..(ITERS / 2) {
             let _ = producer.try_send(i as i32);
-            if let axiom_runtime::delivery::Receipt::Item(v) = mb.try_recv() {
+            if let axiom_runtime::checks::delivery::Receipt::Item(v) = mb.try_recv() {
                 acc ^= v;
             }
         }

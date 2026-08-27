@@ -27,7 +27,7 @@ use std::thread;
 
 use axiom::cell_core::PortCell;
 
-use axiom_runtime::event::{ChunkSource, PushVerdict, pump_events};
+use axiom_runtime::seams::event::{ChunkSource, PushVerdict, pump_events};
 
 use crate::cells::{Cmd, CmdParse, DataStore, Error, LineSplit, StoreDemux, StoreState};
 

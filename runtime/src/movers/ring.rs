@@ -5,7 +5,7 @@
 //! 分支而非取模。**满/空是两个不同的类型化结果**（`Full(v)` 值随错误回传 /
 //! `Empty`），静默丢失被逐出（宪法 L1）。
 //!
-//! 与 [`crate::buffer::BoundedQueue`]（std mpsc 版）的关系：本原语是**单线程存储层**，
+//! 与 [`crate::movers::buffer::BoundedQueue`]（std mpsc 版）的关系：本原语是**单线程存储层**，
 //! 无阻塞语义——"满时阻塞"需要生产/消费处于不同执行上下文，属 std 通道/邮箱域。
 //! 单线程下背压＝立即的 `Full` 判定（调用侧选择重试/丢弃/上抛）。
 //!
@@ -35,7 +35,7 @@ pub struct BoundedRing<T, const CAP: usize> {
 impl<T, const CAP: usize> BoundedRing<T, CAP> {
     /// 新建（模态②门：`CAP == 0` 在编译期拒绝—— rendezvous 形态不属于有界队列语域）。
     pub fn new() -> Self {
-        crate::contract::assert_capacity_nonzero::<CAP>();
+        crate::checks::contract::assert_capacity_nonzero::<CAP>();
         let mut buf = Vec::new();
         buf.resize_with(CAP, || None);
         BoundedRing { buf, r: 0, w: 0, readable: 0, writable: CAP }

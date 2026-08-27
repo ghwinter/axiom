@@ -53,7 +53,7 @@ mod sealed {
 ///
 /// 白名单从"文档约定"升为**编译期事实**（模态①）：注册门剖面
 /// （`Profile::GATED`，Kernel/Service）的装配入口
-/// [`assemble_profile_gated`](crate::profile::assemble_profile_gated) 要求
+/// [`assemble_profile_gated`](crate::checks::profile::assemble_profile_gated) 要求
 /// `C: Registered`——未注册（第三方）载体在该剖面**编译失败**。
 /// 生态开放不受损（§7 机制自由）：未注册载体仍可用于开放剖面
 /// （Tool/Embedded）与直接驱动；注册是"官方载体目录"的语义，不是 Carrier 的
@@ -94,8 +94,8 @@ where
 
     /// 本载体接缝的义务类声明（C10 分化）。默认**保守 fail-closed**（资源=External）；
     /// 每个实现者应覆写：resource 取 [`Self::cost`] 同值，有投递语义者再补 delivery 轴。
-    fn obligation() -> crate::obligation::ObligationClass {
-        crate::obligation::ObligationClass::default()
+    fn obligation() -> crate::checks::obligation::ObligationClass {
+        crate::checks::obligation::ObligationClass::default()
     }
 
     /// 本载体的背压饱和策略声明（A1）。默认 [`Block`](SaturationPolicy::Block)
@@ -128,10 +128,10 @@ where
         CarrierCost::ZeroAllocInline
     }
 
-    fn obligation() -> crate::obligation::ObligationClass {
-        crate::obligation::ObligationClass {
+    fn obligation() -> crate::checks::obligation::ObligationClass {
+        crate::checks::obligation::ObligationClass {
             resource: CarrierCost::ZeroAllocInline,
-            ..crate::obligation::ObligationClass::default()
+            ..crate::checks::obligation::ObligationClass::default()
         }
     }
 
@@ -151,7 +151,7 @@ where
 /// 每次传递 = 一次 `Box<dyn Any>` 堆分配 + downcast（类型擦除的物理代价）。
 /// **本形态不是真实 FIFO 缓冲**：装箱立即解包，无跨步延迟/重排——它演示的是
 /// "队列/类型擦除"的成本形态（每消息分配）。真实的有界阻塞背压由 [`BoundedCarrier`]
-/// 与 [`bounded_pump`](crate::flow::bounded_pump) 承载；跨线程调度由 [`spawned_flow`] 承载。
+/// 与 [`bounded_pump`](crate::drive::flow::bounded_pump) 承载；跨线程调度由 [`spawned_flow`] 承载。
 ///
 /// 需要 `std`（`Box<dyn Any>` downcast）。`no_std` 构建下仅有 Inline 零分配载体
 /// （Direct 已并入 Inline）。
@@ -169,11 +169,11 @@ where
         CarrierCost::PerMessageAlloc
     }
 
-    fn obligation() -> crate::obligation::ObligationClass {
-        crate::obligation::ObligationClass {
-            delivery: crate::obligation::DeliveryKind::MechanizedFullClosed,
+    fn obligation() -> crate::checks::obligation::ObligationClass {
+        crate::checks::obligation::ObligationClass {
+            delivery: crate::checks::obligation::DeliveryKind::MechanizedFullClosed,
             resource: CarrierCost::PerMessageAlloc,
-            ..crate::obligation::ObligationClass::default()
+            ..crate::checks::obligation::ObligationClass::default()
         }
     }
 
@@ -195,10 +195,10 @@ where
 /// 有界/背压载体：把 `A` 的输出经一个**有界** FIFO（容量 `CAP`）中转。
 ///
 /// 这是 §9.1"有界/背压"的**载体侧**：容量上限 `CAP` 是编译期常量，物理形态为有界通道/队列。
-/// **编译期门**：`CAP >= 1` 由 [`assert_capacity_nonzero`](crate::contract::assert_capacity_nonzero)
+/// **编译期门**：`CAP >= 1` 由 [`assert_capacity_nonzero`](crate::checks::contract::assert_capacity_nonzero)
 /// 强制（`CAP = 0` 是 rendezvous：同线程 `send` 先于 `recv` 会永久死锁）；真正的多消息
-/// **阻塞背压**由 [`bounded_pump`](crate::flow::bounded_pump)（生产端满时阻塞）与
-/// [`BoundedQueue`](crate::buffer::BoundedQueue)（`try_push` 满返回容量信号）承载。
+/// **阻塞背压**由 [`bounded_pump`](crate::drive::flow::bounded_pump)（生产端满时阻塞）与
+/// [`BoundedQueue`](crate::movers::buffer::BoundedQueue)（`try_push` 满返回容量信号）承载。
 ///
 /// 需要 `std`（有界 `sync_channel`）。安全。
 #[cfg(feature = "std")]
@@ -215,17 +215,17 @@ where
         CarrierCost::PerMessageAlloc
     }
 
-    fn obligation() -> crate::obligation::ObligationClass {
-        crate::obligation::ObligationClass {
-            delivery: crate::obligation::DeliveryKind::MechanizedFullClosed,
+    fn obligation() -> crate::checks::obligation::ObligationClass {
+        crate::checks::obligation::ObligationClass {
+            delivery: crate::checks::obligation::DeliveryKind::MechanizedFullClosed,
             resource: CarrierCost::PerMessageAlloc,
-            ..crate::obligation::ObligationClass::default()
+            ..crate::checks::obligation::ObligationClass::default()
         }
     }
 
     fn flow(sa: &mut A::State, sb: &mut B::State, input: A::In) -> B::Out {
         // 编译期门（模态②）：CAP >= 1，拒绝 rendezvous 死锁形态（语句式 const 块，编译期求值）。
-        const { crate::contract::assert_capacity_nonzero::<CAP>() };
+        const { crate::checks::contract::assert_capacity_nonzero::<CAP>() };
         // 经容量 CAP 的有界通道中转：体现"容量上限由编译期常量决定"的物理形态。
         let (tx, rx) = std::sync::mpsc::sync_channel::<A::Out>(CAP);
         let mid = A::step(sa, input);
@@ -307,8 +307,8 @@ where
 ///
 /// **诚实说明（A5）**：标准 [`Carrier`] 的界 `B::In = A::Out` 无法表达 X-lane
 /// （`A::Out = Result<X,E>` 而 `B::In = X`），故短路以**一等能力**形态落地，不改动
-/// `Carrier` trait（T6 契约不变）；与组合子 [`TryChain`](crate::flow::TryChain)/
-/// [`drive_try`](crate::flow::drive_try) 同语义、不同物理表达。§9.2 余项由此收账。
+/// `Carrier` trait（T6 契约不变）；与组合子 [`TryChain`](crate::drive::flow::TryChain)/
+/// [`drive_try`](crate::drive::flow::drive_try) 同语义、不同物理表达。§9.2 余项由此收账。
 pub trait ShortCircuit<A, B, X, E>
 where
     A: PortCell,
@@ -454,7 +454,7 @@ mod short_circuit_tests {
         #[test]
         fn boundary_state_block_is_not_rendezvous() {
             // 容量 ≥ 1 由装配门保证（退化态拒绝）；Block 策略下满值是显式判定而非丢值。
-            const { crate::contract::assert_capacity_nonzero::<1>() };
+            const { crate::checks::contract::assert_capacity_nonzero::<1>() };
             let (tx, _rx) = std::sync::mpsc::sync_channel::<i32>(1);
             // 容量 1 的空通道：一次 try_send 成功；第二次即显式 Full（值保留）。
             assert!(tx.try_send(1).is_ok());

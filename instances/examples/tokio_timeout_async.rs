@@ -35,8 +35,8 @@ fn main() {
 #[cfg(feature = "tokio")]
 fn run_tokio() {
     use axiom::cell_core::PortCell;
-    use axiom_instances::async_driver::tokio_poll_until;
-    use axiom_runtime::async_seam::{PollResult, Poller};
+    use axiom_instances::backend::async_driver::tokio_poll_until;
+    use axiom_runtime::seams::async_seam::{PollResult, Poller};
     use std::time::{Duration, Instant};
 
     /// 单步 cell：`x -> x+1`（同步、全函数；`step` 永不等，等待只在边界投递）。

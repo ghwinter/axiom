@@ -1,5 +1,5 @@
 //! 真异步驱动（实例层承载体）：把轮询等待点经**语言原生 `.await`** 挂进 tokio
-//! reactor，不经同步 [`Executor::park`](axiom_runtime::async_seam::Executor)。
+//! reactor，不经同步 [`Executor::park`](axiom_runtime::seams::async_seam::Executor)。
 //!
 //! ## 诚实路径（instance-layer-design §5.3 终局）
 //!
@@ -13,7 +13,7 @@
 //! 即有 reactor 驱动——这正是同步 `park` 内缺少的上下文。
 //!
 //! **不扩 [`Executor`] 契约、不改 runtime**（additive；`poll`/`roll` 已是公开入口）：
-//! 非破坏，无需 §4.3 许可。同步 [`Executor`](axiom_runtime::async_seam::Executor)
+//! 非破坏，无需 §4.3 许可。同步 [`Executor`](axiom_runtime::seams::async_seam::Executor)
 //! 插座仍保留（它兑现 trait 化的可替换等待点，`ThreadExec`=sleep / `TokioExec`=占位）；
 //! 本模块是**语言原生的异步路径**，二者互补、均可审计，不互相冒充。
 //!
@@ -21,7 +21,7 @@
 //!
 //! D2（async-seam.md）钦定：Timeout 现为模态④ 声明，**升 ②③ 的域仅在异步接缝内**
 //! （join/timer/select）。本模块即该承载域：
-//! - 同步域 [`poll_until`](axiom_runtime::async_seam::Poller::poll_until) 的
+//! - 同步域 [`poll_until`](axiom_runtime::seams::async_seam::Poller::poll_until) 的
 //!   `TimedOut` 是**墙钟轮询近似**（`thread::sleep(tick)` 让步、按拍次采墙钟判定）；
 //! - 本模块的 `TimedOut` 由**真定时器**（tokio time driver）驱动——运行期**可测、
 //!   可记账**，是 Timeout 升 ③（投递态可验证）的机制地面。
@@ -33,7 +33,7 @@
 //! ## await ↔ sync 行级等价（T6 / 多物理实现语义等价）
 //!
 //! 同一 `Poller` / 同一 `std::time::Instant` deadline 下，`tokio_poll_until` 与同步
-//! [`poll_until`](axiom_runtime::async_seam::Poller::poll_until)（`ThreadExec` 语义）
+//! [`poll_until`](axiom_runtime::seams::async_seam::Poller::poll_until)（`ThreadExec` 语义）
 //! 裁决一致（同输入同期限 → 同 verdict）：本模块的等价样本以同输入同期限对拍。
 //!
 //! ## Send 与运行时组合
@@ -52,13 +52,13 @@
 //! （`examples/sql-over-redis`）的异步变体即以此把命令序列在等待窗内喂入。
 
 use axiom::cell_core::PortCell;
-use axiom_runtime::async_seam::{Poll, PollResult, Poller, SeamPoller, SeamRoll};
+use axiom_runtime::seams::async_seam::{Poll, PollResult, Poller, SeamPoller, SeamRoll};
 use std::time::{Duration, Instant};
 
 /// 异步带期限轮询（真定时器驱动）：无输入 → `tokio::time::sleep(tick).await`，
 /// deadline 前反复尝试；输入就绪 → `Ready`；到期仍未就绪 → `TimedOut`。
 ///
-/// 语义与同步 [`poll_until`](axiom_runtime::async_seam::Poller::poll_until) 一致
+/// 语义与同步 [`poll_until`](axiom_runtime::seams::async_seam::Poller::poll_until) 一致
 /// （同墙钟 deadline、同 verdict），但等待点挂进 tokio reactor（TimeOT 升模态承载域，
 /// 见模块文档）。未就绪时让出给运行时——**不阻塞 runtime 线程**（区别于 sync
 /// `thread::sleep` / EX `park` 的线程级等待）。
@@ -85,7 +85,7 @@ pub async fn tokio_poll_until<A: PortCell>(
 /// `TimedOut`。
 ///
 /// 承 D2 的第三类等待点（期限 + 背压）进异步域——与同步
-/// [`roll_until`](axiom_runtime::async_seam::SeamPoller::roll_until) 同 verdict，
+/// [`roll_until`](axiom_runtime::seams::async_seam::SeamPoller::roll_until) 同 verdict，
 /// 等待点挂 tokio reactor。
 pub async fn tokio_roll_until<A>(
     poller: &mut SeamPoller<A>,
@@ -150,7 +150,7 @@ pub fn block_on_current<F: std::future::Future>(f: F) -> F::Output {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axiom_runtime::carrier::SaturationPolicy;
+    use axiom_runtime::movers::carrier::SaturationPolicy;
     use std::sync::mpsc::sync_channel;
 
     struct Inc;

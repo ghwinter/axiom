@@ -22,7 +22,7 @@
 //!
 //! MSRV / 行为待实测（§8 观测缺损）：不在本文件确权。
 
-use axiom_runtime::async_seam::Executor;
+use axiom_runtime::seams::async_seam::Executor;
 use std::time::Duration;
 
 /// tokio 桥接执行器（首版诚实占位）。
@@ -53,7 +53,7 @@ impl Executor for TokioExec {
 mod tests {
     use super::*;
     use axiom::cell_core::PortCell;
-    use axiom_runtime::async_seam::{PollResult, Poller};
+    use axiom_runtime::seams::async_seam::{PollResult, Poller};
     use std::time::Instant;
 
     struct Inc;
@@ -103,7 +103,7 @@ mod tests {
     fn thread_exec_vs_tokio_exec_ready_equiv() {
         // T6 多物理实现语义等价对拍：同就绪输入下 ThreadExec 与 TokioExec
         // 的 poll_with 裁决一致（实例层替换协议 L7 的验证面；执行期证据雏形）。
-        use axiom_runtime::async_seam::{ThreadExec};
+        use axiom_runtime::seams::async_seam::{ThreadExec};
         let mut te = ThreadExec;
         let mut te_p = Poller::<Inc>::new((), Some(5));
         let mut tke = TokioExec::new();

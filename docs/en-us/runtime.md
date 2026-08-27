@@ -43,7 +43,7 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1: the causal flow itself is 
 }
 ```
 
-The carrier catalog (`runtime/src/carrier.rs`):
+The carrier catalog (`runtime/src/movers/carrier.rs`):
 
 | Carrier | Physical scheme | Space–time cost | Threading | Module |
 |---|---|---|---|---|
@@ -131,7 +131,7 @@ does not change the topology (T6, multiple physical implementations).
 
 ## 3. Driving (flow) and Static Path (static_path)
 
-- **`flow`** (`runtime/src/flow.rs`): `drive_link` — after compile-time
+- **`flow`** (`runtime/src/drive/flow.rs`): `drive_link` — after compile-time
   wiring verification (unified `Conforms<Wire>`), drives one A→B causal flow with the selected carrier;
   **verification happens at compile time, zero runtime overhead**. (`drive_wired` removed as a
   redundant alias of `drive_link`.)
@@ -148,7 +148,7 @@ does not change the topology (T6, multiple physical implementations).
 The runtime gives *activation* to the unified-model constructs (which are **definitions** in
 `core.md`; activation stays the run/carrier side):
 
-- **`SlotPending<I,O>` → `SlotDrive<I, O>`** — *existential binding* (`runtime/src/slot.rs`) —
+- **`SlotPending<I,O>` → `SlotDrive<I, O>`** — *existential binding* (`runtime/src/drive/slot.rs`) —
   the ∃ existential fill of a `Slot<I,O>` under a **license lifecycle (typestate, modality ①)**:
   `SlotPending::install` (Adding) installs a compile-time-conforming inhabitant
   (`T: PortCell<In=I,Out=O>` ⟹ core `Conforms`), type-erases its state to `Box<dyn Any + Send>`;
@@ -157,16 +157,16 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   (swap bumps a generation, so a previously created `Seat` is rejected as stale); `retire()`
   terminates the license (Cleaned). Physical side of "dynamic loading": interface fixed &
   T1-verified at compile time, inhabitant existentially chosen at runtime.
-- **`drive_seq`** (`runtime/src/flow.rs`, `no_std + alloc`) — the generative/unbounded-count side of
+- **`drive_seq`** (`runtime/src/drive/flow.rs`, `no_std + alloc`) — the generative/unbounded-count side of
   `Rep<N,C>`: drive a runtime `IntoIterator` sequence of inputs through one cell, collecting
   outputs, with state held across steps (count decided at runtime, not compile time).
-- **`drive_feedback_inline<BODY, FEED>`** (`runtime/src/flow.rs`) — the physical activation of a
+- **`drive_feedback_inline<BODY, FEED>`** (`runtime/src/drive/flow.rs`) — the physical activation of a
   `Feedback` cell form: one inline-unbuffered loop (`BODY -> FEED -> BODY`) per input step,
   gated by the **Moore declaration** (`FEED: Moore`, modality ④ — declaration, not proof).
-- **`contract` module** (`runtime/src/contract.rs`) — deployment & compile-time seam contracts:
+- **`contract` module** (`runtime/src/checks/contract.rs`) — deployment & compile-time seam contracts:
   `Moore` marker (④); `assert_capacity_nonzero` (②); `validate_cost` / `validate_capacity` /
   `validate_seam` (③); `ContractError`.
-- **`obligation` module** (`runtime/src/obligation.rs`) — the obligation-class type system
+- **`obligation` module** (`runtime/src/checks/obligation.rs`) — the obligation-class type system
   (delivery × resource × reference × lifecycle) and the **obligation ledger** (`LEDGER`):
   a machine-readable constitution excerpt (seam × obligation × modality × witness ×
   conformance test), enforcing the minimal-basis and honesty rules (A4/A5).
@@ -182,7 +182,7 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   empty state); close drains then reports `Closed` with values returned. Modality ② capacity
   gate (`CAP ≥ 1`). `bounded_pump` stays as the teaching form; the mailbox is the
   anti-starvation instance of the same obligation class (per-producer slot).
-- **`profile` module** (`runtime/src/profile.rs`) — the **profile catalog** (six-tuple C
+- **`profile` module** (`runtime/src/checks/profile.rs`) — the **profile catalog** (six-tuple C
   component; F↦C(F)): `KernelProfile` (zero-alloc budget), `ServiceProfile`
   (per-message budget + Full/Closed mechanized), `ToolProfile` (external); a profile is a
   modality-① type token plus a modality-③ budget gate—`assemble_profile<P, A, B, C>()`
@@ -202,7 +202,7 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
 - **`law` module** (`runtime/src/law.rs`, `std`) — runtime-law probes (T-component
   deepening): pairing law (N sends ↔ N verdicts; received ≤ delivered), sequence monotonicity,
   broadcast fan-out counting; `debug_assertions`-gated, release zero-overhead.
-- **`assemble_link` / `assemble_seam`** (`runtime/src/flow.rs`) — the wired **modality ③
+- **`assemble_link` / `assemble_seam`** (`runtime/src/drive/flow.rs`) — the wired **modality ③
   entries**: validate cost (and, for bounded seams, capacity) once at the deployment assembly
   point and return the `drive_link` function pointer (`Driver<A,B>`); a budget violation is an
   **assembly failure**, never a silent runtime cost. (`BoundedCarrier`'s own const gate is
@@ -389,7 +389,7 @@ short-circuit) → **bounded channel (backpressure)** → a store worker thread 
 `StoreState` (`DataStore` total, no panic path) → RESP reply routing with per-connection
 FIFO order and write-half close on EOF.
 - Layer: **runtime** (an event substrate is just a class of carrier/driver).
-- **Carrier class formalized and landed** (`runtime/src/event.rs`): an event stream
+- **Carrier class formalized and landed** (`runtime/src/seams/event.rs`): an event stream
   (`EventStream`, item-level input source) + chunk-source adapter (`ChunkSource`:
   `io::Read` raw source + splitter + per-source cross-chunk state, with the general
   line splitter `split_lines`) + pump driver (`pump_events`: transform cell →

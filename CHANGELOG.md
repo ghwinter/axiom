@@ -27,7 +27,7 @@ expressed by incrementing the minor version).
   construction and zero per-message allocation in steady state. Single-threaded
   by contract; cross-thread variant awaits the critical-section decision (D4).
   Serves `EmbeddedProfile`.
-- **Event-substrate carrier class** (`runtime/src/event.rs`, std): `EventStream`
+- **Event-substrate carrier class** (`runtime/src/seams/event.rs`, std): `EventStream`
   (item-level input source) / `ChunkSource` (`io::Read` raw source + splitter +
   per-source cross-chunk state, const `N` chunk buffer) / `split_lines` /
   `pump_events` (transform cell → delivery verdict → pair-law accounting) —
@@ -65,7 +65,7 @@ expressed by incrementing the minor version).
   the minimal surface for external executors; axiom ships no executor) + `ThreadExec`
   reference implementation; EX-generic wiring and SlotDrive co-evolution follow with
   adapters.
-- **Observation interfaces** (B1, `runtime/src/telemetry.rs`): `Telemetry` trait with
+- **Observation interfaces** (B1, `runtime/src/seams/telemetry.rs`): `Telemetry` trait with
   `on_verdict/on_depth/on_latency` (empty defaults = no-op, zero cost at compile
   time), `NoOp`/`Buf`/`Console` implementations (console = one output destination),
   and `MeteredPush` as the wiring point; module is no_std ready.
@@ -107,7 +107,7 @@ expressed by incrementing the minor version).
   refusal, anti-starvation, and zero-capacity chunk sources are assembled into
   one checkable surface; ledger row `degenerate-assembly (C13)` (probe: gate
   symbol + fail-closed default).
-- **Async-seam first layer** (C7, `runtime/src/async_seam.rs`, std): the D2
+- **Async-seam first layer** (C7, `runtime/src/seams/async_seam.rs`, std): the D2
   executor-contract skeleton — `Poll`/`Poller` wrap a synchronous cell
   ("step never awaits"); two of the three waiting points are probed in the
   sync domain: input arrival and deadline (`poll_until` → `TimedOut`). Honest

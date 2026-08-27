@@ -11,17 +11,17 @@
 //!   `Closed`,投递得 `Closed(v)`（值回传）；
 //! - **下单者公平**：队列 FIFO;席位按生产者独立,消费端先缓冲后席位（轮转）。
 //!
-//! 模态② 门：`CAP ≥ 1` 由 [`assert_capacity_nonzero`](crate::contract::assert_capacity_nonzero)
+//! 模态② 门：`CAP ≥ 1` 由 [`assert_capacity_nonzero`](crate::checks::contract::assert_capacity_nonzero)
 //! 在构造点强制（`CAP = 0` 为 rendezvous,拒绝）。
 //!
 //! 诚实声明（A5）：本邮箱为安全的标准库组合实现（`Mutex`+`Condvar`,零 unsafe）;
-//! 投递状态经 [`Delivery`](crate::delivery::Delivery) 显式分类（Full/Closed 机械化）。
+//! 投递状态经 [`Delivery`](crate::checks::delivery::Delivery) 显式分类（Full/Closed 机械化）。
 //! 每生产者席位 = 1（资源义务:总容量 = CAP + 生产者数,文档化声明）。
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 
-use crate::delivery::Delivery;
+use crate::checks::delivery::Delivery;
 
 struct Inner<T> {
     queue: VecDeque<T>,
@@ -54,7 +54,7 @@ pub struct Producer<T, const CAP: usize> {
 impl<T, const CAP: usize> BoundedMailbox<T, CAP> {
     /// 新建邮箱。模态②：`CAP ≥ 1` 编译期强制。
     pub fn new() -> Self {
-        const { crate::contract::assert_capacity_nonzero::<CAP>() };
+        const { crate::checks::contract::assert_capacity_nonzero::<CAP>() };
         BoundedMailbox {
             inner: Arc::new(Mutex::new(Inner {
                 queue: VecDeque::new(),
@@ -81,39 +81,39 @@ impl<T, const CAP: usize> BoundedMailbox<T, CAP> {
 
     /// 消费一条（**阻塞**）：先缓冲（FIFO），再轮转席位；关闭且排空 → `Closed`。
     /// 不返回 `Empty`（`Empty` 属非阻塞 [`try_recv`](Self::try_recv) 语义）。
-    pub fn recv(&self) -> crate::delivery::Receipt<T> {
+    pub fn recv(&self) -> crate::checks::delivery::Receipt<T> {
         let mut g = self.inner.lock().unwrap();
         loop {
             if let Some(item) = g.queue.pop_front() {
                 self.cond.notify_all(); // 缓冲腾出:唤醒阻塞投递者
-                return crate::delivery::Receipt::Item(item);
+                return crate::checks::delivery::Receipt::Item(item);
             }
             if let Some(i) = g.parked.iter().position(Option::is_some) {
                 let item = g.parked[i].take().expect("position is_some");
                 self.cond.notify_all();
-                return crate::delivery::Receipt::Item(item);
+                return crate::checks::delivery::Receipt::Item(item);
             }
             if g.closed {
-                return crate::delivery::Receipt::Closed;
+                return crate::checks::delivery::Receipt::Closed;
             }
             g = self.cond.wait(g).unwrap();
         }
     }
 
     /// 非阻塞消费：当时为空 → `Empty`（可重试）；排空且关闭 → `Closed`。
-    pub fn try_recv(&self) -> crate::delivery::Receipt<T> {
+    pub fn try_recv(&self) -> crate::checks::delivery::Receipt<T> {
         let mut g = self.inner.lock().unwrap();
         if let Some(item) = g.queue.pop_front() {
             self.cond.notify_all();
-            crate::delivery::Receipt::Item(item)
+            crate::checks::delivery::Receipt::Item(item)
         } else if let Some(i) = g.parked.iter().position(Option::is_some) {
             let item = g.parked[i].take().expect("position is_some");
             self.cond.notify_all();
-            crate::delivery::Receipt::Item(item)
+            crate::checks::delivery::Receipt::Item(item)
         } else if g.closed {
-            crate::delivery::Receipt::Closed
+            crate::checks::delivery::Receipt::Closed
         } else {
-            crate::delivery::Receipt::Empty
+            crate::checks::delivery::Receipt::Empty
         }
     }
 
@@ -231,7 +231,7 @@ mod tests {
         let items: Vec<i32> = got
             .into_iter()
             .map(|r| match r {
-                crate::delivery::Receipt::Item(v) => v,
+                crate::checks::delivery::Receipt::Item(v) => v,
                 other => panic!("unexpected {other:?}"),
             })
             .collect();
@@ -247,11 +247,11 @@ mod tests {
             p.send(1).expect("not closed");
             p.send(2).expect("not closed: 队列满 → 占席位 → 等待消费");
         });
-        assert_eq!(mb.recv(), crate::delivery::Receipt::Item(1));
-        assert_eq!(mb.recv(), crate::delivery::Receipt::Item(2));
+        assert_eq!(mb.recv(), crate::checks::delivery::Receipt::Item(1));
+        assert_eq!(mb.recv(), crate::checks::delivery::Receipt::Item(2));
         handle.join().unwrap();
         // 阻塞 recv 不返回 Empty:空态由 try_recv 观察。
-        assert_eq!(mb.try_recv(), crate::delivery::Receipt::Empty);
+        assert_eq!(mb.try_recv(), crate::checks::delivery::Receipt::Empty);
     }
 
     #[test]
@@ -261,9 +261,9 @@ mod tests {
         assert_eq!(p.send(1), Ok(()));
         mb.close();
         // 已入队值仍可消费(drain)。
-        assert_eq!(mb.recv(), crate::delivery::Receipt::Item(1));
+        assert_eq!(mb.recv(), crate::checks::delivery::Receipt::Item(1));
         // 排空后:消费 Closed,投递 Closed(v)。
-        assert_eq!(mb.recv(), crate::delivery::Receipt::Closed);
+        assert_eq!(mb.recv(), crate::checks::delivery::Receipt::Closed);
         assert_eq!(p.try_send(7), Delivery::Closed(7));
         assert_eq!(p.send(8), Err(8));
     }
@@ -287,7 +287,7 @@ mod tests {
         let vals: Vec<i32> = items
             .into_iter()
             .map(|r| match r {
-                crate::delivery::Receipt::Item(v) => v,
+                crate::checks::delivery::Receipt::Item(v) => v,
                 other => panic!("unexpected {other:?}"),
             })
             .collect();

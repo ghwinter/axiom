@@ -7,8 +7,8 @@
 //! 运行：`cargo bench --manifest-path runtime/Cargo.toml --bench carrier`。
 
 use axiom::cell_core::PortCell;
-use axiom_runtime::carrier::{InlineCarrier, spawned_flow};
-use axiom_runtime::flow::drive_link;
+use axiom_runtime::movers::carrier::{InlineCarrier, spawned_flow};
+use axiom_runtime::drive::flow::drive_link;
 
 struct Inc;
 impl PortCell for Inc {

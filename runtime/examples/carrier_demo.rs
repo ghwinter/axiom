@@ -5,8 +5,8 @@
 //! 但时空成本不同**（T6 多物理实现）。换载体不改拓扑。
 
 use axiom::cell_core::{Broadcast, Chain, PortCell};
-use axiom_runtime::carrier::{Carrier, CarrierCost, InlineCarrier, QueueCarrier};
-use axiom_runtime::flow::drive_link;
+use axiom_runtime::movers::carrier::{Carrier, CarrierCost, InlineCarrier, QueueCarrier};
+use axiom_runtime::drive::flow::drive_link;
 
 // ── 有状态细胞 ─────────────────────────────────────────
 

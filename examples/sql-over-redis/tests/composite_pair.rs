@@ -6,7 +6,7 @@
 
 use axiom::cell_core::PortCell;
 use axiom_demo_sql_over_redis::composite::{self, ComposeLine, ExecCell, Route, RouteParse};
-use axiom_demo_sql_over_redis::redis_plan::{Cmd, Error, ParseErr};
+use axiom_demo_sql_over_redis::plans::redis_plan::{Cmd, Error, ParseErr};
 
 #[test]
 fn route_dispatches_kv_and_sql_and_errors() {
@@ -92,9 +92,9 @@ fn pump_try_equivalence_with_inline() {
 #[cfg(feature = "tokio")]
 mod async_pairs {
     use super::*;
-    use axiom_instances::async_driver::tokio_poll_fed;
-    use axiom_runtime::async_seam::{PollResult, Poller};
-    use axiom_runtime::flow::drive_seq;
+    use axiom_instances::backend::async_driver::tokio_poll_fed;
+    use axiom_runtime::seams::async_seam::{PollResult, Poller};
+    use axiom_runtime::drive::flow::drive_seq;
     use std::time::{Duration, Instant};
 
     fn run_pair() -> (Vec<String>, Vec<String>) {

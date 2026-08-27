@@ -20,7 +20,7 @@ fn run_tokio() {
     use axiom::cell_core::PortCell;
     use axiom_demo_sql_over_redis::composite::{self, ComposeLine};
     use axiom_demo_sql_over_redis::observe::{ObservedPoller, observed_fed_run};
-    use axiom_runtime::async_seam::PollResult;
+    use axiom_runtime::seams::async_seam::PollResult;
     use std::time::{Duration, Instant};
 
     const PER_SESSION: usize = 40;

@@ -22,7 +22,7 @@ use axiom::cell_core::PortCell;
 use std::sync::mpsc::{SyncSender, TrySendError};
 use std::time::{Duration, Instant};
 
-use crate::carrier::SaturationPolicy;
+use crate::movers::carrier::SaturationPolicy;
 
 /// **执行器契约**（C7 第三层；D2 executor 约定）：等待点的事件循环步。
 ///
@@ -159,7 +159,7 @@ pub enum SeamRoll<X> {
 /// 带背压等待点的接缝轮询器（C7 第二层；A1 饱和策略的机械）。
 ///
 /// `A::Out` 经有限通道（`mpsc::SyncSender`）投递——等待点第三类（背压）的
-/// 同步域形态：与 [`bounded_pump`](crate::flow::bounded_pump) 生产端同构，
+/// 同步域形态：与 [`bounded_pump`](crate::drive::flow::bounded_pump) 生产端同构，
 /// 但 **poll 化 + 期限化**：
 /// - 饱和且策略 [`Fail`](SaturationPolicy::Fail)/断连 → 值随 `Full(v)` 回传；
 /// - 饱和且策略 [`Block`](SaturationPolicy::Block) → 值滞留（值保留），

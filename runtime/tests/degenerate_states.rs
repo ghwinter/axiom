@@ -27,7 +27,7 @@ use axiom_runtime::prelude_all::{
     Carrier, CarrierCost, ChunkSource, DeliveryKind, EventStream, InlineCarrier, ObligationClass,
     SlotPending, assert_capacity_nonzero,
 };
-use axiom_runtime::ring::BoundedRing;
+use axiom_runtime::movers::ring::BoundedRing;
 
 #[test]
 fn capacity_zero_is_a_degenerate_state_refused_everywhere() {

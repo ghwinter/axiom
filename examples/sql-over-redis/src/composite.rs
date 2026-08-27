@@ -7,8 +7,8 @@
 
 use axiom::cell_core::PortCell;
 
-use crate::redis_plan::{self, Cmd as KvCmd, Error, Reply};
-use crate::sql_plan::{self, ExecOut, PErr};
+use crate::plans::redis_plan::{self, Cmd as KvCmd, Error, Reply};
+use crate::plans::sql_plan::{self, ExecOut, PErr};
 
 /// 组合状态：SQL 管线状态 + KV 存储状态（两计算面共居）。
 pub type CompositeState = (sql_plan::SqlPipeState, redis_plan::StoreState);

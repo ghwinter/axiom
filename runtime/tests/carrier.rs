@@ -1,8 +1,8 @@
 //! runtime 载体/驱动测试——验证"不同载体 = 不同物理实现（T6）"且语义等价。
 
 use axiom::cell_core::PortCell;
-use axiom_runtime::carrier::{Carrier, InlineCarrier, QueueCarrier};
-use axiom_runtime::flow::drive_link;
+use axiom_runtime::movers::carrier::{Carrier, InlineCarrier, QueueCarrier};
+use axiom_runtime::drive::flow::drive_link;
 
 struct Inc;
 impl PortCell for Inc {
@@ -33,7 +33,7 @@ fn inline_carrier_zero_alloc_semantics() {
     let out = <InlineCarrier as Carrier<Inc, Scaler>>::flow(&mut sa, &mut sb, 5);
     assert_eq!(out, 12);
     // 成本声明：零分配、内联。
-    assert_eq!(<InlineCarrier as Carrier<Inc, Scaler>>::cost(), axiom_runtime::carrier::CarrierCost::ZeroAllocInline);
+    assert_eq!(<InlineCarrier as Carrier<Inc, Scaler>>::cost(), axiom_runtime::movers::carrier::CarrierCost::ZeroAllocInline);
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn queue_carrier_per_message_alloc_semantics_equal() {
     assert_eq!(out, 6); // 2 -> 3 -> 6
     assert_eq!(
         <QueueCarrier as Carrier<Inc, Scaler>>::cost(),
-        axiom_runtime::carrier::CarrierCost::PerMessageAlloc
+        axiom_runtime::movers::carrier::CarrierCost::PerMessageAlloc
     );
 }
 
@@ -67,7 +67,7 @@ fn drive_link_verifies_wiring_before_running() {
 #[test]
 fn static_path_unrolls_declared_static_subgraph() {
     use axiom::cell_core::{Chain, Static};
-    use axiom_runtime::static_path::{run_declared_static, run_static};
+    use axiom_runtime::drive::static_path::{run_declared_static, run_static};
 
     // 静态子图：链 Inc -> Scaler（被 Static 声明为"要求零成本"）。
     type StaticChain = Chain<Inc, Scaler>;
@@ -88,7 +88,7 @@ fn spawned_flow_crosses_threads() {
     // spawned_flow 跨线程：A(Inc) 在调用线程产出，B(Scaler) 状态在工作线程，跨线程 causal flow。
     let mut sa = ();
     // 用 `spawned_flow`：Inc 输出 5->6，Scaler 在工作线程 6->12。
-    let out = axiom_runtime::carrier::spawned_flow::<Inc, Scaler>(&mut sa, || (), 5);
+    let out = axiom_runtime::movers::carrier::spawned_flow::<Inc, Scaler>(&mut sa, || (), 5);
     assert_eq!(out, 12);
 }
 
@@ -107,7 +107,7 @@ fn spawned_flow_propagates_worker_panic() {
     }
     let mut sa = ();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        axiom_runtime::carrier::spawned_flow::<Inc, Boom>(&mut sa, || (), 5)
+        axiom_runtime::movers::carrier::spawned_flow::<Inc, Boom>(&mut sa, || (), 5)
     }));
     assert!(result.is_err(), "worker panic must propagate to the caller");
 }

@@ -7,14 +7,14 @@
 //! | Check | Modality | Guarantee source |
 //! |---|---|---|
 //! | [`Moore`] + [`declare_inline_loop_moore`] | **④ declaration** | deployer axiom: the feed cell's output is claimed state-only. NOT a proof — semantic properties are Rice-undecidable; nothing here can verify the claim |
-//! | [`validate_cost`] / [`validate_seam`] | **③ deployment validation** | cost budgets are deployment decisions; wired into the assembly entries [`assemble_link`](crate::flow::assemble_link) / [`assemble_seam`](crate::flow::assemble_seam) — deployment-time, once, before the zero-cost drive path; rejection = assembly failure |
+//! | [`validate_cost`] / [`validate_seam`] | **③ deployment validation** | cost budgets are deployment decisions; wired into the assembly entries [`assemble_link`](crate::drive::flow::assemble_link) / [`assemble_seam`](crate::drive::flow::assemble_seam) — deployment-time, once, before the zero-cost drive path; rejection = assembly failure |
 //! | [`assert_capacity_nonzero`] | **② compile-time witness** | capacity is a const parameter; sites may force rejection of `CAP = 0` at compile time |
 //! | [`validate_capacity`] | **③ deployment validation** | runtime aggregate form of the same fact for assembled seams |
 //!
 //! The one thing this layer never does is dress ③/④ up as compile-time proofs.
 //! A declaration that looks verified is worse than an honest gap.
 
-use crate::carrier::{Carrier, CarrierCost};
+use crate::movers::carrier::{Carrier, CarrierCost};
 use axiom::cell_core::PortCell;
 
 // ── 1. Moore marker (inline feedback loops) — modality ④: declaration ─────
@@ -66,9 +66,9 @@ pub enum ContractError {
         /// The violated axis ("resource" or "delivery").
         axis: &'static str,
         /// Obligation declared by the carrier (`Carrier::obligation`).
-        declared: crate::obligation::ObligationClass,
+        declared: crate::checks::obligation::ObligationClass,
         /// Minimum required by the profile (`Profile::obligation_min`).
-        minimum: crate::obligation::ObligationClass,
+        minimum: crate::checks::obligation::ObligationClass,
     },
 }
 
@@ -102,7 +102,7 @@ impl std::error::Error for ContractError {}
 /// channel:
 ///
 /// ```
-/// const _: () = axiom_runtime::contract::assert_capacity_nonzero::<4>();
+/// const _: () = axiom_runtime::checks::contract::assert_capacity_nonzero::<4>();
 /// ```
 ///
 /// `CAP = 0` is fully decidable at compile time, so sites that want the earliest
@@ -174,8 +174,8 @@ where
 /// assembly gate: the same topology assembled under a different profile changes
 /// not only the cost budget but the obligation floor (T6, obligations included).
 pub fn validate_obligation_min(
-    declared: crate::obligation::ObligationClass,
-    minimum: crate::obligation::ObligationClass,
+    declared: crate::checks::obligation::ObligationClass,
+    minimum: crate::checks::obligation::ObligationClass,
 ) -> Result<(), ContractError> {
     match declared.meets_min(&minimum) {
         Ok(()) => Ok(()),
@@ -190,7 +190,7 @@ pub fn validate_obligation_min(
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use crate::carrier::{InlineCarrier, QueueCarrier};
+    use crate::movers::carrier::{InlineCarrier, QueueCarrier};
 
     struct Inc;
     impl PortCell for Inc {
@@ -248,7 +248,7 @@ mod tests {
     fn inline_loop_drive_requires_moore_declaration() {
         // 门禁落位（S7）：runtime 驱动器 drive_feedback_inline 要求 FEED: Moore。
         let (mut sb, mut sf) = ((), ());
-        let out = crate::flow::drive_feedback_inline::<Pass, IdentityFeed>(&mut sb, &mut sf, 5);
+        let out = crate::drive::flow::drive_feedback_inline::<Pass, IdentityFeed>(&mut sb, &mut sf, 5);
         // Pass(5)=5 -> feed Identity(5)=5 -> Pass(5)=5
         assert_eq!(out, 5);
     }

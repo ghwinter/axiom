@@ -10,7 +10,7 @@ use core::cell::Cell;
 use core::fmt::Debug;
 use core::cmp::PartialOrd;
 
-use crate::delivery::{Delivery, Receipt};
+use crate::checks::delivery::{Delivery, Receipt};
 
 /// 配对律探针：每次投递必得一个判定（Delivered/Full/Closed，职责守恒定）；
 /// 已投递值最终被收取或随关闭排空（不静默消失）。
@@ -85,7 +85,7 @@ pub fn assert_fanout(total_out: u64, sources: u64, fanout: u64) {
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use crate::delivery::{Delivery, Receipt};
+    use crate::checks::delivery::{Delivery, Receipt};
 
     #[test]
     fn pairing_law_holds_for_verdicts() {

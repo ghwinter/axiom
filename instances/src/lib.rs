@@ -1,6 +1,6 @@
 //! # axiom-instances — 实例层
 //!
-//! axiom 的**实例层**：经 socket（`Executor` / [`Carrier`](axiom_runtime::carrier::Carrier)
+//! axiom 的**实例层**：经 socket（`Executor` / [`Carrier`](axiom_runtime::movers::carrier::Carrier)
 //! / `Telemetry`，见 runtime 模块 async-seam / carrier / telemetry）接入可替换的
 //! 物理/生态实现。官方标准集 = 融合单 crate + feature 门控，**默认全关**（空实例面
 //! 合法）；第三方实例经自建独立 crate 走开放路径（双形态边界，internal-design §3 / §5）。
@@ -15,17 +15,15 @@
 //! | feature | 拉起 | 提供 |
 //! |---|---|---|
 //! | `async` | `axiom-runtime/async-seam` | 异步接缝（`Executor` 契约的前提） |
-//! | `tokio` | `async` + 可选依赖 `tokio` | `tokio_exec::TokioExec`——等待点适配 tokio |
+//! | `tokio` | `async` + 可选依赖 `tokio` | [`backend`] 的 tokio 引擎（真异步驱动 + 占位执行器） |
 //! | `embedded` | `axiom-runtime/std` | 预留嵌入式流 |
 //!
-//! ## 布局
+//! ## 布局（目录 = 语义分层）
 //!
-//! - `async_driver`：**真异步驱动**（`tokio` feature 门控）——把轮询等待点经语言原生
-//!   `.await` 挂进 tokio reactor（`tokio_poll_until`/`tokio_roll_until`），不扩
-//!   `Executor` 契约。这是 `Executor` 同步插座（`tokio_exec`）之外的**语言原生异步路径**；
-//!   同步 `park` 桥已实测判死（no reactor），真接入在此域落地。
-//! - `tokio_exec`：tokio 桥接 **同步**执行器（`Executor` 契约实现，占位语义；`tokio`
-//!   feature 门控；默认 feature 下无该模块）。
+//! - [`backend`]（`tokio` feature 门控）：异步后端——`async_driver`（**真异步驱动**：
+//!   把轮询等待点经语言原生 `.await` 挂进 tokio reactor，`tokio_poll_until`/
+//!   `tokio_roll_until`/`tokio_poll_fed`，不扩 `Executor` 契约；同步 `park` 桥已实测
+//!   判死，真接入在此域落地）+ `tokio_exec`（同步 `Executor` 契约的占位实现）。
 //!
 //! **no_std**：本 crate **不参与** no_std 承诺——实例层依赖 `std`（tokio/embedded
 //! 实例均需）。默认 feature 下无 std 使用路径（空实例面），保持最小。
@@ -40,15 +38,19 @@
 // std（tokio/embedded 实例均需 std）。不声明独立 std feature：无此门控需要；
 // 默认 feature 下为空实例面（无 std 使用路径），保持最小。
 
-/// tokio 桥接执行器：把 axiom 异步接缝的等待点接进 tokio 的 time 语义。
-/// 门控：`tokio` feature。
-#[cfg(feature = "tokio")]
-pub mod tokio_exec;
+/// 异步后端（`tokio` feature 门控）：真异步驱动 + 同步占位执行器。
+pub mod backend {
+    /// 真异步驱动：把轮询等待点经语言原生 `.await` 挂进 tokio reactor
+    /// （`tokio_poll_until`/`tokio_roll_until`/`tokio_poll_fed`），不扩 `Executor` 契约。
+    /// 门控：`tokio` feature。
+    #[cfg(feature = "tokio")]
+    pub mod async_driver;
 
-/// 真异步驱动：把轮询等待点经语言原生 `.await` 挂进 tokio reactor
-/// （`tokio_poll_until`/`tokio_roll_until`），不扩 `Executor` 契约。
-/// 门控：`tokio` feature。
-#[cfg(feature = "tokio")]
-pub mod async_driver;
+    /// tokio 桥接执行器：把 axiom 异步接缝的等待点接进 tokio 的 time 语义
+    /// （同步 `Executor` 契约的诚实占位实现；真接入在 `async_driver` 的异步路径）。
+    /// 门控：`tokio` feature。
+    #[cfg(feature = "tokio")]
+    pub mod tokio_exec;
+}
 
 // 空实例面（无 feature）合法：本 crate 此时无实例导出，编译为骨架。

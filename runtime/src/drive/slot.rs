@@ -117,7 +117,7 @@ impl<I, O> SlotDrive<I, O> {
     /// 换装并**强制处置**旧状态（C5：在途值归属裁定）。
     ///
     /// 旧居留项状态（连同其未完成工作）`Box<dyn Any + Send>` 交给 `drain` 回调，
-    /// 由调用方显式裁定归属——排空回传、随 `Closed` 回传（[`crate::delivery::Delivery::Closed`]）、
+    /// 由调用方显式裁定归属——排空回传、随 `Closed` 回传（[`crate::checks::delivery::Delivery::Closed`]）、
     /// 或重建；**静默丢弃在类型上不可能**（回调必须存在）。回调的返回值即本方法的
     /// 返回值（调用方可回传处置裁决）。代递增（既有 `Seat` 过期）。
     pub fn swap_and_drain<T, R>(

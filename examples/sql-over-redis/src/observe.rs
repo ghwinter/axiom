@@ -14,7 +14,7 @@
 //! 状态；时延为墙钟采样（与 sync 同刻度），不称 tokio 内部时延。
 
 use axiom::cell_core::PortCell;
-use axiom_runtime::async_seam::{Poll, PollResult, Poller};
+use axiom_runtime::seams::async_seam::{Poll, PollResult, Poller};
 use std::time::{Duration, Instant};
 
 /// 观测事件（记录面粒度）。

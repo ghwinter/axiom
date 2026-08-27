@@ -19,9 +19,9 @@
 #![cfg(feature = "std")]
 
 use axiom::cell_core::PortCell;
-use axiom_runtime::carrier::InlineCarrier;
-use axiom_runtime::flow::drive_link;
-use axiom_runtime::slot::{SlotDrive, SlotPending};
+use axiom_runtime::movers::carrier::InlineCarrier;
+use axiom_runtime::drive::flow::drive_link;
+use axiom_runtime::drive::slot::{SlotDrive, SlotPending};
 use std::time::Instant;
 
 struct Inc;

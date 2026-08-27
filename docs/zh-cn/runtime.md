@@ -38,7 +38,7 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 }
 ```
 
-载体目录（`runtime/src/carrier.rs`）：
+载体目录（`runtime/src/movers/carrier.rs`）：
 
 | 载体 | 物理方案 | 时空成本 | 线程 | 模块 |
 |---|---|---|---|---|
@@ -105,7 +105,7 @@ L：如实声明 `cost()`/`obligation()`/`saturation()`）；(2) 以外部消费
 
 ## 3. 驱动（flow）与静态路径（static_path）
 
-- **`flow`**（`runtime/src/flow.rs`）：`drive_link`——编译期布线验证
+- **`flow`**（`runtime/src/drive/flow.rs`）：`drive_link`——编译期布线验证
   （统一 `Conforms<Wire>`）后，用选定载体驱动一条 A→B 因果流；**验证在编译期，运行期零开销**
   （`drive_wired` 已删除——它是 `drive_link` 的冗余别名）。
 - **`static_path`**（`runtime/src/static_path.rs`）：`run_static` / `run_declared_static`——
@@ -119,7 +119,7 @@ L：如实声明 `cost()`/`obligation()`/`saturation()`）；(2) 以外部消费
 
 runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是运行/载体侧）提供**激活**：
 
-- **存在绑定 `SlotPending<I,O>` → `SlotDrive<I, O>`**（existential binding，`runtime/src/slot.rs`）——
+- **存在绑定 `SlotPending<I,O>` → `SlotDrive<I, O>`**（existential binding，`runtime/src/drive/slot.rs`）——
   对 `Slot<I,O>` 的 ∃ 存在化填充，处于**许可生命周期**（typestate，模态①）：
   `SlotPending::install`（Adding）安装编译期合规居留项（`T: PortCell<In=I,Out=O>` ⟹ core 的
   `Conforms`）、把其状态类型擦除为 `Box<dyn Any + Send>`；`commit()`（Ready→Live）授权
@@ -127,16 +127,16 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
   运行期 `drive`/`swap`（swap 递增代，此前创建的 `Seat` 以陈旧引用被拒绝）；`retire()`
   终结许可（Cleaned）。这是"动态装载"的物理侧——接口固定且编译期 T1 验证、居留项
   运行期存在化。
-- **`drive_seq`**（`runtime/src/flow.rs`，`no_std + alloc`）——`Rep<N,C>` 的生成/无界计数侧：
+- **`drive_seq`**（`runtime/src/drive/flow.rs`，`no_std + alloc`）——`Rep<N,C>` 的生成/无界计数侧：
   把一组运行期 `IntoIterator` 输入依次流经同一 cell，收集输出，状态跨次保持（计数由运行期
   决定，非编译期）。
-- **`drive_feedback_inline<BODY, FEED>`**（`runtime/src/flow.rs`）——`Feedback` cell 形式的
+- **`drive_feedback_inline<BODY, FEED>`**（`runtime/src/drive/flow.rs`）——`Feedback` cell 形式的
   物理激活：每个输入步一次内联无缓冲回环（`BODY -> FEED -> BODY`），由 **Moore 声明**把关
   （`FEED: Moore`，模态 ④——声明非证明）。
-- **`contract` 模块**（`runtime/src/contract.rs`）——部署期与编译期接缝契约：`Moore` 标记（④）、
+- **`contract` 模块**（`runtime/src/checks/contract.rs`）——部署期与编译期接缝契约：`Moore` 标记（④）、
   `assert_capacity_nonzero`（②）、`validate_cost`/`validate_capacity`/`validate_seam`（③）、
   `ContractError`。
-- **`obligation` 模块**（`runtime/src/obligation.rs`）——义务类类型系统（投递态 × 资源类 ×
+- **`obligation` 模块**（`runtime/src/checks/obligation.rs`）——义务类类型系统（投递态 × 资源类 ×
   引用有效 × 生命周期）与**义务账本**（`LEDGER`）：机器可读的宪法摘录（接缝 × 义务 × 模态 ×
   见证 × 符合性测试），执行极小基律与诚实规则（A4/A5）。
 - **`delivery` 模块**（`runtime/src/delivery.rs`，std）——投递四态税则：`Full`/`Closed` 自
@@ -148,7 +148,7 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
   再占自身席位）；`recv` 阻塞且不返回 `Empty`（空态由 `try_recv` 观察）；关闭排空后投递
   得 `Closed(v)`。模态② 容量门（`CAP ≥ 1`）。`bounded_pump` 保留教学形态；邮箱是同一
   义务类（每生产者席位）的反饥饿实例。
-- **`profile` 模块**（`runtime/src/profile.rs`）——**剖面目录**（六元组 C 构件；F↦C(F)）：
+- **`profile` 模块**（`runtime/src/checks/profile.rs`）——**剖面目录**（六元组 C 构件；F↦C(F)）：
   `KernelProfile`（零分配预算）、`ServiceProfile`（每消息预算 + Full/Closed 机械化）、
   `ToolProfile`（外部）；剖面 = 模态① 类型令牌 + 模态③ 预算门——`assemble_profile<P,A,B,C>()`
   拒绝超预算载体，同一拓扑换剖面即换预算门、不改拓扑（T6）。载体白名单为规范文档
@@ -163,7 +163,7 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 - **`law` 模块**（`runtime/src/law.rs`，std）——运行期律探针（T 构件深化）：配对律
   （N 投递 ↔ N 判定；已收 ≤ 已投）、序列单调律、广播扇出计数律；`debug_assertions`
   门控、release 零开销。
-- **`assemble_link` / `assemble_seam`**（`runtime/src/flow.rs`）——**模态③ 的接线入口**：在
+- **`assemble_link` / `assemble_seam`**（`runtime/src/drive/flow.rs`）——**模态③ 的接线入口**：在
   部署装配点**一次**校验成本（有界接缝还校验容量），通过后返回 `drive_link` 函数指针
   （`Driver<A,B>`）；预算越界 = **装配失败**，绝非运行期静默成本。（`BoundedCarrier` 自带的
   编译期门是模态②；`assemble_seam` 在部署期承接无门载体的校验。）
@@ -313,7 +313,7 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 → 持有 `StoreState` 的存储工作线程（`DataStore` 全函数，无 panic 路径）→ RESP 回执路由
 （每连接 FIFO 顺序、EOF 时写半关闭）。
 - 落层：**runtime**（事件基座即一类载体/驱动）。
-- **载体类已形式化并落地**（`runtime/src/event.rs`）：事件流（`EventStream`，
+- **载体类已形式化并落地**（`runtime/src/seams/event.rs`）：事件流（`EventStream`，
   条目级输入源）+ 块源适配（`ChunkSource`：`io::Read` 原始源 + 分割器 + 跨块状态，
   含通用行分割 `split_lines`）+ 泵驱动（`pump_events`：变换 cell → 投递裁决
   `PushVerdict` → 配对计数 `EventPumpStats`）。`redis_like --tcp` 是该接缝的

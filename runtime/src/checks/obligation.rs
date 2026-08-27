@@ -3,15 +3,15 @@
 //! 义务类 = 投递态 × 资源类 × 引用有效 × 生命周期 的参数化族。每条接缝**声明**其义务类，
 //! 装配点按模态③ 校验（`flow::assemble_link` / `assemble_seam`）。
 //!
-//! 极小基律（A4）：资源类直接复用 [`CarrierCost`](crate::carrier::CarrierCost)（同构者不
+//! 极小基律（A4）：资源类直接复用 [`CarrierCost`](crate::movers::carrier::CarrierCost)（同构者不
 //! 重复定义）；本模块只定义既有代码未覆盖的三个轴与模态标记。
 
-use crate::carrier::CarrierCost;
+use crate::movers::carrier::CarrierCost;
 #[cfg(feature = "std")]
-use crate::delivery::Delivery;
-use crate::flow;
+use crate::checks::delivery::Delivery;
+use crate::drive::flow;
 #[cfg(feature = "std")]
-use crate::law::PairLaw;
+use crate::checks::law::PairLaw;
 
 // ═══════════════════════════════════════════════════════════════════
 // 见证探针的最小居留项（仅探针使用；不进入任何公共 API）
@@ -71,7 +71,7 @@ impl axiom::cell_core::PortCell for ProbeMooreBody {
         x.wrapping_add(1)
     }
 }
-impl crate::contract::Moore for ProbeMooreBody {}
+impl crate::checks::contract::Moore for ProbeMooreBody {}
 
 /// 探针用 Moore 回喂。
 pub struct ProbeMooreFeed;
@@ -83,7 +83,7 @@ impl axiom::cell_core::PortCell for ProbeMooreFeed {
         x.wrapping_add(1)
     }
 }
-impl crate::contract::Moore for ProbeMooreFeed {}
+impl crate::checks::contract::Moore for ProbeMooreFeed {}
 
 /// 认识论强度模态（D2；meta 定义 1.3）。格 {①②③④} ∪ {∅（违例）}——每条义务恰占一格。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -227,7 +227,7 @@ pub const LEDGER: &[LedgerEntry] = &[
         modality: Modality::DeploymentValidation,
         witness: "contract::validate_cost",
         conformance: "tests/deployment.rs: assemble_link_rejects_budget_violation",
-        probe: || crate::contract::validate_cost::<ProbeInc, ProbeTriple, crate::carrier::InlineCarrier>(CarrierCost::External).is_ok(),
+        probe: || crate::checks::contract::validate_cost::<ProbeInc, ProbeTriple, crate::movers::carrier::InlineCarrier>(CarrierCost::External).is_ok(),
     },
     LedgerEntry {
         seam: "flow::assemble_seam",
@@ -235,7 +235,7 @@ pub const LEDGER: &[LedgerEntry] = &[
         modality: Modality::DeploymentValidation,
         witness: "contract::validate_seam",
         conformance: "tests/deployment.rs: assemble_seam_rejects_zero_capacity_at_deploy_time",
-        probe: || crate::contract::validate_seam::<ProbeInc, ProbeTriple, crate::carrier::InlineCarrier, 4>(CarrierCost::External).is_ok(),
+        probe: || crate::checks::contract::validate_seam::<ProbeInc, ProbeTriple, crate::movers::carrier::InlineCarrier, 4>(CarrierCost::External).is_ok(),
     },
     LedgerEntry {
         seam: "carrier::BoundedCarrier",
@@ -243,7 +243,7 @@ pub const LEDGER: &[LedgerEntry] = &[
         modality: Modality::ConstantWitness,
         witness: "contract::assert_capacity_nonzero",
         conformance: "contract.rs 单元测试（std）",
-        probe: || { crate::contract::assert_capacity_nonzero::<4>(); true },
+        probe: || { crate::checks::contract::assert_capacity_nonzero::<4>(); true },
     },
     LedgerEntry {
         seam: "flow::drive_feedback_inline",
@@ -259,7 +259,7 @@ pub const LEDGER: &[LedgerEntry] = &[
         modality: Modality::DeploymentValidation,
         witness: "carrier::drive_try_carrier",
         conformance: "carrier.rs: short_circuit_ok_passes_and_err_skips",
-        probe: || crate::carrier::drive_try_carrier::<crate::carrier::ResultCarrier, ProbeFail, ProbeSink, i32, &'static str>(&mut (), &mut (), 1).is_err(),
+        probe: || crate::movers::carrier::drive_try_carrier::<crate::movers::carrier::ResultCarrier, ProbeFail, ProbeSink, i32, &'static str>(&mut (), &mut (), 1).is_err(),
     },
     LedgerEntry {
         seam: "profile::assemble_profile",
@@ -268,21 +268,21 @@ pub const LEDGER: &[LedgerEntry] = &[
         witness: "contract::validate_cost / contract::validate_obligation_min",
         conformance: "profile.rs: kernel_profile_rejects_per_message_carriers / service_profile_accepts_per_message_carriers_but_not_unmechanized_delivery / obligation_min_splits_profiles",
         probe: || {
-            let tool_ok = crate::profile::assemble_profile::<
-                crate::profile::ToolProfile,
+            let tool_ok = crate::checks::profile::assemble_profile::<
+                crate::checks::profile::ToolProfile,
                 ProbeInc,
                 ProbeTriple,
-                crate::carrier::InlineCarrier,
+                crate::movers::carrier::InlineCarrier,
             >()
             .is_ok();
             let service_rejects_inline = matches!(
-                crate::profile::assemble_profile::<
-                    crate::profile::ServiceProfile,
+                crate::checks::profile::assemble_profile::<
+                    crate::checks::profile::ServiceProfile,
                     ProbeInc,
                     ProbeTriple,
-                    crate::carrier::InlineCarrier,
+                    crate::movers::carrier::InlineCarrier,
                 >(),
-                Err(crate::contract::ContractError::ObligationUnderMet {
+                Err(crate::checks::contract::ContractError::ObligationUnderMet {
                     axis: "delivery",
                     ..
                 })
@@ -297,7 +297,7 @@ pub const LEDGER: &[LedgerEntry] = &[
         modality: Modality::ConstantWitness,
         witness: "contract::assert_capacity_nonzero",
         conformance: "mailbox.rs: capacity_semantics_include_per_producer_slots",
-        probe: || { crate::contract::assert_capacity_nonzero::<8>(); true },
+        probe: || { crate::checks::contract::assert_capacity_nonzero::<8>(); true },
     },
     LedgerEntry {
         seam: "ring::BoundedRing",
@@ -306,7 +306,7 @@ pub const LEDGER: &[LedgerEntry] = &[
         witness: "contract::assert_capacity_nonzero",
         conformance: "ring.rs: counter_wraparound_cap3 / long_run_counter_law_via_pairlaw_shape",
         probe: || {
-            let mut r = crate::ring::BoundedRing::<i32, 2>::new();
+            let mut r = crate::movers::ring::BoundedRing::<i32, 2>::new();
             let mut pushes = 0u64;
             let mut pops = 0u64;
             for i in 0..8i32 {
@@ -324,8 +324,8 @@ pub const LEDGER: &[LedgerEntry] = &[
         witness: "contract::assert_capacity_nonzero / ObligationClass::default",
         conformance: "runtime/tests/degenerate_states.rs (4 tests)",
         probe: || {
-            crate::contract::assert_capacity_nonzero::<1>();
-            crate::obligation::ObligationClass::default().delivery == DeliveryKind::NotApplicable
+            crate::checks::contract::assert_capacity_nonzero::<1>();
+            crate::checks::obligation::ObligationClass::default().delivery == DeliveryKind::NotApplicable
         },
     },
 ];
@@ -342,32 +342,32 @@ pub const LEDGER_STD_EXTRA: &[LedgerEntry] = &[
         conformance: "law.rs: pairing_law_holds_for_verdicts",
         probe: || { let l = PairLaw::new(); l.on_send(); l.on_verdict(&Delivery::Delivered::<i32>); l.assert_pairing(); true },
     },
-    // 依赖闭包纪律（结构收敛 2026-08）：探针引用 `crate::event` 符号——本行随
+    // 依赖闭包纪律（结构收敛 2026-08）：探针引用 `crate::seams::event` 符号——本行随
     // `event` 特性同门控（关 `event` 时本行不进账本，避免 no-feature 构建失败）。
     #[cfg(all(feature = "std", feature = "event"))]
     LedgerEntry {
-        seam: "event::pump_events",
+        seam: "seams::event::pump_events",
         obligation: "配对律：N 条事件 ↔ N 个判定（delivered+dropped）；失败也是数据（不短路吞值）；消费端断连 ⟹ 停止拉取（拆除，不静默延续）；块容量 N≥1（模态②门，退化态拒绝）",
         modality: Modality::DeploymentValidation,
-        witness: "event::EventPumpStats / event::split_lines",
+        witness: "seams::event::EventPumpStats / seams::event::split_lines",
         conformance: "event.rs: pump_pair_law_totals_match / pump_teardown_stops_pulling_and_counts_dropped",
         probe: || {
             use std::io::Cursor;
-            let mut source = crate::event::ChunkSource::<Cursor<&[u8]>, _, String, i32, 16>::new(
+            let mut source = crate::seams::event::ChunkSource::<Cursor<&[u8]>, _, String, i32, 16>::new(
                 Cursor::new(&b"1\n2\n3\n"[..]),
                 String::new(),
                 |buf: &mut String, chunk: &[u8]| {
-                    crate::event::split_lines(buf, chunk)
+                    crate::seams::event::split_lines(buf, chunk)
                         .into_iter()
                         .map(|l| l.trim().parse::<i32>().unwrap_or(0))
                         .collect()
                 },
             );
             let mut a = ();
-            let stats = crate::event::pump_events::<crate::obligation::ProbeFail, _, _>(
+            let stats = crate::seams::event::pump_events::<crate::checks::obligation::ProbeFail, _, _>(
                 &mut a,
                 &mut source,
-                |_outcome| crate::event::PushVerdict::Delivered,
+                |_outcome| crate::seams::event::PushVerdict::Delivered,
             );
             stats.delivered == 3 && stats.total() == 3 && stats.dropped == 0
         },
@@ -379,10 +379,10 @@ pub const LEDGER_STD_EXTRA: &[LedgerEntry] = &[
         witness: "slot::SlotDrive::swap_and_drain (core::mem::replace)",
         conformance: "slot.rs: swap_and_drain_reclaims_inflight_to_closed / swap_and_drain_reports_clean_when_no_inflight / swap_and_drain_delegates_disposition_to_caller",
         probe: || {
-            let mut live = crate::slot::SlotPending::<i32, i32>::install::<crate::obligation::ProbeInc>(()).commit();
+            let mut live = crate::drive::slot::SlotPending::<i32, i32>::install::<crate::checks::obligation::ProbeInc>(()).commit();
             let g = live.generation();
             let _ = live.drive(1);
-            let ok = live.swap_and_drain::<crate::obligation::ProbeTriple, bool>((), |_old| true);
+            let ok = live.swap_and_drain::<crate::checks::obligation::ProbeTriple, bool>((), |_old| true);
             ok && live.generation() == g + 1
         },
     },

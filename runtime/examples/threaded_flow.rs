@@ -9,8 +9,8 @@
 //! - 其中一步用 `spawned_flow` 放到独立工作线程（mpsc 通道 + B::State 在线程内）。
 
 use axiom::cell_core::{Chain, PortCell};
-use axiom_runtime::carrier::{InlineCarrier, spawned_flow};
-use axiom_runtime::flow::drive_link;
+use axiom_runtime::movers::carrier::{InlineCarrier, spawned_flow};
+use axiom_runtime::drive::flow::drive_link;
 
 // ── 细胞 ─────────────────────────────────────────
 

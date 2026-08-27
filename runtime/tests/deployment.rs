@@ -3,8 +3,8 @@
 //! 的编译期验证 + 零成本路径运行。
 
 use axiom::cell_core::PortCell;
-use axiom_runtime::carrier::Carrier;
-use axiom_runtime::contract::ContractError;
+use axiom_runtime::movers::carrier::Carrier;
+use axiom_runtime::checks::contract::ContractError;
 use axiom_runtime::prelude_all::{
     BoundedCarrier, CarrierCost, InlineCarrier, QueueCarrier, assemble_link, assemble_seam,
 };

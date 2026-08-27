@@ -10,12 +10,12 @@
 //! 预算是可执行投影（T 构件）。
 //!
 //! **义务下限（C10 step 2，已启用）**：`obligation_min()` 已按剖面分化并经
-//! [`contract::validate_obligation_min`](crate::contract::validate_obligation_min)
+//! [`contract::validate_obligation_min`](crate::checks::contract::validate_obligation_min)
 //! 在装配点强制（模态③）——载体的义务声明不得弱于剖面下限：
 //! - **资源轴**：声明 ≤ 下限（更省不违规）；Kernel/Embedded 下限零分配，
 //!   Service 下限每消息，Tool 无资源下限。
 //! - **投递态轴**（强度序 `NotApplicable < MechanizedFullClosed`，见
-//!   [`DeliveryKind::is_at_least`](crate::obligation::DeliveryKind::is_at_least)）：
+//!   [`DeliveryKind::is_at_least`](crate::checks::obligation::DeliveryKind::is_at_least)）：
 //!   Service 下限机械化 Full/Closed（直通接缝 N/A 不满足——服务投递接缝必须
 //!   机械化）；Kernel/Embedded/Tool 无投递态下限（任何声明均满足）。
 //! - **引用有效/生命周期轴**：本阶段不参与校验（保留声明、不予判定，A5 诚实；
@@ -31,10 +31,10 @@
 
 use axiom::cell_core::PortCell;
 
-use crate::carrier::{Carrier, CarrierCost};
-use crate::contract::ContractError;
-use crate::flow::{Driver, drive_link};
-use crate::obligation::{DeliveryKind, ObligationClass};
+use crate::movers::carrier::{Carrier, CarrierCost};
+use crate::checks::contract::ContractError;
+use crate::drive::flow::{Driver, drive_link};
+use crate::checks::obligation::{DeliveryKind, ObligationClass};
 
 /// 剖面令牌（模态①）：声明"本系统按哪个软件形式的分域承诺装配"。
 pub trait Profile {
@@ -94,7 +94,7 @@ impl Profile for ToolProfile {
 }
 
 /// 嵌入式形式剖面（F = embedded/no_std）：预算零分配（稳态每消息），
-/// 白名单 InlineCarrier ＋ [`crate::ring::BoundedRing`] 存储原语
+/// 白名单 InlineCarrier ＋ [`crate::movers::ring::BoundedRing`] 存储原语
 /// （构造期一次预留，稳态零分配；跨线程变体待 D4 关键节选型）。
 pub struct EmbeddedProfile;
 impl Profile for EmbeddedProfile {
@@ -138,9 +138,9 @@ where
     B: PortCell<In = A::Out>,
     C: Carrier<A, B>,
 {
-    crate::contract::validate_cost::<A, B, C>(P::cost_budget())?;
+    crate::checks::contract::validate_cost::<A, B, C>(P::cost_budget())?;
     // C10 step 2：义务下限（模态③）——从占位转为可强制的装配门。
-    crate::contract::validate_obligation_min(C::obligation(), P::obligation_min())?;
+    crate::checks::contract::validate_obligation_min(C::obligation(), P::obligation_min())?;
     Ok(drive_link::<A, B, C>)
 }
 
@@ -152,7 +152,7 @@ where
     P: Profile,
     A: PortCell,
     B: PortCell<In = A::Out>,
-    C: Carrier<A, B> + crate::carrier::Registered,
+    C: Carrier<A, B> + crate::movers::carrier::Registered,
 {
     assemble_profile::<P, A, B, C>()
 }
@@ -160,7 +160,7 @@ where
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use crate::carrier::{InlineCarrier, QueueCarrier};
+    use crate::movers::carrier::{InlineCarrier, QueueCarrier};
 
     struct Inc;
     impl PortCell for Inc {
@@ -240,7 +240,7 @@ mod tests {
         assert!(assemble_profile_gated::<KernelProfile, Inc, Double, InlineCarrier>().is_ok());
         assert!(assemble_profile_gated::<ServiceProfile, Inc, Double, QueueCarrier>().is_ok());
         // Bounded 族注册覆盖任意 CAP。
-        assert!(assemble_profile_gated::<ServiceProfile, Inc, Double, crate::carrier::BoundedCarrier<4>>().is_ok());
+        assert!(assemble_profile_gated::<ServiceProfile, Inc, Double, crate::movers::carrier::BoundedCarrier<4>>().is_ok());
     }
 
     #[test]
