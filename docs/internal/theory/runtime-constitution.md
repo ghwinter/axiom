@@ -3,7 +3,7 @@
 > **性质**：I1 层设计规范（`docs/internal/theory/`，入 git）。**本文是 axiom-runtime 破坏性
 > 重构的蓝图**：由 [`meta-foundations.md`](meta-foundations.md)（公理/定义/代数）向代码投影。
 > 上游：meta-foundations 定义 1.1–1.11、命题 7.4（六元组）、boundary-ontology 定理 9.6、§8.3 封闭判据。
-> 状态：Δ 执行中；核心冻结（`src/cell_core.rs` 语义零改动）。
+> 状态：Δ 执行中；核心冻结（`core/src/cell_core.rs` 语义零改动）。
 
 ## 1. 公理集 / Axioms
 

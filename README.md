@@ -67,14 +67,14 @@ Dependency direction is one-way, enforced by the workspace member table: `axiom 
 ```text
 cargo build --workspace                    # core + runtime + instances + 综合用例
 cargo test --workspace                     # core + runtime + demos unit/integration
-cargo bench --bench dag                    # diamond zero-cost proof (composite ≈ handwritten, Δ≈±1%) — release-only evidence
+cargo bench -p axiom --bench dag              # diamond zero-cost proof (composite ≈ handwritten, Δ≈±1%) — release-only evidence
 cargo build -p axiom-instances --features tokio   # 实例层（tokio feature 门控；默认全关）
 cargo test -p axiom-instances --features tokio    # 实例层 + 对照对拍（T6 多物理语义等价）
 cargo run -p axiom-demo-sql-over-redis --bin sync_demo          # 综合用例 sync 演示（SQL-over-Redis；零第三方）
 cargo run -p axiom-demo-sql-over-redis --features tokio --bin async_demo  # async 变体（真异步馈入驱动 + 观测子系统）
 cargo run -p axiom-demo-sql-over-redis --features tokio --bin concurrent_demo  # 并发等待量化（1 线程服务 N 会话）
 cargo bench -p axiom-demo-sql-over-redis --features tokio --bench latency     # sync vs async 同口径逐步时延（min-of-N）
-cargo run --example pipeline               # run an example
+cargo run -p axiom --example pipeline              # run an example (core package)
 cargo run -p axiom-runtime --example threaded_flow
 ```
 

@@ -1,0 +1,38 @@
+[package]
+name = "axiom"
+version = "0.3.0"
+edition = "2024"
+# Edition 2024 was stabilized in Rust 1.85 (Feb 2025). All code also compiles
+# on later stable releases; bump only when adopting newer language features.
+rust-version = "1.85"
+description = "四构件编译期核心：开放系统 + 因果数据流 + 组合 + 静态性声明。蓝图用 Rust 代码/类型定义，无 JSON/值形态中间层，编译期耗尽，编译后等价手写普通 Rust 且零运行时对象。Zero-dependency."
+license = "MIT"
+readme = "../README.md"
+repository = "https://github.com/ghwinter/axiom"
+homepage = "https://github.com/ghwinter/axiom"
+documentation = "https://docs.rs/axiom"
+keywords = ["compile-time", "topology", "dataflow", "zero-cost", "embedding"]
+categories = ["concurrency", "rust-patterns", "embedded"]
+
+# 标准包内布局：src/（核心抽象层；与 runtime/src、instances/src 对称）。
+# 核心零依赖（cell_core 只用 core/alloc）。旧依赖（serde、axiom-derive）与旧
+# value-form/flowkind 语义已随历史清理移出（旧 _legacy_v0 目录已删）。
+[dependencies]
+
+# ── Feature graph ────────────────────────────────────────────────────────────
+#   default ──► std
+#   no_std + alloc：`--no-default-features`（cell_core 只用 core/alloc）。
+[features]
+default = ["std"]
+std = []
+
+# ── 性能基准（构建用例，保留）───────────────────────────────────────────────
+# 用内置最小计时 harness（零外部 dev-deps，符合零依赖哲学）。
+[[bench]]
+name = "chain"
+harness = false
+
+# 零成本对照的第二个形状：菱形（串并结合）泛型路径 vs 手写 vs 类型擦除。
+[[bench]]
+name = "dag"
+harness = false

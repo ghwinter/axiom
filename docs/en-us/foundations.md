@@ -220,7 +220,7 @@ Any "free variable" that does not belong to the internal state of some open syst
 **Necessity**: necessary (typed input must be supplied by typed output).
 **Corollary**: a system's "type" = its port signature (Γ_in → Γ_out); composition = a partial correspondence between signatures; "protocol duality" follows from this rather than from convention.
 
-> **axiom realization**: `Wire<A, B>` requires `B::In == A::Out` (`src/cell_core.rs`)—if the types do not match, the type cannot even be instantiated, and illegal connections are rejected at compile time. See `../en-us/core.md`.
+> **axiom realization**: `Wire<A, B>` requires `B::In == A::Out` (`core/src/cell_core.rs`)—if the types do not match, the type cannot even be instantiated, and illegal connections are rejected at compile time. See `../en-us/core.md`.
 
 ### T2. Composition Forms an Operad Structure
 **Premises**: composition proceeds via wiring, and the result after composition is still a system (composable again).

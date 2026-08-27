@@ -4,8 +4,8 @@
 
 > **Nature**: axiom's **core architecture specification**. Answers "what the axiom core
 > is": it turns the axioms and theorems of `foundations.md` into a **compile-time core**
-> `src/cell_core.rs`. This volume describes the form of the axiom core, consistent with the
-> converged implementation (`src/cell_core.rs`, `src/lib.rs`).
+> `core/src/cell_core.rs`. This volume describes the form of the axiom core, consistent with the
+> converged implementation (`core/src/cell_core.rs`, `core/src/lib.rs`).
 >
 > **Normative**: a self-consistent, authoritative specification focused on the
 > definition of the axiom core itself.
@@ -38,7 +38,7 @@ error** (`compile_error!`) or a failed type constraint, rather than a runtime `R
 
 | Artifact | Content | Rust Correspondence | Compile-Time Nature |
 |---|---|---|---|
-| **Open system / port body** | Bounded, typed input/output/state, `step` pure and inlinable | `PortCell` trait (`src/cell_core.rs`) | Type-level, no runtime objects |
+| **Open system / port body** | Bounded, typed input/output/state, `step` pure and inlinable | `PortCell` trait (`core/src/cell_core.rs`) | Type-level, no runtime objects |
 | **Causal dataflow** | Directed connections: `A.out -> B.in`, dual pairing at the type layer | `Wire<A,B>` | Illegal connections fail to compile (T1) |
 | **Composition / nesting** | Combinators are still port bodies, at arbitrary depth | `Chain<A,B>` | Operational structure (T2) |
 | **Staticness declaration** | Marks which subgraphs require zero cost | `Static<SUB>` / `Blueprint<TOP>` | Monomorphized, no `Box<dyn>` (T7/§5.6) |

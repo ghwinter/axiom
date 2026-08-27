@@ -3,8 +3,8 @@
 # axiom 编译期核心：cell_core（axiom 的"应该是什么"·核心卷）
 
 > **性质**：axiom 的**核心架构规范**。回答"axiom 核心是什么"：把 `foundations.md`
-> 的公理与定理，落成一个**编译期核心** `src/cell_core.rs`。本卷描述 axiom 核心
-> 的形态，与已收敛的实现（`src/cell_core.rs`、`src/lib.rs`）一致。
+> 的公理与定理，落成一个**编译期核心** `core/src/cell_core.rs`。本卷描述 axiom 核心
+> 的形态，与已收敛的实现（`core/src/cell_core.rs`、`core/src/lib.rs`）一致。
 >
 > **规范性**：自洽的权威规范，专注 axiom 核心自身的定义。
 >
@@ -32,7 +32,7 @@ const 在编译期完成——违反蓝图规则 = **编译错误**
 
 | 构件 | 内容 | Rust 对应 | 编译期性质 |
 |---|---|---|---|
-| **开放系统/端口体** | 有边界、类型化输入/输出/状态，`step` 纯且可内联 | `PortCell` trait（`src/cell_core.rs`） | 类型级，无运行时对象 |
+| **开放系统/端口体** | 有边界、类型化输入/输出/状态，`step` 纯且可内联 | `PortCell` trait（`core/src/cell_core.rs`） | 类型级，无运行时对象 |
 | **因果数据流** | 带方向的连接：`A.out -> B.in`，类型层对偶配对 | `Wire<A,B>` | 非法连接编译失败（T1） |
 | **组合/嵌套** | 组合子仍是端口体，任意层级 | `Chain<A,B>` | 操作类结构（T2） |
 | **静态性声明** | 标记哪些子图要求零成本 | `Static<SUB>` / `Blueprint<TOP>` | 单态化，无 `Box<dyn>`（T7/§5.6） |

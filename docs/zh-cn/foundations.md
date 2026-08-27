@@ -260,7 +260,7 @@ $\mathcal{S} = \bigotimes \mathcal{M}_i$；组合后的复合体仍是开放系�
 **推论**：系统"类型" = 其端口签名 (Γ_in → Γ_out)；组合 = 签名间的部分对应；
 "协议对偶"由此而非约定。
 
-> **axiom 兑现**：`Wire<A, B>` 要求 `B::In == A::Out`（`src/cell_core.rs`）——类型不匹配
+> **axiom 兑现**：`Wire<A, B>` 要求 `B::In == A::Out`（`core/src/cell_core.rs`）——类型不匹配
 > 则类型根本无法实例化，非法连接在编译期拒绝。详 [`core.md`](core.md)。
 
 ### T2. 组合构成操作类结构

@@ -1,48 +1,10 @@
-[package]
-name = "axiom"
-version = "0.3.0"
-edition = "2024"
-# Edition 2024 was stabilized in Rust 1.85 (Feb 2025). All code also compiles
-# on later stable releases; bump only when adopting newer language features.
-rust-version = "1.85"
-description = "四构件编译期核心：开放系统 + 因果数据流 + 组合 + 静态性声明。蓝图用 Rust 代码/类型定义，无 JSON/值形态中间层，编译期耗尽，编译后等价手写普通 Rust 且零运行时对象。Zero-dependency."
-license = "MIT"
-readme = "README.md"
-repository = "https://github.com/ghwinter/axiom"
-homepage = "https://github.com/ghwinter/axiom"
-documentation = "https://docs.rs/axiom"
-keywords = ["compile-time", "topology", "dataflow", "zero-cost", "embedding"]
-categories = ["concurrency", "rust-patterns", "embedded"]
-
-# 核心零依赖（cell_core 只用 core/alloc）。旧依赖（serde、axiom-derive）与
-# 旧 value-form/flowkind 语义已随 src 清理移出（见 src/_legacy_v0/）。
-[dependencies]
-
-# ── Feature graph ────────────────────────────────────────────────────────────
-#   default ──► std
-#   no_std + alloc：`--no-default-features`（cell_core 只用 core/alloc）。
-[features]
-default = ["std"]
-std = []
-
-# ── 性能基准（构建用例，保留）───────────────────────────────────────────────
-# 用内置最小计时 harness（零外部 dev-deps，符合零依赖哲学）。
-[[bench]]
-name = "chain"
-harness = false
-
-# 零成本对照的第二个形状：菱形（串并结合）泛型路径 vs 手写 vs 类型擦除。
-[[bench]]
-name = "dag"
-harness = false
-
-# ── Workspace（实例层形态落地；instance-layer-design.md）──────────────
+# ── Workspace 虚根（实例层形态落地；instance-layer-design.md）────────────
 # 三构件单向依赖：axiom ← axiom-runtime ← axiom-instances；examples/ 为跨层综合
 # 用例命名空间（每综合用例一个 crate；首例 examples/sql-over-redis，依赖三构件）。
-# 本根 package 自动是 workspace 启的成员；统一 Cargo.lock/target，
-# 消除与 runtime 的分散双 manifest（CI 之前用 `--manifest-path runtime`）。
-# 依赖方向单向由成员表强制；任何反向依赖（runtime/instances ←– core 依赖
+# core 为核心抽象层包（标准 src/ 布局），与 runtime/、instances/ 平级成员；
+# 根路径的"全场景构建用例"面 = examples/（含各成员自有 examples/）。
+# 依赖方向单向由成员表强制；任何反向依赖（runtime/instances ←– core/ 依赖
 # 外部实例）均属 M6 不可组合对象，拒绝。
 [workspace]
 resolver = "2"
-members = ["runtime", "instances", "examples/sql-over-redis"]
+members = ["core", "runtime", "instances", "examples/sql-over-redis"]

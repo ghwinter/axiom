@@ -14,8 +14,8 @@ categories = ["concurrency", "database", "asynchronous"]
 
 [dependencies]
 # 依赖方向单向：axiom ← axiom-runtime ← axiom-instances ← 综合用例 crate（workspace 成员表强制）。
-# 位于 examples/sql-over-redis/：根包与兄弟 crate 均上溯两级。
-axiom = { path = "../..", version = "0.3.0", default-features = false }
+# 位于 examples/sql-over-redis/：根包 core 与兄弟 crate 上溯两级。
+axiom = { path = "../../core", version = "0.3.0", default-features = false }
 axiom-runtime = { path = "../../runtime", version = "0.3.0" }
 axiom-instances = { path = "../../instances", version = "0.3.0", default-features = false }
 
