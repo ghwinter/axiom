@@ -1,0 +1,35 @@
+[package]
+name = "axiom-demo-sql-over-redis"
+version = "0.3.0"
+edition = "2024"
+# Edition 2024 stabilized in Rust 1.85 (Feb 2025); matches core/runtime/instances.
+rust-version = "1.85"
+description = "axiom 综合演示（跨层用例）：计划 lib + 每驱动薄 bin + 对拍。首个综合用例 = SQL-over-Redis（redis 协议面 × psql 计算面，单一组合核心）；sync 默认，tokio 变体经 instances 真异步驱动。"
+license = "MIT"
+repository = "https://github.com/ghwinter/axiom"
+homepage = "https://github.com/ghwinter/axiom"
+documentation = "https://docs.rs/axiom-demo-sql-over-redis"
+keywords = ["dataflow", "composite", "demo", "sql", "redis", "async"]
+categories = ["concurrency", "database", "asynchronous"]
+
+[dependencies]
+# 依赖方向单向：axiom ← axiom-runtime ← axiom-instances ← 综合用例 crate（workspace 成员表强制）。
+# 位于 examples/sql-over-redis/：根包与兄弟 crate 均上溯两级。
+axiom = { path = "../..", version = "0.3.0", default-features = false }
+axiom-runtime = { path = "../../runtime", version = "0.3.0" }
+axiom-instances = { path = "../../instances", version = "0.3.0", default-features = false }
+
+[features]
+default = []                       # sync 演示：零第三方（纯 runtime 驱动）
+tokio = ["axiom-instances/tokio", "dep:tokio"]  # async 演示：真异步驱动 + 通道馈入
+
+[dependencies.tokio]
+version = "1"
+optional = true
+default-features = false
+features = ["time", "rt-multi-thread", "sync"]  # 与 instances 的 tokio 合并同一版；time+rt+sync（馈入）
+
+# ── 性能基准（构建用例，保留）────────────────────────────────
+[[bench]]
+name = "latency"
+harness = false

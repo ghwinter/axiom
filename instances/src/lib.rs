@@ -20,7 +20,12 @@
 //!
 //! ## 布局
 //!
-//! - `tokio_exec`：tokio 桥接执行器（`tokio` feature 门控；默认 feature 下无该模块）。
+//! - `async_driver`：**真异步驱动**（`tokio` feature 门控）——把轮询等待点经语言原生
+//!   `.await` 挂进 tokio reactor（`tokio_poll_until`/`tokio_roll_until`），不扩
+//!   `Executor` 契约。这是 `Executor` 同步插座（`tokio_exec`）之外的**语言原生异步路径**；
+//!   同步 `park` 桥已实测判死（no reactor），真接入在此域落地。
+//! - `tokio_exec`：tokio 桥接 **同步**执行器（`Executor` 契约实现，占位语义；`tokio`
+//!   feature 门控；默认 feature 下无该模块）。
 //!
 //! **no_std**：本 crate **不参与** no_std 承诺——实例层依赖 `std`（tokio/embedded
 //! 实例均需）。默认 feature 下无 std 使用路径（空实例面），保持最小。
@@ -39,5 +44,11 @@
 /// 门控：`tokio` feature。
 #[cfg(feature = "tokio")]
 pub mod tokio_exec;
+
+/// 真异步驱动：把轮询等待点经语言原生 `.await` 挂进 tokio reactor
+/// （`tokio_poll_until`/`tokio_roll_until`），不扩 `Executor` 契约。
+/// 门控：`tokio` feature。
+#[cfg(feature = "tokio")]
+pub mod async_driver;
 
 // 空实例面（无 feature）合法：本 crate 此时无实例导出，编译为骨架。

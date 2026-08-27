@@ -193,6 +193,11 @@ placement 的语义面）：服务的跨机器放置按可判性分四层，各�
   开放剖面（Tool/Embedded，未注册放行）——「未注册不可选型」仅门剖面成立。
 - **EX 泛型化 additive**：`poll_with`/`roll_with` 把等待点交给 `&mut impl Executor`
   （`ThreadExec` 语义不变，现有入口保留）。
-- **开放项（不冒充②③）**：tokio 接入等待点——同步 `park` 内 `block_on(tokio::time::sleep)`
-  实测三形态均 no-reactor；初版诚实占位（`park_timeout`），真 reactor 接入待契约升级
-  或预热方案（instance-layer-design §5.3/§8），MSRV/行为待实测。
+- **真异步驱动（§5.4 已落）**：同步 `park` 内 `block_on(tokio::time::sleep)` 实测三形态均
+  no-reactor（判死）⟹ 真接入改走 **adapter 侧 async worker**（`axiom-instances/async_driver`）：
+  `poll()`/`roll()` 公开入口不变，等待点经 `tokio::time::sleep(tick).await` 兑现——
+  不扩 `Executor` 契约、零 runtime 改动，非破坏、无 §4.3 许可。`TimedOut` 由真定时器
+  产出（Timeout 升 ③ 的机制地面，D2 承载域）；账本行升 ②③ 属 LEDGER 权威变更，后续做。
+- **开放项（不冒充②③）**：同步 `Executor` 插座自身仍为占位（`park_timeout`，不冒充
+  tokio 期限）——trait 化的可替换等待点由 `ThreadExec`/`TokioExec` 兑现，真 tokio 语义
+  走 async 路径；MSRV/行为待实测。

@@ -34,4 +34,4 @@ embedded = ["axiom-runtime/std"]  # 预留：嵌入式流适配（后续落）
 version = "1"
 optional = true
 default-features = false
-features = ["time", "rt-multi-thread"]  # time: 期限语义; rt-multi-thread: 多线程 Runtime::new（全局 timer, block_on 从任意线程可 driver）。不拉全套 IO/net
+features = ["time", "rt-multi-thread", "sync"]  # time: 期限语义; rt-multi-thread: 多线程 Runtime::new; sync: mpsc 馈入（tokio_poll_fed, 步骤二）。不拉全套 IO/net

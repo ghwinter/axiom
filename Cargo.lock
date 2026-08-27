@@ -7,6 +7,16 @@ name = "axiom"
 version = "0.3.0"
 
 [[package]]
+name = "axiom-demo-sql-over-redis"
+version = "0.3.0"
+dependencies = [
+ "axiom",
+ "axiom-instances",
+ "axiom-runtime",
+ "tokio",
+]
+
+[[package]]
 name = "axiom-instances"
 version = "0.3.0"
 dependencies = [

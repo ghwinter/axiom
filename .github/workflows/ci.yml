@@ -38,20 +38,22 @@ jobs:
         run: |
           cargo clippy --workspace --all-targets -- -D warnings
           cargo clippy -p axiom-instances --all-targets --features tokio -- -D warnings
+          cargo clippy -p axiom-demo-sql-over-redis --all-targets --features tokio -- -D warnings
 
       # Tests: workspace (core + runtime unit/integration); instances feature tests.
       - name: Test
         run: |
           cargo test --workspace
           cargo test -p axiom-instances --features tokio
+          cargo test -p axiom-demo-sql-over-redis --features tokio
 
       # Doc drift gate (C11): every ```rust block in formal docs must compile
       # against the current API. Ignore list: tmp/docgate-ignore.txt.
       - name: Docgate (docs rust blocks compile)
         run: cargo test -p axiom-runtime --test docgate -- --ignored
 
-      # no_std promise: core and runtime build without std (instance layer
-      # does not participate in no_std — its tokio/embedded instances need std).
+      # no_std promise: core and runtime build without std (instance/demos
+      # layers do not participate — their tokio/embedded instances need std).
       - name: Build no_std
         run: |
           cargo build -p axiom --no-default-features
@@ -78,3 +80,5 @@ jobs:
           cargo build -p axiom-instances --no-default-features --features async
           cargo build -p axiom-instances --no-default-features --features tokio
           cargo build -p axiom-instances --no-default-features --features embedded
+          cargo build -p axiom-demo-sql-over-redis --no-default-features
+          cargo build -p axiom-demo-sql-over-redis --no-default-features --features tokio

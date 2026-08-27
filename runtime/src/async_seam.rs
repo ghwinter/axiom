@@ -90,6 +90,14 @@ where
         }
     }
 
+    /// 放置输入：向 [`Poller`] 注入一条待决输入（事件源/通道馈入的写入入口）。
+    ///
+    /// **additive**：供 `axiom-instances` 的通道馈入驱动（`tokio_poll_fed`）使用；
+    /// 单槽语义（与 [`new`](Poller::new) 一致）：已有待决输入时覆盖为最新。
+    pub fn put(&mut self, input: A::In) {
+        self.pending = Some(input);
+    }
+
     /// 带期限轮询：在 `deadline` 前反复轮询；输入就绪 → `Ready`；
     /// 到期仍未就绪 → `TimedOut`（轮询茎让步 `step` 期间休眠 `tick`）。
     ///
