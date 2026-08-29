@@ -7,6 +7,51 @@ expressed by incrementing the minor version).
 
 ## [Unreleased]
 
+### Added — adoption evidence & activation-model catalog, first slice (2026-08-29)
+
+- **Compile-cost probe** (`core/examples/deep_blueprint.rs`): reproducible
+  depth × compile-cost measurement (rustc 1.98, LTO+opt-3): depth ×8 ⟹ marginal
+  compile ≈ ×8 (0.25 s → 2.05 s), binary size flat under LTO folding.
+  Method walkthrough + truth table in-file; honest boundary noted
+  (single-machine measurement, drifts with rustc).
+- **Wiring-diagnostic note** (`core/src/cell_core.rs` `assert_wiring`):
+  measured diagnostic shape — a mismatch is an atomic E0271 inequality + call
+  site; deep `Chain` tails do not bury the error in generic stacks. Noted as
+  rustc-drifting, not promised.
+- **Documented-but-unimplemented gaps landed** (`semantics/src/checks/*`,
+  `movers/carrier.rs`): D11 resource monoid (`resource.rs`), A1 saturation
+  gate in profile assembly, A3 NoPanic declaration discipline.
+- **Activation-model catalog, phase 1** (`examples/sql-over-redis/src/callresp.rs`):
+  call/response correlation dispatcher — in-flight association + timeout sweep
+  as a pure, deterministically testable component. **Time-as-value**: deadline
+  verdicts take an injected `now` (no ambient clock); tests are fully
+  deterministic. Deliberately **not** a `PortCell` (single-In/Out cannot carry
+  "in-flight call + independent deadline + association"); it exists as a
+  compatible neighbor, admitted through the closed-boundary checklist. Real
+  wiring is deferred to the first real out-of-order async service (see
+  `frontier-notes.md` item 8). **Uncommitted at audit time.**
+- **Audit & convergence plan** (`docs/internal/theory/audit-2026-08.md`):
+  evidence-backed full audit (builds/tests/benches/stability markers),
+  necessity-filtered gap register (P0/P1/P2), and dignified non-goal
+  registrations.
+- **Known most-likely amendment point registered** (`core.md` §8, en+zh):
+  `PortCell`'s single-In/Out signature — the alphabet's most fragile seam,
+  named before it is hit.
+- **Bettability policy made explicit** (`docs/README.md` A5, en+zh): a
+  `stable` marker is the only pre-1.0 bettability promise; `experimental`
+  carries none.
+
+### Changed — subtraction discipline (2026-08-29)
+
+- Frontier item 4 (behavior-verification tooling incl. deterministic
+  simulation replay) downgraded from "extension/undone" to **registered
+  deferral** — no promised claim, no forcing scenario; shape to be defined by
+  the first real consumer.
+- Boundary-ontology note 7.5 (boundary criteria & handover checklist)
+  withdrawn: it was review-dialogue residue growing new governance vocabulary
+  — the 极小基律 applies to documentation too (constructors are closed;
+  annotations must not snowball).
+
 ### Added — runtime constitution phase: honesty debts (C9/C11)
 
 - **Dynamic-tax bench** (`runtime/benches/dynamic_tax.rs`): same topology

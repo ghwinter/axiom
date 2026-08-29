@@ -48,9 +48,9 @@ l9_debug.txt
 /evidence/
 
 # Internal design workspace (I1 layer): local working notes, not public
-# documentation. Per docs/doc-governance.md, the I1 tier records design-time
-# decisions in Chinese; it is not part of the published documentation and is
-# deliberately NOT tracked by git.
+# documentation. Design-time decisions are recorded in Chinese here; they are
+# not part of the published documentation and are deliberately NOT tracked.
+# Exceptions are listed explicitly below (theory corpus is tracked).
 /docs/internal/*
 # Exception: the theory corpus IS tracked (prevention of loss of the
 # foundational documents): meta-foundations.md, boundary-ontology.md,

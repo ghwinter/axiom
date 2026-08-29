@@ -61,6 +61,6 @@
 ## 版本与稳定性政策（A5）
 
 - **cell_core（编译期核心）= stable**：语义变更是宪法级决策（§8.3 封闭清单）；语义回归被拒。新组合子仅可作为概念 1–5 的实例加入（存疑时经集体裁定）。
-- **runtime 模块带逐模块 Stability 标注**：stable（载体基础、flow 驱动）、experimental（义务/契约/宪法建设中的系统）。
+- **runtime 模块带逐模块 Stability 标注**：stable（载体基础、flow 驱动）、experimental（义务/契约/宪法建设中的系统）。**stable 标注是 1.0 前唯一的押注承诺**：第三方可对其押注（受下述版本化规则约束）；experimental 模块无押注承诺，可在任意 minor 版本变更。
 - **版本化**：1.0 前破坏性变更升 **minor**（SemVer）；每次破坏性变更随附**概念迁移说明**（哪些名字迁移、语义如何移位、概念现居何处），即使不做兼容层。
 - **forbid(unsafe_code) 保持**：若未来必须 unsafe，隔离进专用 feature 并附文档化义务证明（模态④展出），绝不进入 stable 核心。

@@ -7,6 +7,7 @@
 //! - [`plans`]：计划（`sql_plan` 计算面 + `redis_plan` 协议面）
 //! - [`composite`]：组合核心（RouteParse 分派 + ComposeLine 单一组合 `PortCell` + 语料）
 //! - [`observe`]：观测模块（用例侧三段式：收集 → 提交 → 打印；与其它模块平级）
+//! - [`callresp`]：激活模型目录件（call/response 关联调度，时间作值）
 //!
 //! 目录 = 语义分层：`plans/`（计划）· `composite.rs`（组合核心）· `observe.rs`（观测模块）。
 //!
@@ -30,3 +31,7 @@ pub mod composite;
 
 /// 观测模块（用例侧三段式：收集 → 提交 → 打印；与其它模块平级）。
 pub mod observe;
+
+/// 激活模型目录·第一期（call/response 关联调度，时间作值）。
+/// 用例侧首个**目录件**：把"在途关联 + 超时清扫"打包成纯、可确定性测试的组件。
+pub mod callresp;

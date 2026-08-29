@@ -38,6 +38,9 @@ definition–activation, schemas — axiom's upgraded design beyond the static b
   combinators may be added only as instances of concepts 1–5 (collective ruling if in doubt).
 - **runtime modules carry per-module `Stability` markers**: `stable` (carrier basics, flow
   drivers), `experimental` (obligation/contract/system under active constitution work).
+  A `stable` marker is the only bettability promise before 1.0: third parties may pin against
+  it (subject to the versioning rule below); `experimental` modules carry no bettability
+  promise and may change in any minor release.
 - **Versioning**: before 1.0, breaking changes bump the **minor** version (SemVer); each
   breaking change ships a **concept-migration note** (which names moved, which semantics
   shifted, where the concept lives now) even without a compatibility layer.

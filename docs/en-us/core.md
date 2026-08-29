@@ -358,6 +358,14 @@ cargo bench --bench dag     # diamond zero-cost proof (Δ(composite−handwritte
   a type parameter; the tolerable upper bound on monomorphization size after "expanding the
   static path from a chain to any number of subgraphs" is an open question
   (`foundations.md` §7).
+- **Known most-likely amendment point (registered; to be decided by evidence, not a priori)**:
+  `PortCell`'s single-`In`/single-`Out` signature. Multi-channel modules are expressible today
+  at zero runtime cost (sum-typed inputs via `Choice`; the arbiter-cell shape = `Merge` fan-in
+  into one state owner, `Broadcast` fan-out), but if the first mid-scale real system shows the
+  tuple/sum encoding tax is chronic rather than incidental, the pressure will be toward
+  row-typed (multi-port) cells — a constitution-level amendment to construction concept 1.
+  Registered here so the alphabet's most fragile seam has a name before it is hit (audit
+  lineage kept in the internal implementation-audit register, not part of this published document).
 
 > **Conclusion**: the axiom core = the compile-time model of the four artifacts of
 > `cell_core` (open system, causal dataflow, composition, staticness declaration) —
