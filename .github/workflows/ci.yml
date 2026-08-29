@@ -32,7 +32,7 @@ jobs:
           components: clippy
 
       # Lint: zero-warning gate over all targets. Workspace covers
-      # axiom + axiom-runtime + axiom-instances (default no-feature);
+      # axiom + axiom-semantics + axiom-instances (default no-feature);
       # the instances tokio feature is clipped separately (feature-gated code).
       - name: Clippy (all targets, deny warnings)
         run: |
@@ -50,14 +50,14 @@ jobs:
       # Doc drift gate (C11): every ```rust block in formal docs must compile
       # against the current API. Ignore list: tmp/docgate-ignore.txt.
       - name: Docgate (docs rust blocks compile)
-        run: cargo test -p axiom-runtime --test docgate -- --ignored
+        run: cargo test -p axiom-semantics --test docgate -- --ignored
 
       # no_std promise: core and runtime build without std (instance/demos
       # layers do not participate — their tokio/embedded instances need std).
       - name: Build no_std
         run: |
           cargo build -p axiom --no-default-features
-          cargo build -p axiom-runtime --no-default-features
+          cargo build -p axiom-semantics --no-default-features
 
       # Bench compile gate (A2, partial): release benches must compile against the
       # current API. Threshold comparison (E1 automation) stays manual on shared
@@ -65,7 +65,7 @@ jobs:
       # method (min-of-N + self-noise floor) when a zero-cost claim needs
       # re-evidence (see benches/bench_common.rs and CHANGELOG C9 notes).
       - name: Bench compile (release)
-        run: cargo bench --no-run -p axiom-runtime
+        run: cargo bench --no-run -p axiom-semantics
 
       # Feature matrix (convergence 2026-08): seam-family features must each
       # compile standalone against the core family — prevents gate rot
@@ -74,9 +74,9 @@ jobs:
       # default is the legal empty instance face).
       - name: Feature matrix compile
         run: |
-          cargo build -p axiom-runtime --no-default-features --features telemetry
-          cargo build -p axiom-runtime --no-default-features --features event
-          cargo build -p axiom-runtime --no-default-features --features async-seam
+          cargo build -p axiom-semantics --no-default-features --features telemetry
+          cargo build -p axiom-semantics --no-default-features --features event
+          cargo build -p axiom-semantics --no-default-features --features async-seam
           cargo build -p axiom-instances --no-default-features --features async
           cargo build -p axiom-instances --no-default-features --features tokio
           cargo build -p axiom-instances --no-default-features --features embedded
