@@ -13,7 +13,7 @@ use std::process::Command;
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .expect("runtime 位于仓库根下")
+        .expect("semantics 位于仓库根下")
         .to_path_buf()
 }
 

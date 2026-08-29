@@ -7,12 +7,12 @@
 //! （current-thread `enable_time` / 多线程 `Runtime::new` / 多线程 `Builder::enable_time`）
 //! 均报 **「there is no reactor running」**——同步签名把等待挂不进 tokio 定时器。
 //! 真接入因此不在 `Executor` 契约层妥协（扩契约需 §4.3 破坏性许可），而在 **adapter
-//! 侧以 async worker 形态**落地：`poll()`/`roll()`（runtime async_seam 已公开的单步
+//! 侧以 async worker 形态**落地：`poll()`/`roll()`（语义层 async_seam 已公开的单步
 //! 入口）保持不变，等待点由本模块 [`tokio_poll_until`]/[`tokio_roll_until`] 用
 //! `tokio::time::sleep(tick).await` 兑现。sleep 在**运行中的 tokio 运行时内被 await**，
 //! 即有 reactor 驱动——这正是同步 `park` 内缺少的上下文。
 //!
-//! **不扩 [`Executor`] 契约、不改 runtime**（additive；`poll`/`roll` 已是公开入口）：
+//! **不扩 [`Executor`] 契约、不改语义层**（additive；`poll`/`roll` 已是公开入口）：
 //! 非破坏，无需 §4.3 许可。同步 [`Executor`](axiom_semantics::seams::async_seam::Executor)
 //! 插座仍保留（它兑现 trait 化的可替换等待点，`ThreadExec`=sleep / `TokioExec`=占位）；
 //! 本模块是**语言原生的异步路径**，二者互补、均可审计，不互相冒充。
@@ -26,7 +26,7 @@
 //! - 本模块的 `TimedOut` 由**真定时器**（tokio time driver）驱动——运行期**可测、
 //!   可记账**，是 Timeout 升 ③（投递态可验证）的机制地面。
 //!
-//! **不冒充②/不越权**：② 是编译期见证、账本行升 ②③ 属 runtime `obligation.rs` 的
+//! **不冒充②/不越权**：② 是编译期见证、账本行升 ②③ 属语义层 `obligation.rs` 的
 //! 权威变更（LEDGER 不可替换面），不在本步骤内做——本模块只提供"期限从声明变可测"
 //! 的机制地面，账本升级留作后续权威变更。
 //!
@@ -47,7 +47,7 @@
 //! ## 通道馈入（步骤二）
 //!
 //! [`tokio_poll_fed`] 在等待窗内经 `rx.recv().await` 索取输入（挂 reactor），收到即
-//! 经 `Poller::put`（runtime additive 入口）注入并同步 `step`——"输入在等待期间异步
+//! 经 `Poller::put`（语义层 additive 入口）注入并同步 `step`——"输入在等待期间异步
 //! 抵达"的使能面；通道关闭后按 `tick` 让步至期限（不忙循环）。综合用例
 //! （`examples/sql-over-redis`）的异步变体即以此把命令序列在等待窗内喂入。
 

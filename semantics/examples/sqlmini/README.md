@@ -44,8 +44,8 @@ planner 330 / exec 620 / ast 190 / data 110 / schema 60 / main 150），
 ## 运行与测试
 
 ```
-cargo run   --manifest-path runtime/Cargo.toml --example sqlmini -- "SELECT …"
-cargo test  --manifest-path runtime/Cargo.toml --example sqlmini
+cargo run   --manifest-path semantics/Cargo.toml --example sqlmini -- "SELECT …"
+cargo test  --manifest-path semantics/Cargo.toml --example sqlmini
 ```
 
 ## 已知子集边界（诚实声明）

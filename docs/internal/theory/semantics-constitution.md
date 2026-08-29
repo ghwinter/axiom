@@ -201,6 +201,10 @@ semantics/src/
 2. **A 类（工程可用门槛）**：A1 背压饱和策略枚举（`Block/DropNewest/DropOldest/Fail`
    进载体声明 ＋ `validate_seam`）；A2 bench 阈值 CI（E1 自动化）；A3 catch_unwind
    边界载体 ＋ "cell 内禁 panic"约定；A4 枚举式候选集 Slot；A5 稳定性/版本政策。
+   — **A1 已落地（2026-08, 667ee92）**：饱和枚举与偏序
+   （`meets_saturation_floor`）＋ `validate_saturation`；门折进**剖面装配**而非
+   `validate_seam`（饱和下限是部署剖面属性）。**A3 已落地**：`drive_catch`（catch_unwind）
+   既存于 flow.rs，补 `NoPanic` ④声明标记纪律。
 3. **理论补丁（C15）**：激活义务小节（foundations）、错误代数小节（§9.2：E 传播/
    合并政策成文——类型层已强制 E ∈ Out，政策层自由）。
 4. **B 类（说服力）**：B1 标准遥测接口（观测面落位）；B2 多 crate 分层示例；B3 中等

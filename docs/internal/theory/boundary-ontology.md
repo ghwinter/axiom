@@ -270,8 +270,9 @@ Resource）**。五结构（注记 7.3）的个数**不是数论必然，是"问
 故资源与前四者正交。**为何资源涌现得晚**：前四结构在 carrier 分类里早已寄居为属性（成本=CarrierCost、
 容量=CAP、传递=投递四态、序=因果流与 T5 等价），只是被重新命名整理；资源无旧居——义务类 D1 只有资源"类"
 （ZeroAllocInline / PerMessageAlloc / External）而无一等代数对象，故资源是唯一需造新对象、唯一配称"真新增"
-者。**主张（非结论）**：五结构与开放问题 8.2 / 8.4 一同作为收敛点假说登记；资源幺半群仍未代码化，按诚实
-纪律保持"未落地"标注。
+者。**已代码化（2026-08，commit 667ee92）**：D11 资源幺半群现已落为 `semantics/src/checks/resource.rs`
+（`ResourceAmount` 交换幺半群 + `FrameProbe` frame 真和探针；幺半群三律与真和探针测试 + LEDGER 账本行；
+no_std 安全、语义层不分配）。仍守主张（非结论）：五结构与开放问题 8.2 / 8.4 作为收敛点假说登记。
 
 **Remark 7.4 (Why Exactly Five; the Irreplaceability of Resource)**. The count of five (Remark 7.3) is not a
 number-theoretic necessity but a claim of question-class closure, unproved. "Running a shape" forces answering
@@ -290,8 +291,9 @@ scalability. Resource appears late because the other four already live as attrib
 classification (cost=CarrierCost, capacity=CAP, transfer=delivery states, order=causal flow and T5), while
 resource has no prior home—obligation class D1 has only resource *classes*, no first-class object—so resource is
 the only one requiring a new object and the only legitimate "genuinely new" item. Claim, not conclusion: the
-five, with Open Problems 8.2 / 8.4, are registered as a convergence-point hypothesis; the resource monoid remains
-unimplemented, kept untested per honesty discipline.
+five, with Open Problems 8.2 / 8.4, are registered as a convergence-point hypothesis. The D11 resource monoid is
+now coded (2026-08, commit 667ee92): semantics/src/checks/resource.rs (ResourceAmount monoid laws + FrameProbe
+frame true-sum probe; monoid-law/true-sum tests + LEDGER row; no_std-safe, semantics layer allocates nothing).
 
 ---
 

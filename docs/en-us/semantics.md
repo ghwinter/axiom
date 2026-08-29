@@ -50,7 +50,7 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1: the causal flow itself is 
 }
 ```
 
-The carrier catalog (`runtime/src/movers/carrier.rs`):
+The carrier catalog (`semantics/src/movers/carrier.rs`):
 
 | Carrier | Physical scheme | Space–time cost | Threading | Module |
 |---|---|---|---|---|
@@ -138,14 +138,14 @@ does not change the topology (T6, multiple physical implementations).
 
 ## 3. Driving (flow) and Static Path (static_path)
 
-- **`flow`** (`runtime/src/drive/flow.rs`): `drive_link` — after compile-time
+- **`flow`** (`semantics/src/drive/flow.rs`): `drive_link` — after compile-time
   wiring verification (unified `Conforms<Wire>`), drives one A→B causal flow with the selected carrier;
   **verification happens at compile time, zero runtime overhead**. (`drive_wired` removed as a
   redundant alias of `drive_link`.)
-- **`static_path`** (`runtime/src/static_path.rs`): `run_static` / `run_declared_static` —
+- **`static_path`** (`semantics/src/drive/static_path.rs`): `run_static` / `run_declared_static` —
   inline-expands at **compile time** the subgraph declared by `Static<SUB>` as "requiring
   zero cost" (zero runtime objects).
-- **Declaration macros** (`runtime/src/macros.rs`): `wire!` — a macro/compile-time technique
+- **Declaration macros** (`semantics/src/drive/macros.rs`): `wire!` — a macro/compile-time technique
   that completes "wiring + carrier + verification" in one step at compile time.
 
 ---
@@ -155,7 +155,7 @@ does not change the topology (T6, multiple physical implementations).
 The runtime gives *activation* to the unified-model constructs (which are **definitions** in
 `core.md`; activation stays the run/carrier side):
 
-- **`SlotPending<I,O>` → `SlotDrive<I, O>`** — *existential binding* (`runtime/src/drive/slot.rs`) —
+- **`SlotPending<I,O>` → `SlotDrive<I, O>`** — *existential binding* (`semantics/src/drive/slot.rs`) —
   the ∃ existential fill of a `Slot<I,O>` under a **license lifecycle (typestate, modality ①)**:
   `SlotPending::install` (Adding) installs a compile-time-conforming inhabitant
   (`T: PortCell<In=I,Out=O>` ⟹ core `Conforms`), type-erases its state to `Box<dyn Any + Send>`;
@@ -164,24 +164,24 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   (swap bumps a generation, so a previously created `Seat` is rejected as stale); `retire()`
   terminates the license (Cleaned). Physical side of "dynamic loading": interface fixed &
   T1-verified at compile time, inhabitant existentially chosen at runtime.
-- **`drive_seq`** (`runtime/src/drive/flow.rs`, `no_std + alloc`) — the generative/unbounded-count side of
+- **`drive_seq`** (`semantics/src/drive/flow.rs`, `no_std + alloc`) — the generative/unbounded-count side of
   `Rep<N,C>`: drive a runtime `IntoIterator` sequence of inputs through one cell, collecting
   outputs, with state held across steps (count decided at runtime, not compile time).
-- **`drive_feedback_inline<BODY, FEED>`** (`runtime/src/drive/flow.rs`) — the physical activation of a
+- **`drive_feedback_inline<BODY, FEED>`** (`semantics/src/drive/flow.rs`) — the physical activation of a
   `Feedback` cell form: one inline-unbuffered loop (`BODY -> FEED -> BODY`) per input step,
   gated by the **Moore declaration** (`FEED: Moore`, modality ④ — declaration, not proof).
-- **`contract` module** (`runtime/src/checks/contract.rs`) — deployment & compile-time seam contracts:
+- **`contract` module** (`semantics/src/checks/contract.rs`) — deployment & compile-time seam contracts:
   `Moore` marker (④); `assert_capacity_nonzero` (②); `validate_cost` / `validate_capacity` /
   `validate_seam` (③); `ContractError`.
-- **`obligation` module** (`runtime/src/checks/obligation.rs`) — the obligation-class type system
+- **`obligation` module** (`semantics/src/checks/obligation.rs`) — the obligation-class type system
   (delivery × resource × reference × lifecycle) and the **obligation ledger** (`LEDGER`):
   a machine-readable constitution excerpt (seam × obligation × modality × witness ×
   conformance test), enforcing the minimal-basis and honesty rules (A4/A5).
-- **`delivery` module** (`runtime/src/delivery.rs`, `std`) — the four-state delivery taxonomy:
+- **`delivery` module** (`semantics/src/checks/delivery.rs`, `std`) — the four-state delivery taxonomy:
   `Full` / `Closed` mechanized from `mpsc` errors with the rejected value preserved (②③);
   `Timeout` / `Cancelled` **declared** as modality ④ (mechanization is a physical choice:
   timer / request-scoped channels), no fabricated witnesses.
-- **`mailbox` module** (`runtime/src/mailbox.rs`, `std`) — the anti-starvation bounded mailbox:
+- **`mailbox` module** (`semantics/src/movers/mailbox.rs`, `std`) — the anti-starvation bounded mailbox:
   capacity = `CAP` buffer slots **plus one guaranteed slot per producer**;
   three send modes—`try_send` (strict, `Full(v)` with the value returned), `send` (blocking
   backpressure, parks on its own guaranteed slot), `fire` (best-effort: buffer first, then the
@@ -189,7 +189,7 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   empty state); close drains then reports `Closed` with values returned. Modality ② capacity
   gate (`CAP ≥ 1`). `bounded_pump` stays as the teaching form; the mailbox is the
   anti-starvation instance of the same obligation class (per-producer slot).
-- **`profile` module** (`runtime/src/checks/profile.rs`) — the **profile catalog** (six-tuple C
+- **`profile` module** (`semantics/src/checks/profile.rs`) — the **profile catalog** (six-tuple C
   component; F↦C(F)): `KernelProfile` (zero-alloc budget), `ServiceProfile`
   (per-message budget + Full/Closed mechanized), `ToolProfile` (external); a profile is a
   modality-① type token plus a modality-③ budget gate—`assemble_profile<P, A, B, C>()`
@@ -206,10 +206,10 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
 > minimal mechanisms, and `axiom-semantics` exists for when that physics surface
 > grows (bounded verdicts, profiles, hot-swap). A framework that demonstrates
 > where it should be absent gains credibility.
-- **`law` module** (`runtime/src/law.rs`, `std`) — runtime-law probes (T-component
+- **`law` module** (`semantics/src/checks/law.rs`, `std`) — runtime-law probes (T-component
   deepening): pairing law (N sends ↔ N verdicts; received ≤ delivered), sequence monotonicity,
   broadcast fan-out counting; `debug_assertions`-gated, release zero-overhead.
-- **`assemble_link` / `assemble_seam`** (`runtime/src/drive/flow.rs`) — the wired **modality ③
+- **`assemble_link` / `assemble_seam`** (`semantics/src/drive/flow.rs`) — the wired **modality ③
   entries**: validate cost (and, for bounded seams, capacity) once at the deployment assembly
   point and return the `drive_link` function pointer (`Driver<A,B>`); a budget violation is an
   **assembly failure**, never a silent runtime cost. (`BoundedCarrier`'s own const gate is
@@ -251,12 +251,12 @@ seam (see [`unified.md`](unified.md) §5).
 ## 6. Build and Acceptance Baseline
 
 ```text
-cargo build/test --manifest-path runtime/Cargo.toml   # runtime (25 integration + 5 contract unit tests)
-cargo run --manifest-path runtime/Cargo.toml --example carrier_demo
-cargo run --manifest-path runtime/Cargo.toml --example threaded_flow
-cargo run --manifest-path runtime/Cargo.toml --example redis_like -- --corpus 500   # miniredis 子系统用例
-cargo test --manifest-path runtime/Cargo.toml --example redis_like                 # 6 cell 单元测试
-cargo bench --manifest-path runtime/Cargo.toml --bench carrier
+cargo build/test --manifest-path semantics/Cargo.toml   # runtime (25 integration + 5 contract unit tests)
+cargo run --manifest-path semantics/Cargo.toml --example carrier_demo
+cargo run --manifest-path semantics/Cargo.toml --example threaded_flow
+cargo run --manifest-path semantics/Cargo.toml --example redis_like -- --corpus 500   # miniredis 子系统用例
+cargo test --manifest-path semantics/Cargo.toml --example redis_like                 # 6 cell 单元测试
+cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 ```
 
 **Accomplished (chain of evidence)**:
@@ -288,7 +288,7 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 These use cases are build use cases for "building real programs on axiom/axiom-semantics", and
 also the carriers for runtime iteration and equivalence verification. Legacy counterparts of
 these use cases (including TCP-server-shaped ones) can be recovered from git history for
-reference (`git show main:runtime/examples/<name>/main.rs`).
+reference (`git show main:semantics/examples/<name>/main.rs`).
 
 ---
 
@@ -320,7 +320,7 @@ reference (`git show main:runtime/examples/<name>/main.rs`).
   per the `CarrierCost` order; `validate_cost` enforces per-seam budgets); stack depth is
   generally undecidable — compile-time stack-depth derivation is NOT promised (honest
   boundary; no fake derivation). Mechanical subset pinned at
-  `runtime/tests/resource_budget.rs`.
+  `semantics/tests/resource_budget.rs`.
 
 ---
 
@@ -390,13 +390,13 @@ short-circuit carriers.
 The documentation has declared "IO is physical/carrier-replaceable", but the grounding
 interface for "how the external world (socket events, etc.) formally becomes the `in` of a
 causal flow" has not been formalized. **First realization (landed)**: `redis_like`
-(`runtime/examples/redis_like`, `--tcp PORT` / `--selftcp`) — a std-only TCP server:
+(`semantics/examples/redis_like`, `--tcp PORT` / `--selftcp`) — a std-only TCP server:
 per-connection stateful `LineSplit` (cross-chunk buffering) → `CmdParse` (typed errors,
 short-circuit) → **bounded channel (backpressure)** → a store worker thread owning
 `StoreState` (`DataStore` total, no panic path) → RESP reply routing with per-connection
 FIFO order and write-half close on EOF.
 - Layer: **runtime** (an event substrate is just a class of carrier/driver).
-- **Carrier class formalized and landed** (`runtime/src/seams/event.rs`): an event stream
+- **Carrier class formalized and landed** (`semantics/src/seams/event.rs`): an event stream
   (`EventStream`, item-level input source) + chunk-source adapter (`ChunkSource`:
   `io::Read` raw source + splitter + per-source cross-chunk state, with the general
   line splitter `split_lines`) + pump driver (`pump_events`: transform cell →

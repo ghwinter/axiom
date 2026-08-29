@@ -368,6 +368,27 @@ layers' conclusion: every layer has a cap at which the inexpressible / unverifia
 theorems rather than by engineering. Claim, not conclusion: this note applies Remark 8.6 to the three formal
 systems over Rust, registered alongside Open Problems 8.2 / 8.4 as a convergence-point hypothesis.
 
+**开放问题 8.8（投递格的复合代数）/ Open Problem 8.8 (Composition of the Delivery Lattice)**。T4（验证可分解
+⟺ 布线是纯连接）的有效域内，载体会往边上加状态与效果（缓冲、阻塞、丢弃），于是"全局性质能否从局部线上拼出"
+这一分解问题，取决于投递格（Block / Drop-Newest / Drop-Oldest / Fail / 尽力）本身是否组合。两问未答：
+(i) 两个 Block 边串联复合为何态？(ii) Block 边接 Drop 边、不同饱和策略复合为何态？当前以"载体契约 + 投递格"
+工程回应，但**格的复合代数未形式化**——"T4 验证可分解"在有损边上是否仍成立未证。**相关边界（诚实落点）**：
+共享只读配置（多线程围观只读 cell）与 affine 型端口（所有权随 send 转移，GPU 缓冲 / 文件句柄穿 `Broadcast` 不
+克隆）是同一"状态所有权与共享读"轴上的开放形态，未定域。与 8.2 / 8.4 同族登记为收敛点假说：若投递格是组合幺
+半群，则 T4 可延拓至有损边；未证。
+
+**开放问题 8.9（非确定下的语义等价）/ Open Problem 8.9 (Semantic Equivalence under Non-determinism)**。
+T6（同一抽象组合、不同物理实现、语义等价）在**有损 / 非确定**载体（Drop / Latest）下被削弱：确定性 KPN
+（确定节点 + FIFO + 阻塞读）上 T6 是定理；引入丢弃后系统非确定，"等价"退化成什么——迹包含？互模拟的某弱化？
+语义等价类未定义。直指机械化目标（轮 5 双模拟同余）的硬化条件：**优雅要求非确定性也被范畴化，而不只是被枚举**。
+收敛点假说登记，未证。
+
+**开放问题 8.10（活性/死锁自由性）/ Open Problem 8.10 (Liveness / Deadlock-freedom of Bounded Networks)**。
+安全性质（不接错线、不超界）有类型见证；**活性**（公平、无饥饿、最终送达）不可类型化。`BoundedMailbox` 的
+每生产者一席反饥饿，是对"有界通道网络 + `Feedback` 组出的环可能死锁"的工程性回应，但**有界通道网络的死锁
+自由性检查目前不存在**——KPN 定理只保证无界通道安全。能否做编译期 / 构造期的保守死锁分析（流量互作用 + 依赖
+图判环）未决，这是"活性不可类型化"之后诚实可触的下限。收敛点假说登记，未证。
+
 ## 9. 对 axiom 与 axiom-semantics 的应用 / Application to axiom and axiom-semantics
 
 - **构成**：五概念（端口体 / T1 对偶 / 组合封闭 / 代换绑定 / 激活）是词汇表；其中良构部分经类型系统执行为文法区 G——`Conforms`/`Wire` 的 T1 配对即其类型论执行（命题 4.3）。谱系诚实：五概念是从既有代码溯回概括、后经批准的宪法条款（foundations §8.1 封闭清单），其发生史属于展出内容，不呈现为赤裸公设。公理区成员须按定义 1.4 分类：全函数、纯度、Moore 声明 ∈ 逻辑-D；**零成本相对等式 ∈ 经验-D**——它是可证伪的经验命题，已有带噪声底的实测证据（Δ 在噪声区间内），随时可被新工具链推翻，不是公理。消除性验证（C1 精确同型等）∈ P 的机械。

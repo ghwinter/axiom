@@ -1,6 +1,6 @@
 //! # TokioBlockRing — 事件驱动异步块环（tokio 实例）
 //!
-//! 实现 runtime [`AsyncBlockRing`](axiom_semantics::movers::async_ring::AsyncBlockRing)
+//! 实现语义层 [`AsyncBlockRing`](axiom_semantics::movers::async_ring::AsyncBlockRing)
 //! 契约的 **notify（事件驱动）** 路径：等待点挂进 tokio reactor，非忙轮询。
 //!
 //! 唤醒协议（双 `tokio::sync::Notify`）：
@@ -25,8 +25,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
 
-/// re-export：异步块环契约（runtime 定义，实例层对外直接可用——消费端只需依赖
-/// 实例层即可拿到契约，无需直接依赖 runtime）。
+/// re-export：异步块环契约（语义层定义，实例层对外直接可用——消费端只需依赖
+/// 实例层即可拿到契约，无需直接依赖语义层）。
 pub use axiom_semantics::movers::async_ring::{AsyncBlockRing, Closed as RingClosed};
 
 /// 事件驱动异步块环（tokio 实现）。
@@ -47,7 +47,7 @@ impl<C: Send> TokioBlockRing<C> {
     /// 新建：容量 `cap`（块数）。
     ///
     /// 模态② 精神：`cap == 0` 在构造点**拒绝**（rendezvous 形态不属于有界队列语域），
-    /// 与 runtime [`BoundedRing`](axiom_semantics::movers::ring::BoundedRing) 同门。
+    /// 与语义层 [`BoundedRing`](axiom_semantics::movers::ring::BoundedRing) 同门。
     pub fn new(cap: usize) -> Self {
         assert!(cap > 0, "TokioBlockRing 容量必须 >= 1");
         TokioBlockRing {

@@ -43,7 +43,7 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 }
 ```
 
-载体目录（`runtime/src/movers/carrier.rs`）：
+载体目录（`semantics/src/movers/carrier.rs`）：
 
 | 载体 | 物理方案 | 时空成本 | 线程 | 模块 |
 |---|---|---|---|---|
@@ -110,12 +110,12 @@ L：如实声明 `cost()`/`obligation()`/`saturation()`）；(2) 以外部消费
 
 ## 3. 驱动（flow）与静态路径（static_path）
 
-- **`flow`**（`runtime/src/drive/flow.rs`）：`drive_link`——编译期布线验证
+- **`flow`**（`semantics/src/drive/flow.rs`）：`drive_link`——编译期布线验证
   （统一 `Conforms<Wire>`）后，用选定载体驱动一条 A→B 因果流；**验证在编译期，运行期零开销**
   （`drive_wired` 已删除——它是 `drive_link` 的冗余别名）。
-- **`static_path`**（`runtime/src/static_path.rs`）：`run_static` / `run_declared_static`——
+- **`static_path`**（`semantics/src/drive/static_path.rs`）：`run_static` / `run_declared_static`——
   把被 `Static<SUB>` 声明为"要求零成本"的子图在**编译期内联展开**（零运行时对象）。
-- **声明宏**（`runtime/src/macros.rs`）：`wire!`——编译期展开的"连线 + 载体 + 验证"
+- **声明宏**（`semantics/src/drive/macros.rs`）：`wire!`——编译期展开的"连线 + 载体 + 验证"
   一次完成的宏/编译期技巧。
 
 ---
@@ -124,7 +124,7 @@ L：如实声明 `cost()`/`obligation()`/`saturation()`）；(2) 以外部消费
 
 runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是运行/载体侧）提供**激活**：
 
-- **存在绑定 `SlotPending<I,O>` → `SlotDrive<I, O>`**（existential binding，`runtime/src/drive/slot.rs`）——
+- **存在绑定 `SlotPending<I,O>` → `SlotDrive<I, O>`**（existential binding，`semantics/src/drive/slot.rs`）——
   对 `Slot<I,O>` 的 ∃ 存在化填充，处于**许可生命周期**（typestate，模态①）：
   `SlotPending::install`（Adding）安装编译期合规居留项（`T: PortCell<In=I,Out=O>` ⟹ core 的
   `Conforms`）、把其状态类型擦除为 `Box<dyn Any + Send>`；`commit()`（Ready→Live）授权
@@ -132,28 +132,28 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
   运行期 `drive`/`swap`（swap 递增代，此前创建的 `Seat` 以陈旧引用被拒绝）；`retire()`
   终结许可（Cleaned）。这是"动态装载"的物理侧——接口固定且编译期 T1 验证、居留项
   运行期存在化。
-- **`drive_seq`**（`runtime/src/drive/flow.rs`，`no_std + alloc`）——`Rep<N,C>` 的生成/无界计数侧：
+- **`drive_seq`**（`semantics/src/drive/flow.rs`，`no_std + alloc`）——`Rep<N,C>` 的生成/无界计数侧：
   把一组运行期 `IntoIterator` 输入依次流经同一 cell，收集输出，状态跨次保持（计数由运行期
   决定，非编译期）。
-- **`drive_feedback_inline<BODY, FEED>`**（`runtime/src/drive/flow.rs`）——`Feedback` cell 形式的
+- **`drive_feedback_inline<BODY, FEED>`**（`semantics/src/drive/flow.rs`）——`Feedback` cell 形式的
   物理激活：每个输入步一次内联无缓冲回环（`BODY -> FEED -> BODY`），由 **Moore 声明**把关
   （`FEED: Moore`，模态 ④——声明非证明）。
-- **`contract` 模块**（`runtime/src/checks/contract.rs`）——部署期与编译期接缝契约：`Moore` 标记（④）、
+- **`contract` 模块**（`semantics/src/checks/contract.rs`）——部署期与编译期接缝契约：`Moore` 标记（④）、
   `assert_capacity_nonzero`（②）、`validate_cost`/`validate_capacity`/`validate_seam`（③）、
   `ContractError`。
-- **`obligation` 模块**（`runtime/src/checks/obligation.rs`）——义务类类型系统（投递态 × 资源类 ×
+- **`obligation` 模块**（`semantics/src/checks/obligation.rs`）——义务类类型系统（投递态 × 资源类 ×
   引用有效 × 生命周期）与**义务账本**（`LEDGER`）：机器可读的宪法摘录（接缝 × 义务 × 模态 ×
   见证 × 符合性测试），执行极小基律与诚实规则（A4/A5）。
-- **`delivery` 模块**（`runtime/src/delivery.rs`，std）——投递四态税则：`Full`/`Closed` 自
+- **`delivery` 模块**（`semantics/src/checks/delivery.rs`，std）——投递四态税则：`Full`/`Closed` 自
   `mpsc` 错误机械化且被拒值随错误回传（②③）；`Timeout`/`Cancelled` **声明**为模态④
   （机械化为物理选择：定时器/请求域通道），不伪造见证。
-- **`mailbox` 模块**（`runtime/src/mailbox.rs`，std）——反饥饿有界邮箱：容量 =
+- **`mailbox` 模块**（`semantics/src/movers/mailbox.rs`，std）——反饥饿有界邮箱：容量 =
   `CAP` 缓冲槽 **+ 每生产者 1 个保底席位**；三投递模式——`try_send`（严格，满即
   `Full(v)` 值回传）、`send`（阻塞背压，占自身保底席位等待）、`fire`（尽力：缓冲槽优先，
   再占自身席位）；`recv` 阻塞且不返回 `Empty`（空态由 `try_recv` 观察）；关闭排空后投递
   得 `Closed(v)`。模态② 容量门（`CAP ≥ 1`）。`bounded_pump` 保留教学形态；邮箱是同一
   义务类（每生产者席位）的反饥饿实例。
-- **`profile` 模块**（`runtime/src/checks/profile.rs`）——**剖面目录**（六元组 C 构件；F↦C(F)）：
+- **`profile` 模块**（`semantics/src/checks/profile.rs`）——**剖面目录**（六元组 C 构件；F↦C(F)）：
   `KernelProfile`（零分配预算）、`ServiceProfile`（每消息预算 + Full/Closed 机械化）、
   `ToolProfile`（外部）；剖面 = 模态① 类型令牌 + 模态③ 预算门——`assemble_profile<P,A,B,C>()`
   拒绝超预算载体，同一拓扑换剖面即换预算门、不改拓扑（T6）。载体白名单为规范文档
@@ -165,10 +165,10 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 > 未使用任何 runtime 模块。这是*设计判断*而非遗漏：工具形式用手写最小机制满足
 > 其物理，axiom-semantics 为物理面生长时待命（有界判定/剖面/热替换）。一个能演示
 > 自身应在何处缺席的框架，才具备可信度。
-- **`law` 模块**（`runtime/src/law.rs`，std）——运行期律探针（T 构件深化）：配对律
+- **`law` 模块**（`semantics/src/checks/law.rs`，std）——运行期律探针（T 构件深化）：配对律
   （N 投递 ↔ N 判定；已收 ≤ 已投）、序列单调律、广播扇出计数律；`debug_assertions`
   门控、release 零开销。
-- **`assemble_link` / `assemble_seam`**（`runtime/src/drive/flow.rs`）——**模态③ 的接线入口**：在
+- **`assemble_link` / `assemble_seam`**（`semantics/src/drive/flow.rs`）——**模态③ 的接线入口**：在
   部署装配点**一次**校验成本（有界接缝还校验容量），通过后返回 `drive_link` 函数指针
   （`Driver<A,B>`）；预算越界 = **装配失败**，绝非运行期静默成本。（`BoundedCarrier` 自带的
   编译期门是模态②；`assemble_seam` 在部署期承接无门载体的校验。）
@@ -201,12 +201,12 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 ## 6. 构建与验收基准
 
 ```text
-cargo build/test --manifest-path runtime/Cargo.toml   # runtime（25 集成 + 5 契约单元测试）
-cargo run --manifest-path runtime/Cargo.toml --example carrier_demo
-cargo run --manifest-path runtime/Cargo.toml --example threaded_flow
-cargo run --manifest-path runtime/Cargo.toml --example redis_like -- --corpus 500   # miniredis 子系统用例
-cargo test --manifest-path runtime/Cargo.toml --example redis_like                 # 6 个 cell 单元测试
-cargo bench --manifest-path runtime/Cargo.toml --bench carrier
+cargo build/test --manifest-path semantics/Cargo.toml   # runtime（25 集成 + 5 契约单元测试）
+cargo run --manifest-path semantics/Cargo.toml --example carrier_demo
+cargo run --manifest-path semantics/Cargo.toml --example threaded_flow
+cargo run --manifest-path semantics/Cargo.toml --example redis_like -- --corpus 500   # miniredis 子系统用例
+cargo test --manifest-path semantics/Cargo.toml --example redis_like                 # 6 个 cell 单元测试
+cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 ```
 
 **已达成（证据链）**：
@@ -233,7 +233,7 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 
 这些用例是"基于 axiom/axiom-semantics 构建真实程序"的构建用例，也是 runtime 迭代与
 等价性验证的载体。旧版同类用例（含 TCP 服务器形态）可在 git 历史中恢复作参考
-（`git show main:runtime/examples/<name>/main.rs`）。
+（`git show main:semantics/examples/<name>/main.rs`）。
 
 ---
 
@@ -256,7 +256,7 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 - **拓扑级资源预算（C4 可行子集；2026-08）**：线程数可数（`spawned_flow` 每实例
   一条线程；装配期算术）；分配可由 `CarrierCost` 代数求和（链每消息类 = 各段最
   大，按声明序；`validate_cost` 已逐缝强制预算）；栈深一般不可判——编译期栈深
-  推导不承诺（诚实划界，无伪推导）。机械子集锁定于 `runtime/tests/resource_budget.rs`。
+  推导不承诺（诚实划界，无伪推导）。机械子集锁定于 `semantics/tests/resource_budget.rs`。
 
 ---
 
@@ -313,12 +313,12 @@ cargo bench --manifest-path runtime/Cargo.toml --bench carrier
 ### 9.3 外部输入源的接入接缝（IO 事件 ↔ flow）
 文档已声明"IO 是物理/载体可替换"，但"外部世界（socket 事件等）如何正式成为一条因果流
 的 `in`"这一落地接口未形式化。**首案例已落地**：`redis_like`
-（`runtime/examples/redis_like`，`--tcp PORT` / `--selftcp`）——纯 std TCP 服务器：
+（`semantics/examples/redis_like`，`--tcp PORT` / `--selftcp`）——纯 std TCP 服务器：
 每连接有状态 `LineSplit`（跨块缓冲）→ `CmdParse`（类型化错误、短路）→ **有界通道（背压）**
 → 持有 `StoreState` 的存储工作线程（`DataStore` 全函数，无 panic 路径）→ RESP 回执路由
 （每连接 FIFO 顺序、EOF 时写半关闭）。
 - 落层：**runtime**（事件基座即一类载体/驱动）。
-- **载体类已形式化并落地**（`runtime/src/seams/event.rs`）：事件流（`EventStream`，
+- **载体类已形式化并落地**（`semantics/src/seams/event.rs`）：事件流（`EventStream`，
   条目级输入源）+ 块源适配（`ChunkSource`：`io::Read` 原始源 + 分割器 + 跨块状态，
   含通用行分割 `split_lines`）+ 泵驱动（`pump_events`：变换 cell → 投递裁决
   `PushVerdict` → 配对计数 `EventPumpStats`）。`redis_like --tcp` 是该接缝的

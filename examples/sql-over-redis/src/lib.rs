@@ -12,7 +12,7 @@
 //!
 //! 双参照标注：绝对尺度 = 演示级组合（数百行，非工程级）；相对尺度 = 仓库最大组合示例。
 //!
-//! 依赖方向单向：axiom ← axiom-runtime ← axiom-instances ← 综合用例（workspace 成员表强制）。
+//! 依赖方向单向：axiom ← axiom-semantics ← axiom-instances ← 综合用例（workspace 成员表强制）。
 
 #![forbid(unsafe_code)]
 

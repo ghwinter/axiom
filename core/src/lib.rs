@@ -45,7 +45,7 @@ extern crate self as axiom;
 // 核心主轴线：cell_core（四构件编译期模型）。
 //
 // 旧核心（v0：machine/port/link/deploy/FlowKind/值形态等）已移出 src；
-// 物理实现（载体/宏/编译期展开）由 runtime 承担（axiom-runtime crate）。
+// 物理实现（载体/宏/编译期展开）由语义层承担（axiom-semantics crate）。
 //
 // Module maturity: `cell_core` is **stable** (closed five-concept boundary,
 // foundations.md §8); additive-only evolution via the closure checklist.

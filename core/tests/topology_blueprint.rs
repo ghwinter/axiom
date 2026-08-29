@@ -196,7 +196,7 @@ fn defined_without_activation_has_zero_presence() {
     assert_eq!(core::mem::size_of::<Blueprint<<Unused as PortCell>::State>>(), 0);
 
     // Runtime-side evolution (∃ install / swap / drive on an interface-fixed
-    // position) is exercised in axiom-runtime: runtime/tests/unified.rs.
+    // position) is exercised in axiom-semantics: semantics/tests/unified.rs.
 }
 
 // ── Assertion 6: determinism (R001) ───────────────────────────────────────

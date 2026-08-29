@@ -59,8 +59,8 @@ Dependency direction is one-way, enforced by the workspace member table: `axiom 
 |---|---|
 | `examples/cell_demo.rs` | A four-constituent blueprint running as a plain Rust program (zero runtime objects) |
 | `examples/pipeline.rs` | Composite pipeline: chain + broadcast + feedback + compile-time verification |
-| `runtime/examples/carrier_demo.rs` | Same blueprint, multiple replaceable carriers, semantically equivalent, different space–time cost |
-| `runtime/examples/threaded_flow.rs` | Same topology, heterogeneous physics: Inline zero-allocation vs cross-thread channel |
+| `semantics/examples/carrier_demo.rs` | Same blueprint, multiple replaceable carriers, semantically equivalent, different space–time cost |
+| `semantics/examples/threaded_flow.rs` | Same topology, heterogeneous physics: Inline zero-allocation vs cross-thread channel |
 
 ## Build & verify
 
