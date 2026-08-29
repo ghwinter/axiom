@@ -254,6 +254,45 @@ passes; the five structures describe what the target category looks like once pa
 one theorem, not a new parallel doctrine. The resource monoid (semantics-constitution D11) is the first-class
 objecthood of the "concurrency-resource" structure.
 
+**注记 7.4（为何恰恰是五结构；资源的不可替代性 / Why Exactly Five Structures; the Irreplaceability of
+Resource）**。五结构（注记 7.3）的个数**不是数论必然，是"问题类封闭性"主张，未证**。"运行一个形状"强制
+回答几种彼此不可互相回答的问题类：序（顺序）、成本（时空）、容量（界）、传递（投递语义）、并发资源（正交于
+其余四者的可组合所有权关系）。"故五"意为：这五种问题类的每一种都不能用其余任何一种来回答；只要每一类又彼此
+构造得出物理差异，三结构必漏一类。判别例（两两独立变化）：成本 ≠ 容量（大界每消息 O(1) 对 小界每消息 O(n)）；
+容量 ≠ 传递（有界不告知某条消息被投递还是被弃，"满/关闭"是界，"到达/被拒/覆盖"是投递语义）；序 ≠ 传递（确定
+顺序位置与投递结果独立）。N 只当自愿增加问题类（更强的义务目标）时出现；新结构须带来既有五类都答不了的新问题类
+（按注记 8.6 不构成找补）。**第六候选为时间，已被放置迁出行为范畴**：时间不作为目标范畴一等结构，而作为可
+升可降的值（直通 State）与退化（运行期时序进④ 声明）；迁出后五为当前封闭数——不是不能有六，是有六时把它
+归实例层 / 声明层而从范畴五移走。**资源的不可替代性**：成本 / 容量 / 传递 / 序皆描述"单条接缝 / 单 cell 运行"
+的幅度（贵不贵、多深、到没到、先后），资源描述"横跨拓扑的可组合所有权关系"（frame 律 P∗R：两件事不相干 ⟹
+可分别验证再总合）。没有资源代数，说不出"这两个并行 cell 可以分开证"这句组合的机械化话——而这是大型组合系统
+（愿景）唯一买得到验证可扩展的途径；即便无限容量，资源问题仍在（还能否并行两个不相干 cell，是所有权非缓冲），
+故资源与前四者正交。**为何资源涌现得晚**：前四结构在 carrier 分类里早已寄居为属性（成本=CarrierCost、
+容量=CAP、传递=投递四态、序=因果流与 T5 等价），只是被重新命名整理；资源无旧居——义务类 D1 只有资源"类"
+（ZeroAllocInline / PerMessageAlloc / External）而无一等代数对象，故资源是唯一需造新对象、唯一配称"真新增"
+者。**主张（非结论）**：五结构与开放问题 8.2 / 8.4 一同作为收敛点假说登记；资源幺半群仍未代码化，按诚实
+纪律保持"未落地"标注。
+
+**Remark 7.4 (Why Exactly Five; the Irreplaceability of Resource)**. The count of five (Remark 7.3) is not a
+number-theoretic necessity but a claim of question-class closure, unproved. "Running a shape" forces answering
+several question classes that cannot answer one another: order, cost, capacity, transfer, and concurrency-resource
+(a composable-ownership relation orthogonal to the other four). "Five" means: each of these classes cannot be
+answered by any other, and each is pairwise constructively distinct, so three must miss at least one class
+(counterexamples: cost ≠ capacity, capacity ≠ transfer, order ≠ transfer). N appears only when one voluntarily
+adds a question class under a stronger obligation goal. The sixth candidate—time—has been placed out of the
+behavior category: not a first-class structure but a value threading State or a degeneration declared ④. A
+structure-graph stays five because time is moved to the instance/declaration layers, not because a sixth cannot
+exist. Resource is irreplaceable: the other four describe the magnitude of a single seam/cell (cost, depth,
+delivery, order), while resource describes the composable ownership relation across a topology (frame rule P∗R:
+disjoint ⟹ separately verifiable); without a resource algebra one cannot state the mechanized sentence "these
+two parallel cells can be proved apart", the only route by which a large compositional system buys verification
+scalability. Resource appears late because the other four already live as attributes in the carrier
+classification (cost=CarrierCost, capacity=CAP, transfer=delivery states, order=causal flow and T5), while
+resource has no prior home—obligation class D1 has only resource *classes*, no first-class object—so resource is
+the only one requiring a new object and the only legitimate "genuinely new" item. Claim, not conclusion: the
+five, with Open Problems 8.2 / 8.4, are registered as a convergence-point hypothesis; the resource monoid remains
+unimplemented, kept untested per honesty discipline.
+
 ---
 
 ## 8. 结论 / Conclusion

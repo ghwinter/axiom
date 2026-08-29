@@ -53,8 +53,13 @@
 //!   被拒值随判定回传，[`checks::delivery`](crate::checks::delivery)）；
 //! - L2 **单属主**：任一 `State` 在同一时刻至多被一个执行流轮询（`&mut` 独占，
 //!   借用检查器背书；[`drive::slot`](crate::drive::slot) 的 `Seat` 亦以代戳拒绝陈旧借用）；
-//! - L3 **容量先验**：有界接缝的 `CAP` 是编译期常量且 ≥ 1（模态②，
-//!   [`assert_capacity_nonzero`](crate::checks::contract::assert_capacity_nonzero)）；
+//! - L3 **容量归位（capacity placement）**：容量是随放置而变的属性，非形状属性，按对象类别落位——
+//!   仅携带投递保证且位于抽象层纯承诺子集（无堆、无运行时可校验）的有界接缝，其 `CAP` 才要求编译期常量
+//!   且 ≥ 1（模态②，[`assert_capacity_nonzero`](crate::checks::contract::assert_capacity_nonzero)）——这
+//!   是此类接缝唯一能取得"不静默丢失/有界等待"见证的机制；一切属于"计算图上的未来"的对象（动态/插件/
+//!   外部/跨机器/可重启/可扩容），其容量在聚合（bring-up）时刻才可知，归部署期校验（模态③）或由开发者
+//!   与使用者声明（模态④），不施加编译期义务。扩容与重启视角等价：同属生命周期聚合操作，容量由聚合的
+//!   调用者选择，不刻进蓝图（边界：不得把未来对象的容量写成 ②）。
 //! - L4 **政策归驱动**：cell 无时间语义，拍次/调度只在 driver/carrier（§8.4）。
 //!
 //! **经验-D（界 + 监测）**：

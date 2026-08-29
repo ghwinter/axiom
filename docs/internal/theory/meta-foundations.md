@@ -282,6 +282,92 @@ All graph paradigms share the same M-structure (open system = cell, wiring, host
 存在唯一保持判定时刻的射入本呈现。未证；仅与开放问题 8.2（放置唯一性）并列登记，
 作为元问题树的收敛点假说。
 
+**注记 8.6（收敛与找补；核心存在 = 约束固定点 / Convergence vs. Patching; the Core as a Fixpoint）**。
+对构成的每一次修改可分两类：
+- **合法精化（收敛）**：消解歧义、收紧定义、每处有锚点与承继记录、可逆——减少解的数目，把设计空间推向
+  固定点；
+- **找补（蔓延）**：挤一个让当前案例通过的条款，不改底层结构，不消歧义，反而扩大公理集、积累不一致。
+
+极小基律 A4 与迁移诚实（命题 8.4）使"找补"可判违法：凡新增成员可由其余加规则导出即伪验证缺陷；
+凡以"新"自称却只是既有锚点的重命名即撤回。**主张（核心存在 = 约束固定点，非结论）**：核心不是先于推理而
+存在的柏拉图对象——该意义不成立，语料历史显示基的每一项都历经撤回与正名，非"早已存在、终被看清"——而是
+少数硬约束（自洽 / 极小 / 充分）的**固定点**：约束够少够硬，解几乎唯一；从任何预设路径进入都品尝同一约束
+集，故收敛到同一点。收敛的决定性条件是每次修改都须过承继映射、减少而非增加模糊、能回答"既有哪条已压着此
+项、为何仍不够"；由此每次挡住孟浪条款，剩下的自然是唯一自洽的谷底。与本注记并列的是开放问题 8.4 的初对象
+猜想。"唯一终点"是一体化主张，与放置唯一性（开放问题 8.2）一同作为收敛点假说登记，未证。
+
+**Remark 8.6 (Convergence vs. Patching; the Core as a Fixpoint)**. Each modification of a constitution is of
+two decidable kinds: legitimate refinement (convergent—dissolves ambiguity, tightens definitions, anchors and
+records succession, reversible, and shrinks the solution space toward a fixpoint); and patching (sprawling—
+wedges in a clause to pass a present case, leaves the underlying structure unchanged, fails to dissolve
+ambiguity, and enlarges the axiom set while accumulating inconsistency). The minimality law A4 and the
+retraction discipline make patching a decidable violation: a new member derivable from the rest is a
+pseudo-verification defect; a "novelty" that is only a renaming of an existing anchor is retracted. Claim—the
+core exists as a fixpoint of constraints, not a conclusion: the core is not a Platonic object prior to
+reasoning—in that sense it does not exist; the record shows every basis item has been retracted and renamed,
+none "was always there and was finally seen"—but rather a fixpoint of a few hard constraints (consistency /
+minimality / sufficiency): few enough and hard enough, the solution is nearly unique, and every path of
+presupposition tastes the same constraint set and thus converges to the same point. The decisive condition of
+convergence is that every modification pass succession, reduce rather than add ambiguity, and answer "which
+existing law already covers this, and why does it still fall short"; by repelling each stray clause, what
+remains is naturally the unique self-consistent basin. The "unique endpoint" is an integrative claim, not a
+proof, registered alongside placement uniqueness (Open Problem 8.2) as a convergence-point hypothesis.
+
+**注记 8.7（三个形式系统对底层表达集合的固定点；分层涌现与不可表达边界 / Fixed Points over the Underlying
+Expression Set: Turing Machines, Category Theory, Type Theory; Stratified Emergence and the Inexpressible）**。
+对"图灵机 / 范畴论 / 类型论是否在 Rust 底层表达集合上给出某个固定的上解"，三个系统不是同一层位的竞争者，
+各贡献一个真实但边界不同的固定点：
+- **可计算性的底固定点**：丘奇—图灵论题——凡可按机械程序计算的函数恰为部分递归函数。三系统中最接近"真正的
+  底固定解"者（独立直觉层层逼近后收敛到唯一类）。但只约束"能否被计算出"，不约束"高层代数 / 几何长什么样"。
+- **Rust 类型论非类型论固定解**，而是以 Hindley–Milner 为基础、加特征 / 常量泛型的**受约束切片**：第几阶、
+  哪些可判、哪些封顶皆工程选定，非由任一理论强制；故"Rust 的底层表达集合"不唯一对应某个固定解，是众多切片之一。
+- **范畴论不决定上解**，是描述透镜：其内部确有固定点（始对象、万有构造唯一性），但不决定"用哪套公理承载某结构"。
+
+由此落在 axiom 底与顶两处硬固定点：**底 = 可计算函数恰为递归函数**（语言不可超越的输入 / 输出边界，停在可计算性）；
+**顶 = 自指 ⟹ 不完备 ⟹ 不可验证残余必然存在**（Lawvere 不动点 = incomplete-unification）——任何一个足够表达且
+自我指涉的形式系统都无法在自己内部判定自己全部语义。中间为一处**软固定点**：少而硬的约束（自洽 / 极小 / 充分）
+⟹ 解被就近唯一化（注记 8.6 的"约束固定点"形态），非被定理逼成唯一。
+
+**分层涌现**。辨析弱 / 强两义：**弱涌现**——高层逻辑内容原则上可由底层表达（因底足够表达，模 / 层 / 函子皆可
+用函数类型 / 多态 / 复合编码），涌现只是表达复杂度，非新的本体内容，不逃出底层可表达集合。**强涌现（前一
+半，真实）**——"模 / 层"的**概念**不是从"域"的公理逻辑地推出，须在概念上创造新词汇，新增一层抽象而非既有公理
+的推论；但**强涌现（后一半，须诚实）**——概念一旦被创造并形式化，其可检验内容仍落在系统内——凡可导的皆已在
+系统内，故同一形式系统内的涌现不可能是逻辑内容上的强涌现；强仅发生在"概念创造"动作上，创造落地即成验证。
+**层位图的唯一读法**：算出来的内容层层可编码（弱），创造出来的词汇层层不可推导（强），而每次创造一旦落地即成
+检查——群环域之下的逻辑在域里，模 / 层不是从域公理长出的，是被造出来的，造出之后又躺回可验证一侧。
+
+**不可表达的边界（分两层，皆有定理背书）**。(i) **类型层不可钉死**：类型切片对某些结构给不出类型级存在性
+（无完备依赖类型，常量泛型 / 特征各有封顶）；凡类型层表达不出的进不去 ②③ 见证，只能作运行期对象或 ④ 声明。
+(ii) **语义层不可验证**：即便某结构能被类型表达，其完整语义仍被 Lawvere 不动点挡在系统自证之外——越是足够表达、
+自我指涉的系统，此残余越必然；可由定理证明的封顶，非遗漏。两层的共同结论：**每一层之上都有不可表达 / 不可验证
+的封顶，由定理保证不由工程决定**，这正是 axiom 把容量未来对象、超时与取消、跨机器一致性放入 ④ 声明而非冒充
+②③ 验证的原因——诚实贴住定理标注的高度，而非次优。**主张（非结论）**：本注记是注记 8.6"固定点"说法在"三个
+形式系统对 Rust 底层"上的具体展开，与开放问题 8.2 / 8.4 共同作为收敛点假说登记。
+
+**Remark 8.7 (Three Formal Systems over an Underlying Expression Set; Stratified Emergence and the Inexpressible)**.
+On whether Turing machines, category theory, and type theory yield a fixed upper solution over Rust's underlying
+expression set: the three are not competitors at one level but each contributes a real fixed point with a
+distinct boundary. The bottom fixed point of computability—Church–Turing—is the closest to a genuine base
+fixed solution but constrains only computability, not what upper algebra / geometry looks like. Rust's type
+theory is not a fixed solution but a constrained slice (Hindley–Milner plus traits and const generics), whose
+boundaries are engineering choices, so the underlying expression set has no unique fixed solution. Category
+theory decides nothing upper; it is a descriptive lens. Over axiom, the two hard fixed points are the base
+(computable functions are exactly the recursive functions) and the top (self-reference ⟹ incompleteness ⟹ an
+unverifiable residue necessarily exists, by the Lawvere fixed-point theorem): any sufficiently expressive,
+self-referential formal system cannot decide its own semantics inside itself. Between them is a soft fixed
+point: few and hard constraints nearly unique the solution (Remark 8.6), not forced unique by a theorem.
+Emergence is two-fold: weak—upper logical content is in principle expressible in the base, so emergence is
+only expressive complexity; and strong in its first half—the *concept* of a module or sheaf is not derived
+logically from the axioms of a field but created as new vocabulary—yet its second half must be stated honestly:
+once a concept is created and formalized, its testable content still lies inside the system, so within a single
+formal system emergence cannot be strong in logical content; only the act of concept-creation is strong, and
+once created it returns to the verifiable side. Inexpressibility has two theorem-backed layers: the type layer
+cannot pin some structures (they miss ②③ witness, to be manipulated at runtime or declared ④); and the semantic
+layer cannot verify even type-expressed structures (the Lawvere residue is unavoidable and provable). Both
+layers' conclusion: every layer has a cap at which the inexpressible / unverifiable begins, guaranteed by
+theorems rather than by engineering. Claim, not conclusion: this note applies Remark 8.6 to the three formal
+systems over Rust, registered alongside Open Problems 8.2 / 8.4 as a convergence-point hypothesis.
+
 ## 9. 对 axiom 与 axiom-semantics 的应用 / Application to axiom and axiom-semantics
 
 - **构成**：五概念（端口体 / T1 对偶 / 组合封闭 / 代换绑定 / 激活）是词汇表；其中良构部分经类型系统执行为文法区 G——`Conforms`/`Wire` 的 T1 配对即其类型论执行（命题 4.3）。谱系诚实：五概念是从既有代码溯回概括、后经批准的宪法条款（foundations §8.1 封闭清单），其发生史属于展出内容，不呈现为赤裸公设。公理区成员须按定义 1.4 分类：全函数、纯度、Moore 声明 ∈ 逻辑-D；**零成本相对等式 ∈ 经验-D**——它是可证伪的经验命题，已有带噪声底的实测证据（Δ 在噪声区间内），随时可被新工具链推翻，不是公理。消除性验证（C1 精确同型等）∈ P 的机械。
