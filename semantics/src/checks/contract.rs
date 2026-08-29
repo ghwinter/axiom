@@ -10,11 +10,12 @@
 //! | [`validate_cost`] / [`validate_seam`] | **③ deployment validation** | cost budgets are deployment decisions; wired into the assembly entries [`assemble_link`](crate::drive::flow::assemble_link) / [`assemble_seam`](crate::drive::flow::assemble_seam) — deployment-time, once, before the zero-cost drive path; rejection = assembly failure |
 //! | [`assert_capacity_nonzero`] | **② compile-time witness** | capacity is a const parameter; sites may force rejection of `CAP = 0` at compile time |
 //! | [`validate_capacity`] | **③ deployment validation** | runtime aggregate form of the same fact for assembled seams |
+//! | [`validate_saturation`] | **③ deployment validation** | the carrier's saturation policy must meet the profile's saturation floor (A1; wired into the profile assembly gate) |
 //!
 //! The one thing this layer never does is dress ③/④ up as compile-time proofs.
 //! A declaration that looks verified is worse than an honest gap.
 
-use crate::movers::carrier::{Carrier, CarrierCost};
+use crate::movers::carrier::{Carrier, CarrierCost, SaturationPolicy};
 use axiom::cell_core::PortCell;
 
 // ── 1. Moore marker (inline feedback loops) — modality ④: declaration ─────
@@ -46,6 +47,16 @@ where
 {
 }
 
+/// Marker: **declaration** (modality ④) that this cell's `step` does not panic.
+///
+/// "cell 内禁 panic"是**声明纪律，非类型证明**——panic 语义不可判定（A5 诚实）：
+/// 码 `NoPanic` 或误声明都为作者责任。机械落点（已存在，不重造）：
+/// [`drive_catch`](crate::drive::flow::drive_catch) 是失败边界载体——未声明
+/// `NoPanic` 的 cell 可能 panic，须经它（`catch_unwind` 截为值）跨信任边界驱动，
+/// 不得直接落零成本快速路径（[`drive_link`](crate::drive::flow::drive_link)）。
+/// 同 [`Moore`]：声明被类型承接，其真理性由声明者背书。
+pub trait NoPanic {}
+
 // ── 2/3. Seam validation — modalities ② and ③ ─────────────────────────────
 
 /// Failure of a deploy-time seam contract.
@@ -70,6 +81,15 @@ pub enum ContractError {
         /// Minimum required by the profile (`Profile::obligation_min`).
         minimum: crate::checks::obligation::ObligationClass,
     },
+    /// The carrier's saturation policy is weaker than the profile's saturation
+    /// floor (modality ③; A1). A carrier that drops (with receipt) under-mets a
+    /// `Block` floor — e.g. a Service delivery seam must not silently shed load.
+    SaturationUnderMet {
+        /// Saturation declared by the carrier (`Carrier::saturation`).
+        declared: SaturationPolicy,
+        /// Floor required by the profile (`Profile::saturation_floor`).
+        floor: SaturationPolicy,
+    },
 }
 
 impl core::fmt::Display for ContractError {
@@ -88,6 +108,10 @@ impl core::fmt::Display for ContractError {
             } => write!(
                 f,
                 "carrier obligation {declared:?} under-mets profile minimum {minimum:?} on axis {axis}"
+            ),
+            ContractError::SaturationUnderMet { declared, floor } => write!(
+                f,
+                "carrier saturation {declared:?} under-mets profile floor {floor:?}"
             ),
         }
     }
@@ -187,6 +211,30 @@ pub fn validate_obligation_min(
     }
 }
 
+/// Saturation-conformance (**modality ③**; A1): the carrier's saturation policy
+/// must be no weaker than the profile's saturation floor.
+///
+/// The compatibility is [`SaturationPolicy::meets_saturation_floor`]'s partial
+/// order: a carrier that drops (with receipt) under-mets a `Block` floor. Wired
+/// into the profile assembly gate alongside cost and obligation minimums, since
+/// the saturation floor is a property of the deployment profile, not of any one
+/// carrier. Does not disturb the cost/capacity checks in [`validate_seam`].
+pub fn validate_saturation<A, B, C>(
+    floor: SaturationPolicy,
+) -> Result<(), ContractError>
+where
+    A: PortCell,
+    B: PortCell<In = A::Out>,
+    C: Carrier<A, B>,
+{
+    let declared = C::saturation();
+    if declared.meets_saturation_floor(floor) {
+        Ok(())
+    } else {
+        Err(ContractError::SaturationUnderMet { declared, floor })
+    }
+}
+
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
@@ -282,6 +330,25 @@ mod tests {
         assert_eq!(validate_capacity::<1>(), Ok(()));
         // Compile-time witness: const-evaluated at monomorphization.
         const _: () = assert_capacity_nonzero::<64>();
+    }
+
+    #[test]
+    fn saturation_floor_gates_dropping_carriers() {
+        use crate::movers::carrier::SaturationPolicy as S;
+        // 直通（N/A）对无饱和义务下限：通过；对 Block 下限：拒绝（无背压点）。
+        assert_eq!(
+            validate_saturation::<Inc, Double, InlineCarrier>(S::NotApplicable),
+            Ok(())
+        );
+        assert!(matches!(
+            validate_saturation::<Inc, Double, InlineCarrier>(S::Block),
+            Err(ContractError::SaturationUnderMet { declared: S::NotApplicable, floor: S::Block })
+        ));
+        // 队列（Block，保守默认）满足 Block 下限。
+        assert_eq!(
+            validate_saturation::<Inc, Double, QueueCarrier>(S::Block),
+            Ok(())
+        );
     }
 
     #[test]

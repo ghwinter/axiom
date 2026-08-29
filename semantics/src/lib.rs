@@ -105,6 +105,10 @@ pub mod checks {
     /// 投递四态税则：Full/Closed 机械化、Timeout/Cancelled 声明（模态④，无伪见证）。Stability: **experimental**。
     #[cfg(feature = "std")]
     pub mod delivery;
+
+    /// 资源幺半群（D11；可组合所有权的知识单元）：交换幺半群律 + frame 真和探针，
+    /// 衔接 L2 单属主与 [`crate::movers::carrier::CarrierCost`]。Stability: **experimental**。
+    pub mod resource;
 }
 
 /// 值的搬运器（物理实现）。
@@ -188,9 +192,10 @@ pub mod prelude_all {
     #[cfg(feature = "std")]
     pub use crate::movers::carrier::{BoundedCarrier, QueueCarrier, spawned_flow};
     pub use crate::checks::contract::{
-        ContractError, Moore, assert_capacity_nonzero, declare_inline_loop_moore,
-        validate_capacity, validate_cost, validate_seam,
+        ContractError, Moore, NoPanic, assert_capacity_nonzero, declare_inline_loop_moore,
+        validate_capacity, validate_cost, validate_saturation, validate_seam,
     };
+    pub use crate::checks::resource::{FrameProbe, Resource, ResourceAmount};
     #[cfg(feature = "std")]
     pub use crate::checks::delivery::{Delivery, Receipt};
     #[cfg(feature = "std")]

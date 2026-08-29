@@ -328,6 +328,22 @@ pub const LEDGER: &[LedgerEntry] = &[
             crate::checks::obligation::ObligationClass::default().delivery == DeliveryKind::NotApplicable
         },
     },
+    LedgerEntry {
+        seam: "checks::resource",
+        obligation: "资源幺半群（D11）：交换幺半群 (M,·,ε) 一阶律 + frame 真和（组合=分量之和）；frame 前置'不相交所有权'由 L2 单属主（&mut）类型层背书",
+        modality: Modality::DeploymentValidation,
+        witness: "resource.rs ResourceAmount::merge / FrameProbe::assert_frame",
+        conformance: "resource.rs: monoid_identity/commutative/associative/merge_is_conservative_and_true_sum/frame_probe_sums_disjoint_budgets",
+        probe: || {
+            use crate::checks::resource::{Resource, ResourceAmount};
+            use crate::movers::carrier::CarrierCost as C;
+            let a = ResourceAmount { cost: C::PerMessageAlloc, units: 4 };
+            let b = ResourceAmount { cost: C::ZeroAllocInline, units: 6 };
+            let whole = a.merge(b);
+            // 真和（units 相加）＋ 幺元吸收。
+            whole.units == 10 && ResourceAmount::empty().merge(whole) == whole
+        },
+    },
 ];
 
 
@@ -393,6 +409,39 @@ pub const LEDGER_STD_EXTRA: &[LedgerEntry] = &[
         witness: "delivery::Delivery::Closed",
         conformance: "tests/buffer.rs",
         probe: || matches!(Delivery::Closed(1i32), Delivery::Closed(_)),
+    },
+    LedgerEntry {
+        seam: "profile::assemble_profile",
+        obligation: "饱和门槛（A1）：载体的饱和策略不得弱于剖面饱和下限（Service=Block：服务投递接缝不得静默丢弃）；meets_saturation_floor 偏序（设计决断，非命题结论）",
+        modality: Modality::DeploymentValidation,
+        witness: "contract::validate_saturation / carrier::SaturationPolicy::meets_saturation_floor",
+        conformance: "profile.rs: service_profile_rejects_dropping_carrier / game_profile_accepts_fail_tier / carrier.rs: saturation_floor_partial_order",
+        probe: || {
+            use crate::movers::carrier::SaturationPolicy as S;
+            S::Block.meets_saturation_floor(S::Block)
+                && !S::DropNewest.meets_saturation_floor(S::Block)
+                && S::DropNewest.meets_saturation_floor(S::NotApplicable)
+                && crate::checks::contract::validate_saturation::<ProbeInc, ProbeTriple, crate::movers::carrier::QueueCarrier>(S::Block).is_ok()
+        },
+    },
+    LedgerEntry {
+        seam: "drive::flow::drive_catch",
+        obligation: "panic 边界（A3）：cell 的 panic 经 catch_unwind 截为值，不跨信任边界裸奔；'cell 内禁 panic'为④声明（contract::NoPanic 标记），未声明 NoPanic 的 cell 须经此边界驱动",
+        modality: Modality::DeploymentValidation,
+        witness: "drive_catch (std::panic::catch_unwind + AssertUnwindSafe)",
+        conformance: "flow.rs: drive_catch_contains_panic_and_passes_clean_drives",
+        probe: || {
+            struct PanicCell;
+            impl axiom::cell_core::PortCell for PanicCell {
+                type In = i32;
+                type Out = i32;
+                type State = ();
+                fn step(_: &mut (), _: i32) -> i32 {
+                    panic!("ledger panic-boundary probe")
+                }
+            }
+            crate::drive::flow::drive_catch::<PanicCell, ProbeSink>(&mut (), &mut (), 0).is_err()
+        },
     },];
 
 

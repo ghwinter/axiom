@@ -43,6 +43,25 @@ pub enum SaturationPolicy {
     NotApplicable,
 }
 
+impl SaturationPolicy {
+    /// 饱和策略的兼容偏序（A1；**设计决断，非命题结论**）：
+    /// `NotApplicable < {DropNewest, DropOldest, Fail} < Block`（`Drop*` 两两不可比较）。
+    ///
+    /// 语义来自 A1/L1 对照：`Block`/`Drop*`/`Fail` 都随 `Full(v)` 回传拒值，不违
+    /// L1 无静默丢失；档高只承诺**更少丢弃**（`Block` 不丢、`Drop*`/`Fail` 丢但有回执、
+    /// `NotApplicable` 无饱和点）。偏序因此非"强弱"总分，而是"候选策略是否承诺不弱于
+    /// 剖面下限"的合取。两条规则：
+    /// 1. 剖面下限为 `NotApplicable` ⇒ 任何策略满足（无饱和义务）；
+    /// 2. 只有 `Block` 满足 `Block` 下限（会丢的载体不满足"不得丢弃"）。
+    pub fn meets_saturation_floor(self, floor: SaturationPolicy) -> bool {
+        match (self, floor) {
+            (_, SaturationPolicy::NotApplicable) => true, // 无饱和义务
+            (SaturationPolicy::Block, _) => true, // Block 承诺不丢，满足任何档
+            (a, b) => a == b, // 同策略自我满足；Drop* 两两不可比较；NotApplicable 低于任何饱和档
+        }
+    }
+}
+
 // ── 注册载体（C3；密封白名单）─────────────────────────────────────────────
 
 mod sealed {
@@ -449,6 +468,28 @@ mod short_circuit_tests {
                 C::saturation()
             }
             assert_eq!(default_saturation::<QueueCarrier, Inc, Double>(), SaturationPolicy::Block);
+        }
+
+        #[test]
+        fn saturation_floor_partial_order() {
+            // A1 兼容偏序（设计决断）：NotApplicable < {Drop*,Fail} < Block，Drop* 两两不可比。
+            use SaturationPolicy as S;
+            // 无饱和义务下限：任何策略满足。
+            assert!(S::NotApplicable.meets_saturation_floor(S::NotApplicable));
+            assert!(S::Block.meets_saturation_floor(S::NotApplicable));
+            assert!(S::DropNewest.meets_saturation_floor(S::NotApplicable));
+            // Block 承诺不丢，满足任何档（含 Block 自身）。
+            assert!(S::Block.meets_saturation_floor(S::Block));
+            assert!(S::Block.meets_saturation_floor(S::Fail));
+            // 会丢的策略不满足 Block 下限。
+            assert!(!S::DropNewest.meets_saturation_floor(S::Block));
+            assert!(!S::DropOldest.meets_saturation_floor(S::Block));
+            assert!(!S::Fail.meets_saturation_floor(S::Block));
+            assert!(!S::NotApplicable.meets_saturation_floor(S::Block));
+            // 同策略自我满足；Drop* 两两不可比（异策略同档不满足）。
+            assert!(S::Fail.meets_saturation_floor(S::Fail));
+            assert!(!S::DropNewest.meets_saturation_floor(S::DropOldest));
+            assert!(!S::DropOldest.meets_saturation_floor(S::Fail));
         }
 
         #[test]

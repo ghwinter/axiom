@@ -31,7 +31,7 @@
 
 use axiom::cell_core::PortCell;
 
-use crate::movers::carrier::{Carrier, CarrierCost};
+use crate::movers::carrier::{Carrier, CarrierCost, SaturationPolicy};
 use crate::checks::contract::ContractError;
 use crate::drive::flow::{Driver, drive_link};
 use crate::checks::obligation::{DeliveryKind, ObligationClass};
@@ -44,6 +44,14 @@ pub trait Profile {
     /// 校验）。已按剖面分化（C10 step 2）：资源轴声明 ≤ 下限、投递态轴声明 ≥ 下限；
     /// 引用/生命周期轴保持声明、不予判定（A5 诚实）。
     fn obligation_min() -> ObligationClass;
+    /// 饱和下限（A1；模态③ 于 [`assemble_profile`] 校验）。载体的
+    /// [`Carrier::saturation`] 不得弱于该下限（
+    /// [`SaturationPolicy::meets_saturation_floor`] 偏序）。默认 `NotApplicable`
+    /// ——无饱和义务（外松）；需要"不得静默丢弃"的剖面声名更高档。**取值随剖面
+    /// 分化，为设计决断，非命题结论。**
+    fn saturation_floor() -> SaturationPolicy {
+        SaturationPolicy::NotApplicable
+    }
     /// 是否为**注册门剖面**（C3）：若为 `true`，装配须经
     /// [`assemble_profile_gated`]（编译期要求 `C: Registered`——白名单升为
     /// 模态①事实；未注册载体编译失败）。
@@ -64,6 +72,9 @@ impl Profile for KernelProfile {
             ..ObligationClass::default()
         }
     }
+    fn saturation_floor() -> SaturationPolicy {
+        SaturationPolicy::NotApplicable // 同步直通内核：无饱和点
+    }
 }
 
 /// 服务形式剖面（F = service/server）：**注册门**（C3）。
@@ -79,6 +90,10 @@ impl Profile for ServiceProfile {
             resource: CarrierCost::PerMessageAlloc,
             ..ObligationClass::default()
         }
+    }
+    fn saturation_floor() -> SaturationPolicy {
+        // 服务投递接缝必须背压不丢弃（Block）：会丢（Drop*/Fail）的载体在装配点被拒。
+        SaturationPolicy::Block
     }
 }
 
@@ -121,11 +136,16 @@ impl Profile for GameProfile {
     fn obligation_min() -> ObligationClass {
         ObligationClass::default()
     }
+    fn saturation_floor() -> SaturationPolicy {
+        // 帧内丢弃为常态，drop-with-receipt（Fail）档——低于 Block，但不静默丢值。
+        SaturationPolicy::Fail
+    }
 }
 
-/// 按剖面装配（模态③）：载体成本 ≤ 剖面预算 **且** 载体义务不弱于剖面义务下限，
-/// 越界 = 装配失败；返回 [`drive_link`] 函数指针（热路径零税）。同一 `A`/`B` 拓扑
-/// 换剖面 = 换预算门 + 换义务下限，不改拓扑（T6：义务随剖面变化，语义一致）。
+/// 按剖面装配（模态③）：载体成本 ≤ 剖面预算 **且** 载体义务不弱于剖面义务下限
+/// **且** 载体饱和策略不弱于剖面饱和下限（A1 第三门），越界 = 装配失败；返回
+/// [`drive_link`] 函数指针（热路径零税）。同一 `A`/`B` 拓扑换剖面 = 换预算门 +
+/// 换义务下限 + 换饱和下限，不改拓扑（T6：义务随剖面变化，语义一致）。
 ///
 /// **开放入口**：不校验注册（C3）——适用于开放剖面（Tool/Embedded，`GATED=false`）。
 /// 注册门剖面（Kernel/Service，`GATED=true`）必须使用 [`assemble_profile_gated`]
@@ -141,6 +161,8 @@ where
     crate::checks::contract::validate_cost::<A, B, C>(P::cost_budget())?;
     // C10 step 2：义务下限（模态③）——从占位转为可强制的装配门。
     crate::checks::contract::validate_obligation_min(C::obligation(), P::obligation_min())?;
+    // A1：饱和下限（模态③）——载体的饱和策略不得弱于剖面饱和下限。
+    crate::checks::contract::validate_saturation::<A, B, C>(P::saturation_floor())?;
     Ok(drive_link::<A, B, C>)
 }
 
@@ -160,7 +182,9 @@ where
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use crate::movers::carrier::{InlineCarrier, QueueCarrier};
+    use crate::movers::carrier::{InlineCarrier, QueueCarrier, SaturationPolicy};
+    use crate::checks::contract::validate_saturation;
+    use crate::checks::obligation::ObligationClass;
 
     struct Inc;
     impl PortCell for Inc {
@@ -230,6 +254,55 @@ mod tests {
         // Tool 外松：任何载体义务都满足下限（Inline 与 Queue 均通过）。
         assert!(assemble_profile::<ToolProfile, Inc, Double, InlineCarrier>().is_ok());
         assert!(assemble_profile::<ToolProfile, Inc, Double, QueueCarrier>().is_ok());
+    }
+
+    // 探针用"会丢"载体：成本量级通过 Service 预算，投递态机械化，饱和为 DropNewest。
+    // 专用于证明饱和门槛（A1）独立于成本/义务门——否则会先被 cost/obligation 拒绝。
+    struct DropOnSaturation;
+    impl Carrier<Inc, Double> for DropOnSaturation {
+        fn cost() -> CarrierCost {
+            CarrierCost::PerMessageAlloc
+        }
+        fn obligation() -> ObligationClass {
+            ObligationClass {
+                delivery: DeliveryKind::MechanizedFullClosed,
+                resource: CarrierCost::PerMessageAlloc,
+                ..ObligationClass::default()
+            }
+        }
+        fn saturation() -> SaturationPolicy {
+            SaturationPolicy::DropNewest
+        }
+        fn flow(sa: &mut (), sb: &mut (), x: i32) -> i32 {
+            Double::step(sb, Inc::step(sa, x))
+        }
+    }
+
+    #[test]
+    fn service_profile_rejects_dropping_carrier() {
+        // A1 第三门：Service 饱和下限 Block——会丢（DropNewest）的载体在装配点被拒
+        // （不走 delivery 门：DropOnSaturation 投递态已机械化、成本也过 Service 预算）。
+        assert_eq!(
+            assemble_profile::<ServiceProfile, Inc, Double, DropOnSaturation>(),
+            Err(ContractError::SaturationUnderMet {
+                declared: SaturationPolicy::DropNewest,
+                floor: SaturationPolicy::Block,
+            })
+        );
+        // 同一载体在 Tool（无饱和下限）下装配通过——门是剖面属性的，非载体固有。
+        assert!(assemble_profile::<ToolProfile, Inc, Double, DropOnSaturation>().is_ok());
+        // 同一载体在 Game（Fail 档）下仍被拒（DropNewest < Fail，异策略不可比）。
+        assert!(matches!(
+            assemble_profile::<GameProfile, Inc, Double, DropOnSaturation>(),
+            Err(ContractError::SaturationUnderMet { .. })
+        ));
+    }
+
+    #[test]
+    fn game_profile_accepts_fail_tier() {
+        // Game 饱和下限 Fail：Fail 档载体满足自身；Block 载体（更强）也满足。
+        assert!(validate_saturation::<Inc, Double, QueueCarrier>(SaturationPolicy::Fail)
+            .is_ok()); // Block ≥ Fail
     }
 
     #[test]
