@@ -6,7 +6,7 @@
 //! （针对该居留项单态化）。这是统一模型里"∃ 绑定"的**物理侧**——接口固定
 //! （T1 编译期验证）、居留项运行期存在化、可换装。
 //!
-//! 生命周期（meta-foundations 定义 1.6 的生命周期轴；runtime-constitution 阶段 2）：
+//! 生命周期（meta-foundations 定义 1.6 的生命周期轴；semantics-constitution 阶段 2）：
 //! - **Adding**：`SlotPending::install::<T>(state)`——安装一个编译期合规居留项
 //!   （`T: PortCell<In=I, Out=O>` ⟹ core `Conforms` 判定；T1 编译期验证）；
 //! - **Ready → Live**：`commit()`——授权；此后才可 `drive`。未 commit 不可驱动是
@@ -35,7 +35,7 @@
 //! （衔接 async-seam.md 开放问题：异步接缝 × 换装的在途语义）。
 //!
 //! **成本声明（模态③）**：每次安装/换装一次堆分配（`Box`）+ 函数指针间接调用——
-//! 本接缝是 runtime 的动态税位置之一（PerInstallAlloc 类），部署期显式声明。
+//! 本接缝是 semantics 的动态税位置之一（PerInstallAlloc 类），部署期显式声明。
 
 use axiom::cell_core::PortCell;
 use core::any::Any;

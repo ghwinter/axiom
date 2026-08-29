@@ -236,6 +236,24 @@
 - Time as value: located in A ∖ T (run-time clock must be threaded as State data); axiom does not legislate scheduling (§8.4).
 - Closed minimal specification API (derive generation): located within T; an engineering improvement, not a new concept; fix the minimal primitive set before generating.
 
+**注记 7.3（行为范畴五结构与准入四轴（细化））**。本节细化 §2 四轴（机器可达性过滤：可定义 / 可实现 /
+可行 / 可验证）的**目标侧**结构，不新增公理。语义目标范畴承载五结构——序（因果序）、成本（时空）、容量（界）、
+传递（投递语义）、并发资源（交换复合与单属主）；准入侧另有四轴——效应、状态即资源、并发、时间（时间 / 并发
+是否入论域），决定"一个新能力是否需要新增概念"。定位：§2 四轴判定对象能否穿过；五结构描述穿过之后进入的
+目标范畴长什么样；二者是一条定理的两面，非平行新论。资源幺半群（semantics-constitution D11）是"并发资源"
+结构的一等对象化。
+
+**Remark 7.3 (Five Structures of the Behavior Category and Four Admission Axes (refinement))**. This note refines
+the target-side structure against which the §2 four axes (machine-reachability: definability / computability /
+feasibility / verifiability) filter; it introduces no new axioms. The semantic target category carries five
+structures—order (causal), cost (spacetime), capacity (bound), transfer (delivery semantics), and
+concurrency-resource (commutative composition and single-ownership). The admission side carries four axes—
+effect, state-as-resource, concurrency, and time (whether time / concurrency enter the domain of discourse),
+deciding whether a new capability requires a new concept. Placement: the §2 four axes judge whether an object
+passes; the five structures describe what the target category looks like once passed; the two are two faces of
+one theorem, not a new parallel doctrine. The resource monoid (semantics-constitution D11) is the first-class
+objecthood of the "concurrency-resource" structure.
+
 ---
 
 ## 8. 结论 / Conclusion

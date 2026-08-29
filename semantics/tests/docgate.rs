@@ -106,7 +106,7 @@ fn doc_rust_blocks_compile_against_current_api() {
             docs.join(lang).join("foundations.md"),
             docs.join(lang).join("core.md"),
             docs.join(lang).join("unified.md"),
-            docs.join(lang).join("runtime.md"),
+            docs.join(lang).join("semantics.md"),
         ] {
             if !md.exists() {
                 continue;

@@ -14,7 +14,7 @@
 |---|---|---|
 | `boundary-ontology.md` | 规范论文——代数合法性与机器可达性的四轴结构，及双层信任架构（闭包系统/合法重接线/三归宿/分层律） | 现行规范（审定） |
 | `meta-foundations.md` | 规范论文——公理放置问题 M（构成三分区/回归三难/证明分层/诚实规则/义务代数） | 现行规范（审定） |
-| `runtime-constitution.md` | 规范设计——runtime 宪法的落地蓝图（公理 A1–A6/定义 D1–D5/义务代数/代码投影/破坏性变更清单/兼容性与开放接缝） | 现行规范（Δ 执行中） |
+| `semantics-constitution.md` | 规范设计——semantics 宪法的落地蓝图（公理 A1–A6/定义 D1–D5/义务代数/层位身份/代码投影/破坏性变更清单/兼容性与开放接缝） | 现行规范（Δ 执行中） |
 | `frontier-notes.md` | 现行前沿注记——七条未落地方向（高阶绑定/时间作值/封闭极小规范 API/产物分析粒度阶梯/e-graph/蓝图编译期载体形态/效果标注系统）+ 诚实边界 | 现行（不构成承诺） |
 | `positioning.md` | 定位注记——六个科学透镜（原子组合/系统论/信息论/涌现论/计算科学/现代数学）对既有构件的解读；两处锚点增量（迹单调范畴＝Feedback 形态、模态的双重逻辑读法） | 现行（非新公理；冲突以规范为准） |
 | `incompleteness-unification.md` | 理论注记——不完备统一：Gödel–Rosser 不可完备化 / Tarski 真不可定义 / Lawvere–Yanofsky 不动点定理的同一骨架与层级差异；axiom 边界词汇对应表；"隧道式分层"设计推论（自指⇒不完备⇒层间双向残差必然） | 现行注记（非新公理；冲突以规范为准） |
@@ -32,6 +32,21 @@
 | compile-time-core-direction.md | core.md §1–§6、§8；foundations.md §5.3/§5.5 |
 | refactor-plan-runtime-carriers.md | semantics.md §1–§6 |
 | refactor-plan-compile-time-core.md | core.md §2–§6 |
+
+**层位更名承继（2026-08）**：`semantics-constitution.md` 原名 `runtime-constitution.md`；
+随 runtime→semantics 层位更名更名（目录/包/crate/文档路径/CI 同步），其内容全部承继，
+仅把运行时概念词随新层位改名。本文档在本文更名后，`runtime-constitution` 名不再使用。
+
+**理论并编承接（2026-08，哲学重构轮）**：三份未跟踪工作稿的**真理论内容**并编至受跟踪
+theory 文档，其**审计/计划内容**仍居 internal 工作稿：
+- `docs/internal/axiom-reconstruction.md` 重建论题（shape×语义函子、T6=同余、substrate-first、
+  同步为退化极限）→ 并编入 `semantics-constitution.md` 前置"层位身份"段；
+- `docs/internal/semantic-vocabulary.md` 定义性词汇（semantics/axiom-IO/观测/step 边界/接口与并发
+  /资源幺半群）→ 并编入 `semantics-constitution.md` §2 定义集；其 §10 代码达成度审计居 internal；
+- `docs/internal/axiom-code-evolution.md` 三语义计划（迭代/重构/升级）与 std 可替换绑定 →
+  承接注记并编入 `semantics-constitution.md` §11/§2；计划细节居 internal。
+
+并编内容须过第 3 节文体检查表；未证论题为"主张/注记（非结论，冲突以规范为准）"。
 
 ## 3. 文体检查表（核心规则）
 
@@ -74,13 +89,13 @@
 2. **矛盾分类学缺失**（类别矛盾被消除/边界矛盾被定位/经验矛盾被展出）→ 补入
    `boundary-ontology.md` 注记 9.10，并标注其与"无第六概念"判据适用范围的区分。
 3. **库兼容性命题缺失**（接缝契约 + 义务声明 + 机制自由；三处边界；与早期声明兼容矩阵）→
-   补入 `runtime-constitution.md` §7。
-4. **索引漏列** `runtime-constitution.md`（已跟踪文件不在目录表）→ 本表补行。
+   补入 `semantics-constitution.md` §7。
+4. **索引漏列** `semantics-constitution.md`（已跟踪文件不在目录表）→ 本表补行。
 5. **计数过时**：§4"5 个文件"实际为 7 个 → 更新。
 
 **阴性结果（未发现遗漏的陈述可能性）**：四轴独立性（命题 2.5/注记 2.6）与第五轴的关系已由
 命题 2.7 收口，无第三组轴间关系待陈述；模态格/义务代数/六元组标准化在 meta-foundations §3 与
-runtime-constitution §3 已有陈述；三归宿、双层信任、分层律无新增陈述需求；`positioning.md`
+semantics-constitution §3 已有陈述；三归宿、双层信任、分层律无新增陈述需求；`positioning.md`
 六透镜解读与两处增量（迹单调范畴、模态双重逻辑读法）无缺口。
 
 **残余开放项（已声明为开放问题，非遗漏）**：T5 行为等价、Z1 成本语义、异步载体落地、

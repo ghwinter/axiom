@@ -1,9 +1,34 @@
-# runtime 宪法：义务代数的落地设计 / Runtime Constitution: The Obligation-Algebra Design
+# semantics 宪法：义务代数的落地设计 / Semantics Constitution: The Obligation-Algebra Design
 
 > **性质**：I1 层设计规范（`docs/internal/theory/`，入 git）。**本文是 axiom-semantics 破坏性
 > 重构的蓝图**：由 [`meta-foundations.md`](meta-foundations.md)（公理/定义/代数）向代码投影。
 > 上游：meta-foundations 定义 1.1–1.11、命题 7.4（六元组）、boundary-ontology 定理 9.6、§8.3 封闭判据。
-> 状态：Δ 执行中；核心冻结（`core/src/cell_core.rs` 语义零改动）。
+> 状态：Δ 执行中；核心冻结（`core/src/cell_core.rs` 语义零改动）。本文原名 runtime 宪法
+> （Runtime Constitution），随 runtime→semantics 层位更名更名，其承继关系记于 theory/README 超驰映射。
+
+---
+
+## 前置：层位身份 / Layer Identity
+
+> 本段定位了本文所辖层位（语义层）在 axiom 三构件中的身份。其中未证部分显式标注为
+> **主张（非结论，冲突以规范为准）**，不冒充既有规范命题。
+
+**三构件**。axiom 分为三个构件，单向依赖（workspace 强制 `axiom ← axiom-semantics ← axiom-instances`）：
+- **core（形状 / Shape）**：核心 `cell_core` 冻结。只声明因果数据流（`A.out → B.in`）的**形状**：类型、型位（typed hole）、三绑定态、T1 布线合法性。承载逻辑-D 结构不变量（L1 无静默丢失 / L2 单属主 / L3 容量先验 / L4 政策归驱动）。
+- **semantics（语义函子 / Semantics Functor，本层）**：把核声明的形状解释为"在执行基座上跑起来意味着什么"——值如何流动、以何种时空成本、边界条件如何定义。语义函数是映射 **⟦core shape⟧ : Shape → Behavior**（boundary-ontology 的 σ 的范畴级推广，见 §4/§9）。
+- **instances（实例层 / Bindings）**：绑定爆发——具体执行基座（tokio / io_uring / std 世界）接入语义接缝，兑现等待点与真实事件源。
+
+**语义函数与 T6（主张）**。语义函数 ⟦·⟧ 把形状范畴映到行为范畴：同一形状的多物理实现（载体）因"对应同一行为"而等价——正是 T6（多物理实现语义等价）。**T6 = 语义函数的同余 / 自然性，为主张非已证结论**；其可靠地位不用于证明区，只作语义层的组织原则。
+
+**基座优先（substrate-first）**。并发 / 异步是语义基座：复杂软件本征地跑在多核多线程，模块分布多执行序是基例、非例外。**单线程同步纯单元 = 该基座的退化极限**（一个执行序、无交错、无等待），不是并发随后附加的原始态。无共享全局时钟时，不存在"普遍同步情形"可供一般化。故本层把异步 / 并发当作语义基座，同步纯形态按其退化极限表述。
+
+**no_std = 抽象层纯承诺**。core 与 semantics 以 `no_std` 交付，是"零成本抽象"的**另一面**：形状层不依赖宿主运行时，是可移植的纯承诺（模态①的物理侧）。不把 no_std 当作终点或特权，只当抽象层交付形态的一个约束。
+
+**std 可替换**。实例层支持任意绑定世界（`std`、tokio、io_uring……），**std 本身可替换、无特权**：它是具体绑定世界之一。唯一不可替换的底是语言核心与 `alloc`；接缝（socket）一律按**能力声明**（capabilities，如 `Executor` 可替换等待点、`Carrier` 可替换传输、`Telemetry` 可替换观测），不按 `std` 具体类型立约。能落到能力层的绑定，落能力层；落不到者（绑定爆发、探针实现）归实例层。
+
+**本层不执行**。semantics 承载契约与接缝，不执行任何东西：等待点、事件源、真实绑定的兑现归实例层（§11）。执行位置低移，不改变语义拓扑（T6 辖域内）。
+
+---
 
 ## 1. 公理集 / Axioms
 
@@ -20,7 +45,50 @@
 - **D2 模态**：① 结构见证（类型级）/ ② 常量见证（编译期）/ ③ 部署验证（装配期）/ ④ 声明；模态格 {①②③④} ∪ {∅（违例）}，每条义务恰占一格。
 - **D3 接缝**：两层之间的准入通道；残余必须被显式承载。
 - **D4 载体**：物理实现；须声明成本（`CarrierCost`）与义务类。
-- **D5 runtime**：义务代数的机械——物理层自分层（分层律在物理层内的递归应用）。
+- **D5 semantics**：义务代数的机械——物理层自分层（分层律在物理层内的递归应用）。本文原名 runtime
+  宪法称 D5 为 runtime；随层位更名更名，语义不变。
+
+**定义卷（并入自 internal 工作稿；见 theory/README §2 理论并编承接）**。以下 D6–D11 补全语义负载词首的
+定义缺口，按 theory/README §3 文体重写。冲突以公开规范为准。
+
+- **D6 语义 / Semantics**：从配置空间到可观察行为的映射 σ: W → Obs（boundary-ontology 定义 1.2），连同在该
+  映射上定义的关系——合法重接线（σ∘ρ = σ）、行为等价（T5）、语义保持。语义是序对（载体, 语义）的一个分量
+  （boundary-ontology 命题 4.3）。**边界（与类型判定互补）**：类型判定在分层某阶 tₖ 可判定者归 ①②③；语义
+  性质的**真值不在任何 tₖ 被系统验证**者只允许 ④（meta-foundations 定义 1.4）。**推论（语义不含物理发生）**：
+  语义不包含物理事件的发生机制，只包含语义函数把它映成何种可观察行为。
+- **D7 IO 二分**：axiom-IO = 信息传递（抽象层只断言"类型 + 因果"，机制与时机归物理载体，foundations §1.0a）；
+  OS-IO = 外部世界事件的物理发生（socket / 文件 / 信号；非确定、可失败 / 阻塞 / 有副作用）。**接缝**：OS-IO 经
+  载体成为 axiom-IO 的 in；该接缝是"未判定残差的物理层落点"，按三归宿落实于模态 ③④，**须显式声明**，否则即
+  未形式化洞（原名 runtime.md §9.3 之承认）。**边界（失败归属）**：axiom 不承诺统一 OS 错误的语义；axiom-IO
+  拥有的是传播纪律（fail-closed、no-silent-loss，本文宪法）；OS 上"每次失败 / 阻塞 / 副作用意味着什么"归
+  处理器 / 载体定义，不属 core。
+- **D8 观测 / 观测层**：观测 = 读取可观察行为（σ 的余象 Obs 的成分）；观测**不是第三种流类**——观测值 / 控制值 /
+  数据值物理同物（foundations §5.8），"观测"只是"数据被消费在别处"的位置描述，非独立语义原语。观测层 = 承载
+  观测接口（收集 → 输出 / 日志 / 审计）的抽象层接口，是构造概念 4 的一部分，**非第六构造概念**。**边界（诚实
+  落点）**：观测可到达接口与载体判定的可观察行为（S），**不进入 cell 内部 `State`**（`State` 按遗漏无结构，
+  core.md §2.1）。**推论**：观测 `State` 内部演化是给 `State` 增加结构的后果（见 D11 资源幺半群），非观测层
+  默认能力。
+- **D9 step 边界与卡死放置权**：`step : State×In → State×Out` 是组合节点的（单跳、同步）边界契约——钉住
+  "线缆两端这一跳的输入输出关系"，如同 C 函数签名只描述边界、不捕获内部载体。`step` 的"纯"非计算本性主张，
+  而是"边界不变量在流动不卡死片段上成立"的约定（决策 T；core §2.1）。**卡死放置权二选一**：(a) 归载体
+  （实现现状：卡死放置于队列 / 载体 / async_seam，`step` 保持全函数，core 承诺"step 不卡死"）；(b) 归行为
+  范畴（若要"卡死本身"作原子语义，原子单位是事件 / 握手，非 step，落并发基座 8.6 item9）。二者非定义层冲突，
+  是放置层选择；连续性流 / 反馈本非 step 形（流需共归纳、反馈需 trace，均落语义目标范畴）。
+- **D10 接口 / 组合不透明 / 并发 / 异步**：接口 = 一个节点暴露的、受类型的端口集合的可用子集；连接经线的合法性
+  由 T1 判定；接口是"组合不透明"的约定边界，**不是"不可观察"的物理墙**。**弃用"黑盒"**，代之以二分：
+  (a) 组合不透明（只承诺接口、内部可换，条件于接口保持）；(b) 按遗漏无结构（`State` 无声明结构，可经接口演进
+  加结构）。"黑盒"的"不可观察"暗示与 D8 观测平凡化矛盾，故不采用。并发 = 行为范畴中可交换复合（对齐 CKA ‖）
+  与事件 / 握手的原子性；它是**基座**，非退化附加。异步 = 可由挂起 / 恢复暂停的交互原子，是并发基座的可暂停
+  实例。**边界（同步退化）**：单线程同步 = 该基座的退化极限；实现若以同步纯 cell 为默认原语、异步置于 feature
+  门后（现状 `no_std` 单线程优先 + `async-seam` 门），记为基座优先的**差距**，非满足项。
+- **D11 资源幺半群（唯一真新增）**：把资源携带到交换幺半群 $(M, \cdot, \varepsilon)$：$M$ = 全部可构筑资源，
+  $\cdot$ = 资源合并（顺序无关、可分可并），$\varepsilon$ = 空资源；acquire = 从共享池取出、release = 放回、
+  "持有" = 状态里携带的那份资源。**frame 律**：分离逻辑的 frame 规则给出"资源可分开推理"——$R$ 与 $P$ 分离
+  （$P \ast R$）时，$C$ 的论断对 $R$ 无需改动，是组合验证可分解（T4）在资源维度的机械，补 D1 缺失的"可组合
+  资源对象"。**边界（落于行为范畴，不改 core）**：资源幺半群是行为范畴的一等对象（同"成本在热带半环"落语义函子
+  侧），不修改 core 的 `State: Default` 形状，是对 `State` 结构约束的扩充；与其 L2 单属主（`&mut` 独占）相容
+  ——单属主正是 frame 律所需的不相交所有权。**诚实边界**：这是语义语料**唯一真正的扩展**（其余 D6–D10 均为
+  既有理论的重命名或补齐），故标"新增"；其可靠依赖"资源不相交"假说，跨结点一致性不在此层。
 
 ## 3. 代数 / Algebra
 
@@ -31,7 +99,7 @@
 ## 4. 代码投影 / Code Projection（新结构）
 
 ```
-runtime/src/
+semantics/src/
   contract.rs   义务账本：义务类 × 模态 × 见证 fn × 测试（A4/A5/A6 的机械）
   obligation.rs 义务类类型系统：DeliveryState / ResourceClass / ReferenceValidity / LifecyclePhase
   delivery.rs   投递四态：Full/Closed 机械化（②③），Timeout/Cancelled 声明（④，机械化为物理选择）
@@ -66,7 +134,7 @@ runtime/src/
 4. ✅ 事件层：event.rs（EventStream/ChunkSource/split_lines/pump_events 载体类）+ redis_like 实例化（server.rs 已改由 pump_events 驱动；§9.3 收口）。
 5. ✅ 短路载体：ResultCarrier/MaybeCarrier（§9.2 收账）。
 6. ✅ 示例健壮性：netpath/mmо Result-ify。
-7. ✅ 终验：tests / no_std / clippy -D warnings 全部通过 + semantics.md en/zh 同步（本地全量验证：顶层 32 + runtime 59 测试、benches 编译、no_std 双 crate、clippy `-D warnings` 双 crate、docgate 门、en/zh §9.3 同步，全部零发现项）。
+7. ✅ 终验：tests / no_std / clippy -D warnings 全部通过 + semantics.md en/zh 同步（本地全量验证：顶层 32 + semantics 59 测试、benches 编译、no_std 双 crate、clippy `-D warnings` 双 crate、docgate 门、en/zh §9.3 同步，全部零发现项）。
 
 每步过 §8.3 封闭判据（无第六概念）：义务类=概念1 失败为值的展开；生命周期=概念4 型位的实现；邮箱/事件=概念5 物理载体的实例；账本=契约（§8.4 物理层义务）。
 
@@ -177,7 +245,7 @@ placement 的语义面）：服务的跨机器放置按可判性分四层，各�
 
 ## 11. 实例层形态（第三构件）/ Instance-Layer Form
 
-> 定义（三构件）：core（`cell_core`）冻结；runtime（载体 + 接缝族，零外部依赖）；
+> 定义（三构件）：core（`cell_core`）冻结；semantics（载体 + 接缝族，零外部依赖）；
 > instances（实例层，经 socket 以 feature 门控接入可替换实现）。落地：
 > workspace 收敛 + EX 泛型化 + instances crate（见 instance-layer-design.md）。
 
@@ -201,3 +269,14 @@ placement 的语义面）：服务的跨机器放置按可判性分四层，各�
 - **开放项（不冒充②③）**：同步 `Executor` 插座自身仍为占位（`park_timeout`，不冒充
   tokio 期限）——trait 化的可替换等待点由 `ThreadExec`/`TokioExec` 兑现，真 tokio 语义
   走 async 路径；MSRV/行为待实测。
+
+**层位学说（承接前置"层位身份"段）**：
+- **抽象层的纯承诺**：core 与 semantics 以 `no_std` 交付，是可移植的纯承诺（前置段"no_std = 抽象层纯承诺"），
+  不当作终点或特权。
+- **std 可替换、无特权**：实例层支持任意绑定世界（`std` / tokio / io_uring……）；不把 `std` 或其类型立为接缝
+  契约——**接缝按能力声明**（`Executor` 可替换等待点 / `Carrier` 可替换传输 / `Telemetry` 可替换观测），不按
+  `std` 具体类型。唯一不可替换的底 = 语言核心 + `alloc`。
+- **绑定爆发归此层**：`no_std` 在抽象层保持，绑定与宿主依赖在实例层爆发；突破 `no_std` 是实例层的合法行为，非缺
+  陷。
+- **基座优先落地**：同步纯 cell 分布性是基座（并发 / 异步）的退化极限，见 D10 边界；实例层提供真异步驱动
+  （tokio adapter worker，见上），使基座优先在绑定层可兑现，而非把异步当作愧对 no_std 的附加。

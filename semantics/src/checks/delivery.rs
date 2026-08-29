@@ -6,7 +6,7 @@
 //! **落位律（A3）**：Full/Closed 在本模块**机械化**（模态②③：从标准库错误直接映射、
 //! 装配点可校验）；Timeout/Cancelled 需要定时器与请求域通道机制——按 A5 诚实规则
 //! 声明为模态④，**不伪造见证**（不提供假装判定的 API）。机械化为物理选择，待真异步
-//! 载体时落地（runtime-constitution 阶段 4）。
+//! 载体时落地（semantics-constitution 阶段 4）。
 //!
 //! 值守恒：Full/Closed 携带被拒值（对齐 buffer.rs"不静默丢值"纪律）。
 
