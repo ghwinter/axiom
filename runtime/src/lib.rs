@@ -113,6 +113,11 @@ pub mod movers {
 
     /// 环形缓冲（no_std 单线程 FIFO）。Stability: **experimental**。
     pub mod ring;
+
+    /// 异步事件驱动块环契约（上游等非满 / 下游等新块；tokio 实例在 instances）。
+    /// Stability: **experimental**。门控：`std`。
+    #[cfg(feature = "std")]
+    pub mod async_ring;
 }
 
 /// 接缝（等待 / 事件 / 观测）。
@@ -154,6 +159,13 @@ pub mod drive {
     /// `wire!` 声明宏：编译期展开的"连线 + 载体 + 验证"一次完成（宏/编译期技巧）。Stability: **stable**。
     #[macro_use]
     pub mod macros;
+
+    /// 异步流水线驱动：把 `PortCell` 与其前后两级异步块环接通
+    /// （`run_source` 生产：step → send 等非满；`run_sink` 消费：recv 等新块 → step）。
+    /// 生产/消费任务由实例层（tokio spawn）组合；等待点语义归块环实现。
+    /// Stability: **experimental**。门控：`std`。
+    #[cfg(feature = "std")]
+    pub mod async_flow;
 }
 
 /// 核心 prelude。

@@ -51,6 +51,12 @@ pub mod backend {
     /// 门控：`tokio` feature。
     #[cfg(feature = "tokio")]
     pub mod tokio_exec;
+
+    /// tokio 事件驱动异步块环：实现 runtime `AsyncBlockRing` 契约（send 等非满 /
+    /// recv 等新块，双 Notify 唤醒挂 tokio reactor）。块级流水线的交接原语。
+    /// 门控：`tokio` feature。
+    #[cfg(feature = "tokio")]
+    pub mod async_ring;
 }
 
 // 空实例面（无 feature）合法：本 crate 此时无实例导出，编译为骨架。

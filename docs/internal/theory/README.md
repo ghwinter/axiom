@@ -3,7 +3,7 @@
 # Theory Directory Index (axiom Internal Theory Workspace)
 
 > **性质**：I1 层理论工作区索引（`docs/internal/theory/`）。本目录是 axiom 的理论
-> 研究语料：两份规范论文、一份规范设计、一份现行前沿注记、一份定位注记、一份历史归档。
+> 研究语料：两份规范论文、一份规范设计、一份理论注记、一份现行前沿注记、一份定位注记、一份历史归档。
 > 规范性表述一律以公开文档 `docs/en-us|zh-cn/` 为准；本目录不承载承诺。
 
 ---
@@ -17,6 +17,7 @@
 | `runtime-constitution.md` | 规范设计——runtime 宪法的落地蓝图（公理 A1–A6/定义 D1–D5/义务代数/代码投影/破坏性变更清单/兼容性与开放接缝） | 现行规范（Δ 执行中） |
 | `frontier-notes.md` | 现行前沿注记——七条未落地方向（高阶绑定/时间作值/封闭极小规范 API/产物分析粒度阶梯/e-graph/蓝图编译期载体形态/效果标注系统）+ 诚实边界 | 现行（不构成承诺） |
 | `positioning.md` | 定位注记——六个科学透镜（原子组合/系统论/信息论/涌现论/计算科学/现代数学）对既有构件的解读；两处锚点增量（迹单调范畴＝Feedback 形态、模态的双重逻辑读法） | 现行（非新公理；冲突以规范为准） |
+| `incompleteness-unification.md` | 理论注记——不完备统一：Gödel–Rosser 不可完备化 / Tarski 真不可定义 / Lawvere–Yanofsky 不动点定理的同一骨架与层级差异；axiom 边界词汇对应表；"隧道式分层"设计推论（自指⇒不完备⇒层间双向残差必然） | 现行注记（非新公理；冲突以规范为准） |
 | `theory-archive.md` | 历史归档——六份早期文档的唯一内容合并（推导档案/元层推理/落地审计/原则重审/执行日志） | 归档（不再演进） |
 
 ## 2. 超驰映射（supersession map）
@@ -54,15 +55,15 @@
 - **白名单已生效**：`core/axiom/.gitignore` 以 `/docs/internal/*` 忽略内部工作区、
   并以 `!/docs/internal/theory/` 显式放行本目录；在 axiom 仓库内核对
   `git -C core/axiom check-ignore docs/internal/theory/<file>` 返回 exit 1（未忽略），
-  本目录 7 个文件均进入跟踪。
+  本目录 8 个文件均进入跟踪。
 - **范围说明**：顶层仓库 `D:\Projects\ICodeV7` 是独立 git 仓库，其 `.gitignore` 的
   全忽略规则不适用于本仓库；无需在其内添加白名单。
-- 本目录 7 个文件进入跟踪后：规范论文与归档不得删除；`frontier-notes.md` 的修改须
+- 本目录 8 个文件进入跟踪后：规范论文与归档不得删除；`frontier-notes.md` 的修改须
   保持第 3 节文体规则。
 
 ## 5. 审计记录 / Audit Record
 
-> 性质：陈述可能性审计（statement-possibility audit）的记录。范围：本目录 7 个文件全量。
+> 性质：陈述可能性审计（statement-possibility audit）的记录。范围：本目录 8 个文件全量。
 > 方法：逐文件比对近两轮讨论产出的陈述集合与文档已陈述集合，检查三类缺口——陈述缺失、
 > 索引不一致、计数过时；同时检查阴性面（无缺口的方向）。
 
