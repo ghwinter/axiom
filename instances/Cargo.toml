@@ -29,6 +29,15 @@ default = []
 async = ["axiom-semantics/async-seam"]
 tokio = ["async", "dep:tokio"]
 embedded = ["axiom-semantics/std"]  # 预留：嵌入式流适配（后续落）
+# tracing 观测汇：Telemetry 契约的第二实现者（第一实现 = semantics Console/Buf）。
+# 拉语义层 telemetry 特性 + 可选依赖 tracing；输出目的地由订阅者决定（打印 vs 观测的边界机制化）。
+telemetry-tracing = ["axiom-semantics/telemetry", "dep:tracing"]
+
+[dependencies.tracing]
+version = "0.1"
+optional = true
+# std：`with_default`（测试捕获订阅者）需要；tracing 默认 feature 集。
+features = ["std"]
 
 [dependencies.tokio]
 version = "1"

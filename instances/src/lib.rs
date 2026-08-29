@@ -88,4 +88,11 @@ pub mod backend {
     pub mod embedded;
 }
 
+/// tracing 观测汇：语义层 `Telemetry` 契约的 tracing 实现（Telemetry 插座的
+/// **第二实现者**——第一实现为语义层自带 Console/Buf；极小基律下的首个生态绑定，
+/// 由 redacted-project 观测需求逼出）。级别契约见模块文档（例外 warn / 热路径 trace）。
+/// 门控：`telemetry-tracing` feature。
+#[cfg(feature = "telemetry-tracing")]
+pub mod telemetry_tracing;
+
 // 空实例面（无 feature）合法：本 crate 此时无实例导出，编译为骨架。

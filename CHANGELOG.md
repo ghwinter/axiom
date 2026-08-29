@@ -7,6 +7,25 @@ expressed by incrementing the minor version).
 
 ## [Unreleased]
 
+### Added — telemetry-tracing instance (Telemetry second implementer)
+
+- **`TracingTelemetry`** (`instances/src/telemetry_tracing.rs`, feature
+  `telemetry-tracing`): the semantic `Telemetry` contract bound to `tracing` —
+  the socket's **second implementer** (first: in-tree `ConsoleTelemetry`/
+  `BufTelemetry`), pulled by a real consumer need (redacted-project observation
+  module) per the minimal-basis rule. Declared level contract: `Delivered`
+  → `trace`, `Full/Failed/Dropped` → `warn`, depth → `debug`, latency →
+  `trace`; output destination is the subscriber's decision (print-vs-observe
+  boundary mechanized). Zero-sized adapter; capture-subscriber test without
+  extra deps.
+- **`TokioBlockRing::with_telemetry`** (`backend/async_ring.rs`, gated
+  `telemetry-tracing`): instance-side observation hook — `on_depth` (water
+  level at production time) + `on_latency` (send-to-enqueue elapsed,
+  including the wait-for-room backpressure window) on every successful send;
+  `on_verdict(Dropped)` on closed rejection. Contract unchanged
+  (`AsyncBlockRing` untouched); no-hook fast path unchanged. Hook test
+  included.
+
 ### Added — adoption evidence & activation-model catalog, first slice (2026-08-29)
 
 - **Compile-cost probe** (`core/examples/deep_blueprint.rs`): reproducible

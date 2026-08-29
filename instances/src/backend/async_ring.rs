@@ -18,6 +18,18 @@
 //! 重新进入时以锁内最新状态判定（不依赖唤醒计数）。
 //!
 //! 门控：`tokio` feature（`axiom-instances`）。安全：无 unsafe。
+//!
+//! ## 观测钩子（`telemetry-tracing` feature 门控）
+//!
+//! [`set_telemetry`](TokioBlockRing::set_telemetry) 给环挂一个语义层
+//! `Telemetry` 接收面（`tracing` 适配见 crate 根的 `telemetry_tracing`）：
+//! - 每次 `send` 成功入队 → `on_depth`（生产时刻的水位）+ `on_latency`
+//!   （`send` 调用到入队成功的全程耗时——含等非满的背压窗口；背压真实发生
+//!   时此值可见地变大，正是"性能取决于最慢步骤"的直接读数）；
+//! - `send` 因关闭被拒 → `on_verdict(Dropped)`（值随错误回传，观测同步登记）。
+//!
+//! 钩子是**实例侧扩展**，不改 `AsyncBlockRing` 契约（契约级遥测是后续裁定）；
+//! 未挂载时零分支开销（`Option::None` 快路径）。
 
 use axiom_semantics::movers::async_ring::Closed; // 内部实现用（re-export 的对外契约见下）
 use std::collections::VecDeque;
@@ -28,6 +40,13 @@ use tokio::sync::{Mutex, Notify};
 /// re-export：异步块环契约（语义层定义，实例层对外直接可用——消费端只需依赖
 /// 实例层即可拿到契约，无需直接依赖语义层）。
 pub use axiom_semantics::movers::async_ring::{AsyncBlockRing, Closed as RingClosed};
+
+/// 观测钩子槽位（`telemetry-tracing` 门控）：接缝名 + 共享接收面。
+#[cfg(feature = "telemetry-tracing")]
+type TelHook = (
+    &'static str,
+    Arc<std::sync::Mutex<dyn axiom_semantics::seams::telemetry::Telemetry + Send>>,
+);
 
 /// 事件驱动异步块环（tokio 实现）。
 ///
@@ -41,6 +60,9 @@ pub struct TokioBlockRing<C> {
     count: AtomicUsize,
     not_full: Notify,
     not_empty: Notify,
+    /// 观测钩子（`telemetry-tracing` 门控；未挂载 = None，零分支开销）。
+    #[cfg(feature = "telemetry-tracing")]
+    tel: std::sync::Mutex<Option<TelHook>>,
 }
 
 impl<C: Send> TokioBlockRing<C> {
@@ -57,6 +79,40 @@ impl<C: Send> TokioBlockRing<C> {
             count: AtomicUsize::new(0),
             not_full: Notify::new(),
             not_empty: Notify::new(),
+            #[cfg(feature = "telemetry-tracing")]
+            tel: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// 挂载观测钩子（`telemetry-tracing` 门控）：`seam` 是本环在观测面上的
+    /// 接缝名（如 `"blocks→archive"`）；共享接收面（如 `TracingTelemetry`）由调用方
+    /// 构造。须在 `into_shared` 之前调用。
+    #[cfg(feature = "telemetry-tracing")]
+    pub fn with_telemetry(
+        self,
+        seam: &'static str,
+        tel: Arc<std::sync::Mutex<dyn axiom_semantics::seams::telemetry::Telemetry + Send>>,
+    ) -> Self {
+        *self.tel.lock().unwrap() = Some((seam, tel));
+        self
+    }
+
+    /// `send` 成功入队后的上报：水位 + 生产侧全程耗时（含背压等待窗口）。
+    #[cfg(feature = "telemetry-tracing")]
+    fn report_send(&self, waited: std::time::Duration) {
+        if let Some((seam, tel)) = self.tel.lock().unwrap().as_ref() {
+            let mut t = tel.lock().unwrap();
+            t.on_depth(seam, self.count.load(Ordering::Acquire));
+            t.on_latency(seam, waited.as_nanos() as u64);
+        }
+    }
+
+    /// `send` 因关闭被拒的上报：`Dropped`（值随错误回传，观测同步登记）。
+    #[cfg(feature = "telemetry-tracing")]
+    fn report_dropped(&self) {
+        if let Some((seam, tel)) = self.tel.lock().unwrap().as_ref() {
+            use axiom_semantics::seams::telemetry::VerdictView;
+            tel.lock().unwrap().on_verdict(seam, VerdictView::Dropped);
         }
     }
 
@@ -68,10 +124,14 @@ impl<C: Send> TokioBlockRing<C> {
 
 impl<C: Send> AsyncBlockRing<C> for TokioBlockRing<C> {
     async fn send(&self, item: C) -> Result<(), Closed> {
+        #[cfg(feature = "telemetry-tracing")]
+        let t0 = std::time::Instant::now();
         loop {
             {
                 let mut q = self.inner.lock().await;
                 if self.closed.load(Ordering::Acquire) {
+                    #[cfg(feature = "telemetry-tracing")]
+                    self.report_dropped();
                     return Err(Closed); // 值随错误回传，不静默丢
                 }
                 if self.count.load(Ordering::Relaxed) < self.cap {
@@ -79,6 +139,8 @@ impl<C: Send> AsyncBlockRing<C> for TokioBlockRing<C> {
                     self.count.fetch_add(1, Ordering::Relaxed);
                     drop(q);
                     self.not_empty.notify_one(); // 唤醒一个消费者（新块已就绪）
+                    #[cfg(feature = "telemetry-tracing")]
+                    self.report_send(t0.elapsed());
                     return Ok(());
                 }
             } // 释放锁后再等待（不持锁 await）
@@ -208,6 +270,36 @@ mod tests {
             outs
         });
         assert_eq!(out, vec![4, 6, 8], "背压下同输入同输出（等非满等待真实发生）");
+    }
+
+    /// 观测钩子（telemetry-tracing）：send 上报水位+耗时、关闭拒绝上报 Dropped。
+    /// 语义（T6/投递）不受钩子影响——同输入同输出，仅旁路观测。
+    #[cfg(feature = "telemetry-tracing")]
+    #[test]
+    fn telemetry_hook_reports_depth_latency_and_dropped() {
+        use axiom_semantics::seams::telemetry::{BufTelemetry, VerdictView};
+        use std::sync::Mutex as StdMutex;
+
+        let tel = Arc::new(StdMutex::new(BufTelemetry::new()));
+        let ring: TokioBlockRing<i32> =
+            TokioBlockRing::new(2).with_telemetry("ring-a", tel.clone());
+        let ring = ring.into_shared();
+        block_on(async {
+            assert_eq!(ring.send(1).await, Ok(()));
+            assert_eq!(ring.send(2).await, Ok(()));
+            assert_eq!(ring.recv().await, Some(1));
+            ring.close();
+            assert_eq!(ring.send(9).await, Err(Closed), "关闭后 send 拒绝");
+        });
+
+        let t = tel.lock().unwrap();
+        assert_eq!(t.depths, vec![("ring-a", 1), ("ring-a", 2)], "两次成功入队的水位读数");
+        assert_eq!(t.latencies.len(), 2, "每次成功 send 一条耗时");
+        assert_eq!(
+            t.verdicts,
+            vec![("ring-a", VerdictView::Dropped)],
+            "关闭拒绝登记为 Dropped（值随错误回传）"
+        );
     }
 
     /// 关闭语义：close 后 send 拒绝（值回传）、recv 排空后 None。
