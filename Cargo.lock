@@ -12,7 +12,7 @@ version = "0.3.0"
 dependencies = [
  "axiom",
  "axiom-instances",
- "axiom-runtime",
+ "axiom-semantics",
  "tokio",
 ]
 
@@ -21,12 +21,12 @@ name = "axiom-instances"
 version = "0.3.0"
 dependencies = [
  "axiom",
- "axiom-runtime",
+ "axiom-semantics",
  "tokio",
 ]
 
 [[package]]
-name = "axiom-runtime"
+name = "axiom-semantics"
 version = "0.3.0"
 dependencies = [
  "axiom",

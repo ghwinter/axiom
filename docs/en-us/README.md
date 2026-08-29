@@ -13,7 +13,7 @@ on its own.
 |---|---|---|
 | [`foundations.md`](foundations.md) | Basic definitions, axiom system, derivable theorems (T1–T9), mathematical expressions, boundary statements | **Foundations**: where axiom's "what" comes from |
 | [`core.md`](core.md) | The compile-time core `cell_core`: four constituents, blueprint-as-type, staticity declaration, compile-time verification, theory↔Rust correspondence | **Architecture**: what axiom's core is |
-| [`runtime.md`](runtime.md) | The physical layer / Carrier: runtime positioning, carrier catalog, multi-physical-implementation equivalence, boundaries and open questions | **Architecture**: what axiom's physical layer is |
+| [`semantics.md`](semantics.md) | The physical layer / Carrier: runtime positioning, carrier catalog, multi-physical-implementation equivalence, boundaries and open questions | **Architecture**: what axiom's physical layer is |
 | [`unified.md`](unified.md) | The unified model: the substitution calculus (the one perspective), the definition–activation axis, three forms of substitution, the schema expressiveness ladder with (co)inductive proof, precise dynamic tax | **Upgraded view**: axiom's unified design beyond the "static blueprint" |
 
 > **Theory corpus (non-normative):** [`../internal/theory/`](../../internal/theory/README.md)
@@ -29,7 +29,7 @@ on its own.
    (especially the formal redefinition of "static/dynamic"), **axioms**, and **theorems**.
 2. [`core.md`](core.md): how the theory becomes a **compile-time core** (the four-constituent
    `cell_core`) realizing "blueprint-as-type, zero runtime object, verification at compile time".
-3. [`runtime.md`](runtime.md): the core's **physical-layer implementation use-case**
+3. [`semantics.md`](semantics.md): the core's **physical-layer implementation use-case**
    (Carrier), with runtime positioning and boundaries.
 4. (Advanced) [`unified.md`](unified.md): the one perspective under which static/dynamic/
    plugins/loading/driver hot-plug are **two binding modes of the same substitution**, plus the

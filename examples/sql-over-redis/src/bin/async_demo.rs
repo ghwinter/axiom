@@ -13,8 +13,8 @@
 fn run_tokio() {
     use axiom_demo_sql_over_redis::composite::{self, ComposeLine};
     use axiom_demo_sql_over_redis::observe::{ObservedPoller, observed_fed_run, print_summary};
-    use axiom_runtime::seams::async_seam::PollResult;
-    use axiom_runtime::drive::flow::drive_seq;
+    use axiom_semantics::seams::async_seam::PollResult;
+    use axiom_semantics::drive::flow::drive_seq;
     use std::time::{Duration, Instant};
 
     let lines = composite::build_corpus(60);

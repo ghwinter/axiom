@@ -12,7 +12,7 @@
 |---|---|---|
 | [`foundations.md`](foundations.md) | 基本定义、公理体系、可推导的定理（T1–T9）、数学表达、边界声明 | **奠基**：axiom 的"是什么"从何而来 |
 | [`core.md`](core.md) | 编译期核心 `cell_core`：四构件、蓝图即类型、静态性声明、编译期验证、理论↔Rust 对应 | **架构**：axiom 核心应该是什么 |
-| [`runtime.md`](runtime.md) | 物理层 / 载体（Carrier）：runtime 定位、载体目录、多物理实现等价、边界与开放问题 | **架构**：axiom 物理层应该是什么 |
+| [`semantics.md`](semantics.md) | 物理层 / 载体（Carrier）：runtime 定位、载体目录、多物理实现等价、边界与开放问题 | **架构**：axiom 物理层应该是什么 |
 | [`unified.md`](unified.md) | 统一模型：代换演算（统一视角）、定义–激活轴、三种代换形式、schema 表达力阶梯与(余)归纳证明、动态税精确化 | **升级视角**：axiom 在"静态蓝图"之上的统一设计 |
 
 > **理论语料（非规范）**：[`../internal/theory/`](../../internal/theory/README.md)
@@ -28,7 +28,7 @@
    （尤其"静态/动态"的正式重定义）、**公理**与**定理**。
 2. [`core.md`](core.md)：理论与公理如何落成**编译期核心**（四构件
    `cell_core`），以及"蓝图即类型、零运行时对象、验证在编译期"的实现。
-3. [`runtime.md`](runtime.md)：核心的**物理层实现用例**（载体/Carrier），
+3. [`semantics.md`](semantics.md)：核心的**物理层实现用例**（载体/Carrier），
    以及 runtime 的定位与边界。
 4. （进阶）[`unified.md`](unified.md)：统一视角——静态/动态/插件/装载/驱动热插拔
    如何是**同一个"代换"的两种绑定模态**，以及**定义–激活轴**、**schema** 表达力与

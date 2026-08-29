@@ -278,12 +278,12 @@ the unified-model constructors:
   applications, `Cⁿ`, with the count as a compile-time constant). `State = RepState<N,C>`
   (manual `Default`) zeros
   dependency on the built-in array `Default`; zero-cost, monomorphized; `N=0` is identity.
-  Unbounded count (runtime) is the generative/physical side — see `runtime.md`, `drive_seq`.
+  Unbounded count (runtime) is the generative/physical side — see `semantics.md`, `drive_seq`.
 - **`Slot<I, O>` + `Conforms` / `assert_conforms`** — ∃ typed-hole **definition**: a
   compile-time-fixed interface (dual pair, T1) with a compile-time parametrically-quantified
   conformity verdict for any future inhabitant (`∀ T: PortCell<In=I, Out=O>` ⟹ `Conforms<Slot<I,O>>`,
   the same shape as `Conforms`). The runtime existential fill is `SlotDrive` (**existential
-  binding**) — see `runtime.md`.
+  binding**) — see `semantics.md`.
 - **`Choice<A, B>` + `Opt<C>`** — the *regular* operators `|` and `?` as first-class pure
   `PortCell`s. `Choice` (input-tagged [sum]) dispatches by the input's label to `A` or `B`;
   `Opt<C>` maps `Option<C::In>` to `Option<C::Out>` (identity on `None`, one `C::step` on `Some`).
@@ -353,7 +353,7 @@ cargo bench --bench dag     # diamond zero-cost proof (Δ(composite−handwritte
   graph analysis) is not a default capability of the core and must be designed separately.
 - **Total-function assumption**: `PortCell::step` is assumed to be a total transition;
   "cells that can fail" are not axiomatized and are currently handled according to the
-  physical `Result` convention (see the open questions in [`runtime.md`](runtime.md)).
+  physical `Result` convention (see the open questions in [`semantics.md`](semantics.md)).
 - **Coverage of the staticness declaration**: at present `Static` marks static subgraphs via
   a type parameter; the tolerable upper bound on monomorphization size after "expanding the
   static path from a chain to any number of subgraphs" is an open question
@@ -363,4 +363,4 @@ cargo bench --bench dag     # diamond zero-cost proof (Δ(composite−handwritte
 > `cell_core` (open system, causal dataflow, composition, staticness declaration) —
 > blueprint-as-type, verification at compile time, and after compilation equivalent to
 > hand-written ordinary Rust. Physical implementation is borne by the runtime (carrier); see
-> [`runtime.md`](runtime.md).
+> [`semantics.md`](semantics.md).

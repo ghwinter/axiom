@@ -13,14 +13,14 @@ keywords = ["dataflow", "composite", "demo", "sql", "redis", "async"]
 categories = ["concurrency", "database", "asynchronous"]
 
 [dependencies]
-# 依赖方向单向：axiom ← axiom-runtime ← axiom-instances ← 综合用例 crate（workspace 成员表强制）。
+# 依赖方向单向：axiom ← axiom-semantics ← axiom-instances ← 综合用例 crate（workspace 成员表强制）。
 # 位于 examples/sql-over-redis/：根包 core 与兄弟 crate 上溯两级。
 axiom = { path = "../../core", version = "0.3.0", default-features = false }
-axiom-runtime = { path = "../../runtime", version = "0.3.0" }
+axiom-semantics = { path = "../../semantics", version = "0.3.0" }
 axiom-instances = { path = "../../instances", version = "0.3.0", default-features = false }
 
 [features]
-default = []                       # sync 演示：零第三方（纯 runtime 驱动）
+default = []                       # sync 演示：零第三方（纯 semantics 驱动）
 tokio = ["axiom-instances/tokio", "dep:tokio"]  # async 演示：真异步驱动 + 通道馈入
 
 [dependencies.tokio]

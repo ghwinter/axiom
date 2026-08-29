@@ -10,8 +10,8 @@
 use axiom::cell_core::PortCell;
 use axiom_demo_sql_over_redis::composite::{self, ComposeLine, DemuxCell, ExecCell, RouteParse};
 use axiom_demo_sql_over_redis::plans::redis_plan;
-use axiom_runtime::drive::flow::drive_seq;
-use axiom_runtime::prelude_all::{
+use axiom_semantics::drive::flow::drive_seq;
+use axiom_semantics::prelude_all::{
     CarrierCost, InlineCarrier, QueueCarrier, assemble_link, bounded_pump_try,
 };
 

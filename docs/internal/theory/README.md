@@ -28,9 +28,9 @@
 |---|---|
 | axiom-theory-foundations.md | docs/en-us|zh-cn/foundations.md §0–§7（承诺/理论家族/公理集/T1–T9/数学表达/蓝图形态/边界/开放问题）；docs/en-us/core.md §5（理论 ↔ Rust 对应） |
 | paradigm-notes.md | foundations.md §1.0（三态定义：本体/退化/构造）、§5.8（FlowKind 注解）、§8.2–8.4（无第六概念/封闭判据/分层）；boundary-ontology.md §6–§7；meta-foundations.md 定义 1.5 |
-| unified-design-proposals.md | unified.md §2.3（三绑定态 Slot/Wire/SlotDrive）、§6；core.md §6b；runtime.md §3b/§9 |
+| unified-design-proposals.md | unified.md §2.3（三绑定态 Slot/Wire/SlotDrive）、§6；core.md §6b；semantics.md §3b/§9 |
 | compile-time-core-direction.md | core.md §1–§6、§8；foundations.md §5.3/§5.5 |
-| refactor-plan-runtime-carriers.md | runtime.md §1–§6 |
+| refactor-plan-runtime-carriers.md | semantics.md §1–§6 |
 | refactor-plan-compile-time-core.md | core.md §2–§6 |
 
 ## 3. 文体检查表（核心规则）

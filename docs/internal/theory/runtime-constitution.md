@@ -1,6 +1,6 @@
 # runtime 宪法：义务代数的落地设计 / Runtime Constitution: The Obligation-Algebra Design
 
-> **性质**：I1 层设计规范（`docs/internal/theory/`，入 git）。**本文是 axiom-runtime 破坏性
+> **性质**：I1 层设计规范（`docs/internal/theory/`，入 git）。**本文是 axiom-semantics 破坏性
 > 重构的蓝图**：由 [`meta-foundations.md`](meta-foundations.md)（公理/定义/代数）向代码投影。
 > 上游：meta-foundations 定义 1.1–1.11、命题 7.4（六元组）、boundary-ontology 定理 9.6、§8.3 封闭判据。
 > 状态：Δ 执行中；核心冻结（`core/src/cell_core.rs` 语义零改动）。
@@ -66,7 +66,7 @@ runtime/src/
 4. ✅ 事件层：event.rs（EventStream/ChunkSource/split_lines/pump_events 载体类）+ redis_like 实例化（server.rs 已改由 pump_events 驱动；§9.3 收口）。
 5. ✅ 短路载体：ResultCarrier/MaybeCarrier（§9.2 收账）。
 6. ✅ 示例健壮性：netpath/mmо Result-ify。
-7. ✅ 终验：tests / no_std / clippy -D warnings 全部通过 + runtime.md en/zh 同步（本地全量验证：顶层 32 + runtime 59 测试、benches 编译、no_std 双 crate、clippy `-D warnings` 双 crate、docgate 门、en/zh §9.3 同步，全部零发现项）。
+7. ✅ 终验：tests / no_std / clippy -D warnings 全部通过 + semantics.md en/zh 同步（本地全量验证：顶层 32 + runtime 59 测试、benches 编译、no_std 双 crate、clippy `-D warnings` 双 crate、docgate 门、en/zh §9.3 同步，全部零发现项）。
 
 每步过 §8.3 封闭判据（无第六概念）：义务类=概念1 失败为值的展开；生命周期=概念4 型位的实现；邮箱/事件=概念5 物理载体的实例；账本=契约（§8.4 物理层义务）。
 
@@ -184,7 +184,7 @@ placement 的语义面）：服务的跨机器放置按可判性分四层，各�
 **命题（实例可替换域）**：「可替换」谓词的域 = 机械实现（值怎么流动 / 怎么等 /
 怎么观测）；权威与协议（③ 验证器、LEDGER 账本行、契约判定）不可替换——替换则权威悬空。
 
-- **workspace 单向**：`axiom ← axiom-runtime ← axiom-instances`；成员表 + 依赖图强制，反向依赖拒绝（M6 不可组合）。
+- **workspace 单向**：`axiom ← axiom-semantics ← axiom-instances`；成员表 + 依赖图强制，反向依赖拒绝（M6 不可组合）。
 - **feature 门控默认全关**：官方实例融合单 crate（统一版本）；第三方自建独立 crate
   （双形态边界：版本粒度解耦面归开放路径，非静默合并）。
 - **socket 纪律**：仅在第二实现者或真实需求出现时开设（discipline §6.4）；

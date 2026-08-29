@@ -1,6 +1,6 @@
 //! # axiom-instances — 实例层
 //!
-//! axiom 的**实例层**：经 socket（`Executor` / [`Carrier`](axiom_runtime::movers::carrier::Carrier)
+//! axiom 的**实例层**：经 socket（`Executor` / [`Carrier`](axiom_semantics::movers::carrier::Carrier)
 //! / `Telemetry`，见 runtime 模块 async-seam / carrier / telemetry）接入可替换的
 //! 物理/生态实现。官方标准集 = 融合单 crate + feature 门控，**默认全关**（空实例面
 //! 合法）；第三方实例经自建独立 crate 走开放路径（双形态边界，internal-design §3 / §5）。

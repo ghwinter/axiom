@@ -231,11 +231,11 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 
 - **`Rep<N, C>`** —— 正则幂：同一 cell `C` 的 N 次自组合（恰好 N 次的 `Cⁿ`，计数以编译期常量
   有界）。`State = RepState<N,C>`（手动 `Default`，不依赖原生数组 `Default`）；零成本、
-  单态化；`N=0` 恒等。无界计数（运行期）是生成/物理侧——见 `runtime.md` 的 `drive_seq`。
+  单态化；`N=0` 恒等。无界计数（运行期）是生成/物理侧——见 `semantics.md` 的 `drive_seq`。
 - **`Slot<I, O>` + `Conforms` / `assert_conforms`** —— ∃ 型位**定义**：编译期固定接口
   （对偶对 T1）+ 对任何未来居留项的编译期参数化合规判定
   （`∀ T: PortCell<In=I, Out=O>` ⟹ `Conforms<Slot<I,O>>`，形同统一 `Conforms`）。运行期存在化
-  填充为 `SlotDrive`（概念名：**存在绑定**，existential binding）——见 `runtime.md`。
+  填充为 `SlotDrive`（概念名：**存在绑定**，existential binding）——见 `semantics.md`。
 - **`Choice<A, B>` + `Opt<C>`** —— 正则算子 `|` 与 `?` 的一等纯 `PortCell` 表达。`Choice`
   （输入标号[和]）由输入的标签派发给 `A` 或 `B`；`Opt<C>` 把 `Option<C::In>` 映射为
   `Option<C::Out>`（`None` 恒等，`Some` 应用一次 `C::step`）。二者确定、可像普通 cell 一样
@@ -295,10 +295,10 @@ cargo bench --bench dag     # 菱形零成本实证（Δ(复合−手写)≈±1%
 - **核心是编译期模型**：能力到编译期耗尽，编译后无 axiom 对象；超出编译期的"智能"
   （如线性时态/图分析）不属核心默认能力，须另行设计。
 - **全函数假设**：`PortCell::step` 被假定为总转移；"会失败的 cell"未公理化，当前按物理
-  `Result` 约定处理（见 [`runtime.md`](runtime.md) 开放问题）。
+  `Result` 约定处理（见 [`semantics.md`](semantics.md) 开放问题）。
 - **静态性声明的覆盖范围**：目前 `Static` 以类型参数标记静态子图；"静态路径从链扩大到
   任意多子图"后的单态化体积容忍上限是开放问题（`foundations.md` §7）。
 
 > **结论**：axiom 核心 = `cell_core` 四构件（开放系统、因果数据流、组合、静态性声明）
 > 的编译期模型——蓝图即类型、验证在编译期、编译后等价手写普通 Rust。物理实现由
-> runtime（载体）承担，见 [`runtime.md`](runtime.md)。
+> runtime（载体）承担，见 [`semantics.md`](semantics.md)。

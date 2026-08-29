@@ -3,7 +3,7 @@
 
 > **性质**：I1 层理论注记（`docs/internal/theory/`，不入 git）。**非已实现、非承诺**。
 > **上游**：[`boundary-ontology.md`](boundary-ontology.md) §2 四轴、§5 三归宿、§9 分层律；
-> `docs/en-us/foundations.md` §0 承诺、T3（时序归载体）、§5.8；`docs/en-us/runtime.md` §1。
+> `docs/en-us/foundations.md` §0 承诺、T3（时序归载体）、§5.8；`docs/en-us/semantics.md` §1。
 > 本文把"不可判断、不可表达、定义边界、表达边界、概念边界"统一到对角化/不动点骨架，
 > 并给出 axiom 分层谱系的定理级注脚。术语以中英双语并列；二语构成同一概念的唯一指称。
 > 记号：Δ₁⁰ 递归集类；T 一致递归可枚举理论；Trueₖ 第 k 层真谓词；A/M/T 代数/机器/类型可表达闭包（同 boundary-ontology）；σ 语义函数；α 对角线映射；Y 对跖对象。
@@ -104,4 +104,4 @@
 **项目内部级 / Project-internal**：
 - `boundary-ontology.md` §2（四轴）、§5（三归宿）、§9（分层律）、定理 3.1（闭包交集）。
 - `docs/en-us/foundations.md` §0（零成本承诺）、T3（时序归物理载体）、§5.8（物理层/抽象层分离）。
-- `docs/en-us/runtime.md` §1（core 不重述，runtime 只答"值怎么动"）；`docs/internal/instance-layer-design.md` §2（可替换谓词边界）。
+- `docs/en-us/semantics.md` §1（core 不重述，runtime 只答"值怎么动"）；`docs/internal/instance-layer-design.md` §2（可替换谓词边界）。

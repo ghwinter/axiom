@@ -29,7 +29,7 @@ physical-layer property. The physical layer treats all values uniformly as "valu
 structure" (shared variable / buffer / channel). Timing/Delay, threading/sync-async, and
 value-form/JSON remain physical-layer concerns — see `docs/foundations.md` §5.8.
 
-## runtime (`axiom-runtime`)
+## runtime (`axiom-semantics`)
 
 runtime is the core's **physical-layer implementation use-case (Carrier)**: for each causal
 dataflow it provides replaceable physical options for "how values flow" —
@@ -47,11 +47,11 @@ crates (dual-form boundary — fused standard set vs. open path).
 
 | feature | pulls | provides |
 |---|---|---|
-| `async` | `axiom-runtime/async-seam` | async seam (the `Executor` contract) |
+| `async` | `axiom-semantics/async-seam` | async seam (the `Executor` contract) |
 | `tokio` | `async` + optional `tokio` dep | `TokioExec`: seam wait-point adapter toward tokio |
-| `embedded` | `axiom-runtime/std` | reserved embedded flow |
+| `embedded` | `axiom-semantics/std` | reserved embedded flow |
 
-Dependency direction is one-way, enforced by the workspace member table: `axiom ← axiom-runtime ← axiom-instances`. The core and runtime keep their zero-dependency promise; `tokio` lives only as an optional dep of instances.
+Dependency direction is one-way, enforced by the workspace member table: `axiom ← axiom-semantics ← axiom-instances`. The core and runtime keep their zero-dependency promise; `tokio` lives only as an optional dep of instances.
 
 ## Examples
 
@@ -75,10 +75,10 @@ cargo run -p axiom-demo-sql-over-redis --features tokio --bin async_demo  # asyn
 cargo run -p axiom-demo-sql-over-redis --features tokio --bin concurrent_demo  # 并发等待量化（1 线程服务 N 会话）
 cargo bench -p axiom-demo-sql-over-redis --features tokio --bench latency     # sync vs async 同口径逐步时延（min-of-N）
 cargo run -p axiom --example pipeline              # run an example (core package)
-cargo run -p axiom-runtime --example threaded_flow
+cargo run -p axiom-semantics --example threaded_flow
 ```
 
-`--workspace` 依根 `Cargo.toml` 的 `[workspace]` 统一解析（收敛旧双 manifest 分治）；单一 `Cargo.lock`/`target`。`no_std` 承诺：`cargo build -p axiom --no-default-features`、`cargo build -p axiom-runtime --no-default-features`（实例层不参与 no_std）。
+`--workspace` 依根 `Cargo.toml` 的 `[workspace]` 统一解析（收敛旧双 manifest 分治）；单一 `Cargo.lock`/`target`。`no_std` 承诺：`cargo build -p axiom --no-default-features`、`cargo build -p axiom-semantics --no-default-features`（实例层不参与 no_std）。
 
 > Benchmarks are meaningful only in release profiles; under debug builds they
 > skip themselves instead of emitting misleading numbers.
@@ -87,4 +87,4 @@ cargo run -p axiom-runtime --example threaded_flow
 
 - [`docs/`](docs/README.md): formal specification (bilingual, English default) —
   `foundations.md` (definitions/axioms/theorems T1–T9), `core.md` (the compile-time core
-  `cell_core`), `runtime.md` (the physical layer / Carrier).
+  `cell_core`), `semantics.md` (the physical layer / Carrier).

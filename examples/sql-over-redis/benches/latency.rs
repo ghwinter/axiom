@@ -49,7 +49,7 @@ fn main() {
     #[cfg(feature = "tokio")]
     let mut async_pass = {
         use axiom_demo_sql_over_redis::observe::{ObservedPoller, observed_fed_run};
-        use axiom_runtime::seams::async_seam::PollResult;
+        use axiom_semantics::seams::async_seam::PollResult;
         use std::time::Duration;
         || -> usize {
             rt.block_on(async {

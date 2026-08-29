@@ -74,7 +74,7 @@
 
 ### 1.3 三种组织策略
 
-> superseded by: 载体可替换性结论见 docs/en-us/runtime.md §4；"输入经端口、实例必有宿主"
+> superseded by: 载体可替换性结论见 docs/en-us/semantics.md §4；"输入经端口、实例必有宿主"
 > 的公理形态见 docs/en-us/foundations.md §1.6–1.7 与 meta-foundations.md
 
 | 系统 | 布线物理形态 | 实例化宿主 | 并发仲裁 |
@@ -133,7 +133,7 @@
 
 ### 1.5 载体能力清单（七形态）
 
-> superseded by: 已落地形态见 docs/en-us/runtime.md §2（Inline/Queue/Bounded/spawned_flow）与
+> superseded by: 已落地形态见 docs/en-us/semantics.md §2（Inline/Queue/Bounded/spawned_flow）与
 > §3（static_path/wire!）；第 4–7 形态（无锁环、事件循环、进程隔离）仍未落地，属开放载体目录
 
 axiom 载体层（runtime 物理目录）应覆盖的物理形态：
@@ -152,7 +152,7 @@ axiom 载体层（runtime 物理目录）应覆盖的物理形态：
 ### 1.6 E1–E7 演化路线
 
 > superseded by: 工程落地现状见 docs/en-us/core.md（`cell_core` 四构件）与
-> docs/en-us/runtime.md（载体目录）；E5/E6 未落地（见 docs/en-us/foundations.md §7 开放问题）
+> docs/en-us/semantics.md（载体目录）；E5/E6 未落地（见 docs/en-us/foundations.md §7 开放问题）
 
 | 步骤 | 公理 | 工程 |
 |---|---|---|
@@ -294,7 +294,7 @@ axiom 载体层（runtime 物理目录）应覆盖的物理形态：
 ### 2.6 三层边界：证明 → 框架 → 契约
 
 > superseded by: docs/en-us/foundations.md §8.4（分层：构造概念 vs 性质公理 vs 运行策略）
-> 与 docs/en-us/runtime.md §1/§8 承接结论形态；衰减谱表述为本归档独有
+> 与 docs/en-us/semantics.md §1/§8 承接结论形态；衰减谱表述为本归档独有
 
 "信息传递是物理层自己的事情，无法在 core 内定义"——精确表述是三层衰减，不是二分：
 
@@ -316,7 +316,7 @@ axiom 载体层（runtime 物理目录）应覆盖的物理形态：
 
 > 来源：`unified-design-proposals.md`。原文自述"提案已全部落地，降级为推理记录"；
 > 规范表述见 `docs/en-us|zh-cn/unified.md`，构造子见 `core.md §6b`，激活侧见
-> `runtime.md §3b`。本节保留路线、封顶决策、落地审计与溯源。
+> `semantics.md §3b`。本节保留路线、封顶决策、落地审计与溯源。
 
 ### 3.1 路线表 S1–S4 与封顶决策
 
@@ -337,7 +337,7 @@ axiom 载体层（runtime 物理目录）应覆盖的物理形态：
 ### 3.2 落地审计（P1–P3 / A–C / R–K–T 裁定）
 
 > superseded by: 成果形态见 docs/en-us/unified.md §2.3、§6，docs/en-us/core.md §6b，
-> docs/en-us/runtime.md §3b/§9；本审计（测试计数与裁定记录）是唯一保留的执行证据
+> docs/en-us/semantics.md §3b/§9；本审计（测试计数与裁定记录）是唯一保留的执行证据
 
 - **P1（③ 有界星）**：core `Rep<N,C>`（正则/星；`RepState` 手动 `Default`、`N=0` 恒等、
   编译期 T1 验证；4 测试通过）。
@@ -379,7 +379,7 @@ axiom 载体层（runtime 物理目录）应覆盖的物理形态：
 
 ### 3.3 审计修复清单 S1–S14（goal a27ebec4，runtime 代码）
 
-> superseded by: 相关成品见 docs/en-us/runtime.md §9.1/§9.2；S1–S14 清单与 goal id
+> superseded by: 相关成品见 docs/en-us/semantics.md §9.1/§9.2；S1–S14 清单与 goal id
 > 为本归档独有（git 不跟踪原始文档，无其他副本）
 
 - S1：`spawned_flow` worker panic 经 catch_unwind → 回执通道 → 调用方 resume_unwind
@@ -453,7 +453,7 @@ axiom 载体层（runtime 物理目录）应覆盖的物理形态：
 ## 5. Refactor Execution Audits
 
 > 来源：`refactor-plan-runtime-carriers.md`、`refactor-plan-compile-time-core.md`。
-> 两份文档的操作对象与成品已分别由 `docs/en-us/runtime.md`、`docs/en-us/core.md`
+> 两份文档的操作对象与成品已分别由 `docs/en-us/semantics.md`、`docs/en-us/core.md`
 > 承接；本节的提交级执行日志、遗留清单与收敛策略为归档独有。
 
 ### 5.1 runtime 重建：七步执行序列
@@ -489,7 +489,7 @@ axiom 载体层（runtime 物理目录）应覆盖的物理形态：
 （声明宏）；模块化可替换（换载体不改拓扑，定理 T6）；runtime 7 测试 + core 9 测试 +
 no_std 构建全部通过。旧 runtime 源码在 `runtime/_legacy_v0/` 保留作物理思路参考。
 
-> superseded by: docs/en-us/runtime.md §1–§6；提交哈希与 `_legacy_v0` 策略为本归档独有
+> superseded by: docs/en-us/semantics.md §1–§6；提交哈希与 `_legacy_v0` 策略为本归档独有
 
 ### 5.3 编译期核心重构执行日志 R1–R7
 
@@ -524,7 +524,7 @@ no_std 构建全部通过。旧 runtime 源码在 `runtime/_legacy_v0/` 保留�
 
 ### 5.5 受控收敛策略
 
-> superseded by: 收敛结果见 docs/en-us/core.md §8 与 docs/en-us/runtime.md §9（开放边界）；
+> superseded by: 收敛结果见 docs/en-us/core.md §8 与 docs/en-us/semantics.md §9（开放边界）；
 > 策略陈述为本归档独有
 
 方向性重构采用受控收敛策略：先立可编译的新主轴并逐项实证（类型化/零对象/编译期
@@ -543,7 +543,7 @@ no_std 构建全部通过。旧 runtime 源码在 `runtime/_legacy_v0/` 保留�
 |---|---|---|
 | axiom-theory-foundations.md | 第 1 节 | docs/en-us|zh-cn/foundations.md §0–§7；core.md §5 |
 | paradigm-notes.md | 第 2 节 | foundations.md §1.0（三态）、§5.8、§8.2–8.4；boundary-ontology.md §6–§7；meta-foundations.md 定义 1.5 |
-| unified-design-proposals.md | 第 3 节 | unified.md §2.3/§6；core.md §6b；runtime.md §3b/§9 |
+| unified-design-proposals.md | 第 3 节 | unified.md §2.3/§6；core.md §6b；semantics.md §3b/§9 |
 | compile-time-core-direction.md | 第 4 节 | core.md §1–§6、§8；foundations.md §5.3/§5.5 |
-| refactor-plan-runtime-carriers.md | 第 5 节 | runtime.md §1–§6 |
+| refactor-plan-runtime-carriers.md | 第 5 节 | semantics.md §1–§6 |
 | refactor-plan-compile-time-core.md | 第 5 节 | core.md §2–§6 |

@@ -60,7 +60,7 @@ fn composite_errors_are_values_not_silent() {
 
 #[test]
 fn pump_try_equivalence_with_inline() {
-    use axiom_runtime::prelude_all::bounded_pump_try;
+    use axiom_semantics::prelude_all::bounded_pump_try;
 
     let lines = composite::build_corpus(40);
 
@@ -93,8 +93,8 @@ fn pump_try_equivalence_with_inline() {
 mod async_pairs {
     use super::*;
     use axiom_instances::backend::async_driver::tokio_poll_fed;
-    use axiom_runtime::seams::async_seam::{PollResult, Poller};
-    use axiom_runtime::drive::flow::drive_seq;
+    use axiom_semantics::seams::async_seam::{PollResult, Poller};
+    use axiom_semantics::drive::flow::drive_seq;
     use std::time::{Duration, Instant};
 
     fn run_pair() -> (Vec<String>, Vec<String>) {

@@ -1,0 +1,43 @@
+[package]
+name = "axiom-semantics"
+version = "0.3.0"
+# 语义函子层（⟦core 形状范畴⟧ → 行为范畴）：改名自 axiom-runtime，R0 落地见超驰映射。
+# 本层不承载"执行引擎"语义——它什么都不跑，只声明"形状在被执行基座上跑起来意味着什么"（行为/成本/接缝），由 axiom-instances 兑现。保留移动前 authorship。
+edition = "2024"
+rust-version = "1.85"
+description = "axiom 语义/契约层（语义函子 ⟦·⟧）：接缝（等待/事件/观测）、载体（值如何跨连接流动的时空成本）、驱动、接线检查与承诺账本。不执行任何东西；行为与成本契约由 axiom-instances 绑定到真实基座（tokio/io_uring/std/embedded）兑现。模块化、可替换，未来 axiom-tokio 等第三方物理适配器经实现本层 socket 挂入。"
+license = "MIT"
+repository = "https://github.com/ghwinter/axiom"
+homepage = "https://github.com/ghwinter/axiom"
+documentation = "https://docs.rs/axiom-semantics"
+keywords = ["dataflow", "carrier", "zero-cost", "compile-time", "semantics"]
+categories = ["concurrency", "rust-patterns", "embedded"]
+
+[dependencies]
+# 默认 no_std：semantics 的 `std` feature 显式映射 `axiom/std`，使 "no_std 组合" 在依赖层闭合。
+axiom = { path = "../core", version = "0.3.0", default-features = false }
+
+[features]
+default = ["std", "event", "async-seam", "telemetry"]
+std = ["axiom/std"]
+# ── 接缝载体族（结构收敛 2026-08：细粒度门控＋伞默认）────────────
+# 默认全开（保持现状编译面）；按需取用者可 `--no-default-features` 只取核心族
+# （carrier/contract/obligation/flow/profile/slot/delivery/law 等），或单特性
+# 选接缝。门控纪律：账本探针引用符号必须与其模块同门控（obligation.rs
+# `event::pump_events` 行随 `event`）；CI 特性矩阵见 ci.yml。
+event = ["std"]
+async-seam = ["std"]
+telemetry = []
+
+# ── 性能基准（构建用例，保留）：衡量不同载体的时空成本 ──────────────
+[[bench]]
+name = "carrier"
+harness = false
+
+[[bench]]
+name = "dynamic_tax"
+harness = false
+
+[[bench]]
+name = "profile_workloads"
+harness = false

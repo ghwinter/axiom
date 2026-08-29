@@ -240,7 +240,7 @@ Any "free variable" that does not belong to the internal state of some open syst
 **Necessity**: necessary (the determinacy theorem of KPN).
 **Corollary**: the Moore machine and channel buffering are not "Delays of the abstraction layer," but rather **two means by which the physical carrier realizes causality** (state isolation / tick isolation). Timing belongs to the runtime (physical layer) and is declared by the carrier.
 
-> **axiom realization**: `Feedback` expresses causal closure of cycles at the type layer; whether a cycle is well-defined and whether buffering is needed is the carrier's (the runtime's) responsibility. See `../en-us/core.md` and `../en-us/runtime.md`.
+> **axiom realization**: `Feedback` expresses causal closure of cycles at the type layer; whether a cycle is well-defined and whether buffering is needed is the carrier's (the runtime's) responsibility. See `../en-us/core.md` and `../en-us/semantics.md`.
 
 ### T4. Verifiability Decomposes ⟺ Wiring Is Purely Connectional (Composable Verification Criterion)
 **Premises**: the property of a composed system = component properties + interactions introduced by wiring.
@@ -264,7 +264,7 @@ Any "free variable" that does not belong to the internal state of some open syst
 **Necessity**: necessary (logical consequence of two-plane separation).
 **Corollary**: adapters/translators are a necessity, not an option; multiple physical implementations = a direct consequence of two-plane separation.
 
-> **axiom realization**: the same `cell_core` blueprint can be implemented by carriers such as `InlineCarrier`/`QueueCarrier`/`BoundedCarrier` at different spatiotemporal costs while remaining semantically equivalent (`../en-us/runtime.md`).
+> **axiom realization**: the same `cell_core` blueprint can be implemented by carriers such as `InlineCarrier`/`QueueCarrier`/`BoundedCarrier` at different spatiotemporal costs while remaining semantically equivalent (`../en-us/semantics.md`).
 
 ### T7. Static Composition Is Zero-Cost; Dynamic Composition Must Pay a Tax
 **Premises**: the type plane (composition fixed at compile time) and the instance plane (composition instantiated at runtime) are separated; zero-cost conservation Z1.
@@ -407,7 +407,7 @@ From Z1 / T7 / §4.3: not every composition must/can/ought to be monomorphized; 
 Rationale: all-or-nothing would cause compilation explosion; flexibility is necessary ("static-first + explicit exceptions").
 
 ### 5.7 The Runtime Is a Physical-Layer Implementation Use Case and Is Replaceable
-From T6 / §5.4: the runtime intrudes on **instance-layer** details and does not touch the abstraction-layer topology; it is a **replaceable solution library (carrier API) + the realization of physical timing/causality** for "how values flow across connections," and is itself replaceable. A carrier can be plugged in by implementing the `Carrier` trait without changing the topology, giving the physical layer extensibility. See `../en-us/runtime.md`.
+From T6 / §5.4: the runtime intrudes on **instance-layer** details and does not touch the abstraction-layer topology; it is a **replaceable solution library (carrier API) + the realization of physical timing/causality** for "how values flow across connections," and is itself replaceable. A carrier can be plugged in by implementing the `Carrier` trait without changing the topology, giving the physical layer extensibility. See `../en-us/semantics.md`.
 
 ### 5.8 Semantic Annotation: Blueprints Only Declare Abstract Data Flow (FlowKind Is an Optional Abstract-Layer Annotation)
 From §5.4 / T4: the old Data/Control/Observe three-way semantics are **not blueprint construction primitives** (`flow_kind` is optional, `None` = no annotation), but **remain optional abstract-layer semantic annotations** describing how the receiver interprets a value — **not attributes of the physical-layer carrier** (the physical layer treats all values uniformly as value-flowing-through-structure):
@@ -439,8 +439,8 @@ Runtime freedom over structure is **parameterized** by "the target interface mus
 - "Absolutely free" for arbitrary programs is impossible (every computation has a physical cost); what axiom commits to is **abstraction adds no extra charge** = the cost of an equivalent hand-written program.
 - Only structures determinable **only at runtime at the structural/type layer** must pay the dynamic tax (the safe-Rust lower bound is explicit; connecting to T7/T9); activity in the state/instance layer never pays a structural tax (connecting to T9).
 - Behavioral equivalence (A5/E5) is the hardest item—if it is not implemented, the documentation is downgraded rather than claimed.
-- **Total-function assumption (resolved boundary — see §7.5)**: in the definition of an open system, the transition δ implicitly assumes a **total function**—an input must have an output transition. Correspondingly, axiom's `PortCell::step` is assumed to be a total transition. **"What shape a failing cell (partial function) has, and how failure propagates through composition, is not covered by any axiom or theorem"**—this was a deviation between the theory and real programs (such as parsing errors); **§7.5 closes it**: failure is a value in `Out` (`Out = Result`), `step` stays total, and propagation crosses composition via typed combinators (`TryChain` / `drive_try`), superseding the earlier open-question pointer in `../en-us/runtime.md`.
-- **The access seam for external input sources (known open boundary)**: the documentation declares "IO is physically/carrier-replaceable," but the landing interface whereby "the external world (socket events, etc.) formally becomes the in of a causal flow" has not been formalized—see the open question in `../en-us/runtime.md`.
+- **Total-function assumption (resolved boundary — see §7.5)**: in the definition of an open system, the transition δ implicitly assumes a **total function**—an input must have an output transition. Correspondingly, axiom's `PortCell::step` is assumed to be a total transition. **"What shape a failing cell (partial function) has, and how failure propagates through composition, is not covered by any axiom or theorem"**—this was a deviation between the theory and real programs (such as parsing errors); **§7.5 closes it**: failure is a value in `Out` (`Out = Result`), `step` stays total, and propagation crosses composition via typed combinators (`TryChain` / `drive_try`), superseding the earlier open-question pointer in `../en-us/semantics.md`.
+- **The access seam for external input sources (known open boundary)**: the documentation declares "IO is physically/carrier-replaceable," but the landing interface whereby "the external world (socket events, etc.) formally becomes the in of a causal flow" has not been formalized—see the open question in `../en-us/semantics.md`.
 
 ---
 
@@ -459,7 +459,7 @@ Runtime freedom over structure is **parameterized** by "the target interface mus
      crosses composition** is carried by **combinators**: `TryChain` (single-level short-circuit)
      and `drive_try` (runtime) — pure composition that leaves `step` total.
    - **Landing layer**: entirely "core's type layer (`Out = Result`) + runtime combinators
-     (short-circuit)"; `step` stays `# Total`; see [`runtime.md`](runtime.md) §9.2. This closes
+     (short-circuit)"; `step` stays `# Total`; see [`semantics.md`](semantics.md) §9.2. This closes
      the "total-function assumption" concern in §6 boundaries.
 
 ---

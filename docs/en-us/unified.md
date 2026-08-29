@@ -6,7 +6,7 @@
 > single perspective under which static composition, plugin/loading systems, and driver hot-plug
 > are all one thing", and upgrades the account of what axiom is, beyond the "static
 > blueprint" of `core.md`. Builds on `foundations.md` (definitions/axioms/theorems) and
-> `runtime.md` (the physical layer).
+> `semantics.md` (the physical layer).
 >
 > **Authoritativeness**: a self-contained normative spec — depends on nothing outside the crate.
 

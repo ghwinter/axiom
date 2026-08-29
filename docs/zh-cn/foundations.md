@@ -286,7 +286,7 @@ $\mathcal{S} = \bigotimes \mathcal{M}_i$；组合后的复合体仍是开放系�
 （状态隔离 / tick 隔离）。时序归属 runtime（物理层），由载体声明。
 
 > **axiom 兑现**：`Feedback` 在类型层表达环的因果闭合；环是否良定义、是否需要缓冲是
-> 载体（runtime）的职责。详 [`core.md`](core.md) 与 [`runtime.md`](runtime.md)。
+> 载体（runtime）的职责。详 [`core.md`](core.md) 与 [`semantics.md`](semantics.md)。
 
 ### T4. 验证可分解 ⟺ 布线纯连接（可组合验证判据）
 **前提**：组合后系统性质 = 组件性质 + 布线引入的交互。
@@ -315,7 +315,7 @@ obs-behavior(⟨c₂,E⟩)（bisimulation，互模拟）。
 **推论**：适配器/翻译官是必然而非选项；多物理实现 = 两平面分离的直接后果。
 
 > **axiom 兑现**：同一 `cell_core` 蓝图可被 `InlineCarrier`/`QueueCarrier`/`BoundedCarrier`
-> 等载体以不同时空成本实现，语义等价（[`runtime.md`](runtime.md)）。
+> 等载体以不同时空成本实现，语义等价（[`semantics.md`](semantics.md)）。
 
 ### T7. 静态组合零成本，动态组合必付税
 **前提**：类型平面（组合编译期确定）与实例平面（组合运行期实例化）分离；零成本守恒 Z1。
@@ -479,7 +479,7 @@ axiom 的形状约束（类型化因果流、显式静态性声明、无擦除�
 ### 5.7 runtime 是物理层实现用例，可替换
 由 T6 / §5.4：runtime 侵入**实例层**细节，不碰抽象层拓扑；它是"值如何跨连接流动"的
 **可替换方案库（载体 API）+ 物理时序/因果的兑现者**，本身可替换。载体可通过实现
-`Carrier` trait 挂入而不改拓扑，使物理层具备可扩展性。详 [`runtime.md`](runtime.md)。
+`Carrier` trait 挂入而不改拓扑，使物理层具备可扩展性。详 [`semantics.md`](semantics.md)。
 
 ### 5.8 语义注解化：蓝图只声明抽象数据流（FlowKind 移出蓝图，仍是抽象层语义）
 由 §5.4 / T4：旧的 Data/Control/Observe 三分语义**不作为蓝图构造原语**（`flow_kind` 可选化），
@@ -532,10 +532,10 @@ axiom 的形状约束（类型化因果流、显式静态性声明、无擦除�
   cell（部分函数）是什么形状、失败如何穿过组合"未被任何公理/定理覆盖**——这曾是理论
   与真实程序（如解析错误）之间的偏差；**§7.5 已闭合它**：失败是 `Out` 里的一个值
   （`Out = Result`）、`step` 保持全函数，失败经类型化组合子（`TryChain`/`drive_try`）
-  穿过组合，取代早先指向 [`runtime.md`](runtime.md) 开放问题的指针。
+  穿过组合，取代早先指向 [`semantics.md`](semantics.md) 开放问题的指针。
 - **外部输入源的接入接缝（已知开放边界）**：文档声明"IO 是物理/载体可替换"，但
   "外部世界（socket 事件等）如何正式成为一条因果流的 in"这一落地接口未被形式化——
-  见 [`runtime.md`](runtime.md) 开放问题。
+  见 [`semantics.md`](semantics.md) 开放问题。
 
 ---
 
@@ -552,7 +552,7 @@ axiom 的形状约束（类型化因果流、显式静态性声明、无擦除�
    **已裁定：不公理化（保持核心 `step` 全函数）**——`step` 仍是全函数 `(State,In)->Out`，
    "失败"是 `Out=Result` 里的一个**值**（非发散）；失败如何穿过组合由组合子 `TryChain`/
    `drive_try`（短路）承担。落层：core 类型层（`Out=Result`）+ runtime 组合子；见
-   `../zh-cn/runtime.md` §9.2。
+   `../zh-cn/semantics.md` §9.2。
 
 ---
 

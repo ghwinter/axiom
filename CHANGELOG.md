@@ -38,7 +38,7 @@ expressed by incrementing the minor version).
   (boundary-ontology Prop. 2.7). `redis_like`'s `handle_conn` is now driven by
   the class (selftest byte-identical). Ledger row `event::pump_events` in
   `LEDGER_STD_EXTRA` (modality ③).
-- **Cost semantics formalized** (Z1, runtime.md en/zh §10): edge cost = f(carrier,
+- **Cost semantics formalized** (Z1, semantics.md en/zh §10): edge cost = f(carrier,
   placement, types) as a formal grammar (per-class cost map, composition = max per C4,
   modality-③ budgets) plus the declarative proof skeleton of family-A cross-thread
   irreducibility (relative equality + contradiction; statement at the Rice boundary,
@@ -74,7 +74,7 @@ expressed by incrementing the minor version).
   requires `C: Registered` at compile time (unregistered third-party carriers fail to
   build on gated profiles; the Bounded family is registered for any CAP). Whitelists
   move from documentation to compile-time facts without sealing `Carrier` itself.
-- **Resource-budget subset** (C4, runtime.md §8 en/zh + `runtime/tests/resource_budget.rs`):
+- **Resource-budget subset** (C4, semantics.md §8 en/zh + `runtime/tests/resource_budget.rs`):
   thread count countable (one thread per spawned flow), allocation summable
   (chain class = max over segments per the `CarrierCost` order), stack depth honestly
   unbounded (no fake derivation).
@@ -107,9 +107,9 @@ expressed by incrementing the minor version).
   (`roll_until`): Block = retained value re-delivered on space (no loss, no recompute),
   Fail/disconnect = value returned with the verdict. Theory supplements: T1 activation
   obligation (foundations §8.1, authorization ≠ acquisition) and T2 error algebra
-  (runtime.md §9.2, E policy tiers; type-level E∈Out already forced).
+  (semantics.md §9.2, E policy tiers; type-level E∈Out already forced).
 - **Panic boundary carrier** (A3, `flow::drive_catch`): `catch_unwind` guards a causal
-  drive; no-panic convention documented (runtime.md §8, en/zh) — failure must be a value,
+  drive; no-panic convention documented (semantics.md §8, en/zh) — failure must be a value,
   violators own the responsibility; External-class high cost at trust boundaries only.
 - **Enumerated slot** (A4, `runtime/src/enum_slot.rs`): `EnumSlot<A,B>` — zero-erasure
   existential with a compile-time-known candidate set (index match, no downcast/boxing;
@@ -184,7 +184,7 @@ expressed by incrementing the minor version).
 ## [0.3.0] — 2026-08 — Axiometric core (current design baseline)
 
 The crate is the **four-constituent compile-time core** (`cell_core`) plus a
-physical-layer crate (`axiom-runtime`) of replaceable carriers. Blueprint =
+physical-layer crate (`axiom-semantics`) of replaceable carriers. Blueprint =
 zero-sized Rust type; verification happens at compile time (`Conforms`);
 after compilation there are no axiom objects.
 
@@ -211,7 +211,7 @@ after compilation there are no axiom objects.
 
 ### Runtime
 
-- `axiom-runtime`: physical-layer crate of **replaceable carriers** (template
+- `axiom-semantics`: physical-layer crate of **replaceable carriers** (template
   for third-party adapters); core has zero runtime objects.
 - `contract` module — seam contracts with explicit proof modality:
   `Moore` declaration + `declare_inline_loop_moore` (modality ④),
