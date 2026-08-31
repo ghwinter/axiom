@@ -12,8 +12,8 @@ expressed by incrementing the minor version).
 - **`TracingTelemetry`** (`instances/src/telemetry_tracing.rs`, feature
   `telemetry-tracing`): the semantic `Telemetry` contract bound to `tracing` —
   the socket's **second implementer** (first: in-tree `ConsoleTelemetry`/
-  `BufTelemetry`), pulled by a real consumer need (redacted-project observation
-  module) per the minimal-basis rule. Declared level contract: `Delivered`
+  `BufTelemetry`), pulled by a real consumer observation need per the
+  minimal-basis rule. Declared level contract: `Delivered`
   → `trace`, `Full/Failed/Dropped` → `warn`, depth → `debug`, latency →
   `trace`; output destination is the subscriber's decision (print-vs-observe
   boundary mechanized). Zero-sized adapter; capture-subscriber test without

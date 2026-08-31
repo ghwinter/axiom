@@ -2,7 +2,7 @@
 //!
 //! ## 语义契约（驱动层与实现层的分界线）
 //!
-//! 块级数据流（如 redacted-project 的 数据块，批量块）的**跨阶段交接**原语：
+//! 块级数据流的**跨阶段交接**原语：
 //! - [`AsyncBlockRing::send`]：写入一块。环满 → **异步等待**直至消费侧腾出空位；
 //!   环已关闭 → `Err(Closed)`（值随错误回传，宪法 L1“无静默丢失”）。
 //! - [`AsyncBlockRing::recv`]：读出一块。环空 → **异步等待**直至生产侧提交新块；
@@ -16,11 +16,11 @@
 //! - **notify（事件驱动）**：`axiom-instances` 的 `TokioBlockRing`（`tokio::sync::Notify`
 //!   双唤醒：生产者提交 → 唤醒消费者；消费者腾位 → 唤醒生产者）——等待挂进
 //!   tokio reactor，真异步（推荐路径）。
-//! - **spin（线程主动轮询）**：同步无锁 `BlockRing`/`BlockRing`（redacted-project 现有原语）
-//!   的轮询语义；若需在 async 语境用，可包 `yield_now()` 让步。
+//! - **spin（线程主动轮询）**：同步无锁块环的轮询语义；若需在 async 语境用，
+//!   可包 `yield_now()` 让步。
 //!
 //! 不同实现必须给出**同一语义序**（同输入序列 → 同输出序列，T6 多物理实现等价），
-//! 对拍见 `axiom-instances` 与 redacted-project 集成测试。
+//! 对拍见 `axiom-instances` 集成测试。
 //!
 //! std 门控、零外部依赖：本模块只定义契约（真实实现经实例层接入 tokio）。
 

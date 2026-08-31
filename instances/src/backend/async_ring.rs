@@ -51,7 +51,7 @@ type TelHook = (
 /// 事件驱动异步块环（tokio 实现）。
 ///
 /// `C` = 块类型（`Send`）；容量 = 环可积压的块数（背压点：满则生产者等待）。
-/// 多生产/多消费**不承诺**（SPSC 语义：单写单读，[`BlockRing`] 同款——但经
+/// 多生产/多消费**不承诺**（SPSC 语义：单写单读——但经
 /// Mutex 允许多消费者竞争，语义退化为 FIFO 队列，仍正确；效率建议 SPSC）。
 pub struct TokioBlockRing<C> {
     inner: Mutex<VecDeque<C>>,
