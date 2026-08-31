@@ -159,12 +159,6 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
   拒绝超预算载体，同一拓扑换剖面即换预算门、不改拓扑（T6）。载体白名单为规范文档
   （开放 `Carrier` impl 无法在类型层禁入——A5 诚实声明）。
 
-> **ToolProfile 旗舰案例（真实业务证据，按设计缺席）**：redacted-project——仅以
-> cell_core 构建的 公开行情源 行情数据流 → 列存归档 CLI（四个 PortCell＋类型级 SeqTopo
-> 布线）——已处理 **大规模行、verify 零错误**。其并行形态约 50 行标准库通道；
-> 未使用任何 runtime 模块。这是*设计判断*而非遗漏：工具形式用手写最小机制满足
-> 其物理，axiom-semantics 为物理面生长时待命（有界判定/剖面/热替换）。一个能演示
-> 自身应在何处缺席的框架，才具备可信度。
 - **`law` 模块**（`semantics/src/checks/law.rs`，std）——运行期律探针（T 构件深化）：配对律
   （N 投递 ↔ N 判定；已收 ≤ 已投）、序列单调律、广播扇出计数律；`debug_assertions`
   门控、release 零开销。
@@ -204,7 +198,7 @@ runtime 为统一模型构造子（在 `core.md` 中是**定义**；激活仍是
 cargo build/test --manifest-path semantics/Cargo.toml   # runtime（25 集成 + 5 契约单元测试）
 cargo run --manifest-path semantics/Cargo.toml --example carrier_demo
 cargo run --manifest-path semantics/Cargo.toml --example threaded_flow
-cargo run --manifest-path semantics/Cargo.toml --example redis_like -- --corpus 500   # miniredis 子系统用例
+cargo run --manifest-path semantics/Cargo.toml --example redis_like -- --corpus 500   # Redis-like 子系统用例（仓库内示例）
 cargo test --manifest-path semantics/Cargo.toml --example redis_like                 # 6 个 cell 单元测试
 cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 ```

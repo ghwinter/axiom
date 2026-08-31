@@ -156,7 +156,7 @@ semantics/src/
 
 **三处边界（非冲突，已声明）**：
 
-1. **同步 flow 签名 vs 真异步库**：`drive_link` 等为同步驱动；真异步库（async 生态）经异步接缝接入（`AsyncCarrier`，D2 已拍板，见 [async-seam.md](../async-seam.md)——设计文书，正式化时移入 docs/），义务层（L/C）保持兼容，拓扑不变。
+1. **同步 flow 签名 vs 真异步库**：`drive_link` 等为同步驱动；真异步库（async 生态）经异步接缝接入（`AsyncCarrier`，D2 已拍板；接缝源码见 `semantics/src/seams/async_seam.rs`——设计文书未入 docs，正式化时随接缝 prose 迁入），义务层（L/C）保持兼容，拓扑不变。
 2. **自研原语 vs 成熟通道库**：`mailbox`/`BoundedQueue` 自研原语与成熟通道库等价竞争——库 = 一个实现 S 的 Carrier + 义务声明（六元组化）；替换不改变链拓扑（T6 等价类）。
 3. **剖面预算 vs 库自由**：`assemble_profile` 施加预算门（Kernel/Service/Tool）；预算约束的是声明，不是机制——库在 ToolProfile 下宽松、在 KernelProfile 下被义务 ②③ 见证，语义不变。
 
@@ -259,7 +259,8 @@ placement 的语义面）：服务的跨机器放置按可判性分四层，各�
 
 > 定义（三构件）：core（`cell_core`）冻结；semantics（载体 + 接缝族，零外部依赖）；
 > instances（实例层，经 socket 以 feature 门控接入可替换实现）。落地：
-> workspace 收敛 + EX 泛型化 + instances crate（见 instance-layer-design.md）。
+> workspace 收敛 + EX 泛型化 + instances crate（见 instance-layer-design.md——本地未跟踪
+> 工作稿，新 clone 挂空；权威内容已并入本卷 §11）。
 
 **命题（实例可替换域）**：「可替换」谓词的域 = 机械实现（值怎么流动 / 怎么等 /
 怎么观测）；权威与协议（③ 验证器、LEDGER 账本行、契约判定）不可替换——替换则权威悬空。

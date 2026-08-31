@@ -15,11 +15,11 @@
 | [`semantics.md`](semantics.md) | 物理层 / 载体（Carrier）：runtime 定位、载体目录、多物理实现等价、边界与开放问题 | **架构**：axiom 物理层应该是什么 |
 | [`unified.md`](unified.md) | 统一模型：代换演算（统一视角）、定义–激活轴、三种代换形式、schema 表达力阶梯与(余)归纳证明、动态税精确化 | **升级视角**：axiom 在"静态蓝图"之上的统一设计 |
 
-> **理论语料（非规范）**：[`../internal/theory/`](../../internal/theory/README.md)
-> 存放推导档案与元理论（[boundary-ontology](../../internal/theory/boundary-ontology.md) ·
-> [meta-foundations](../../internal/theory/meta-foundations.md)）、未落地方向注册表
-> （[frontier-notes](../../internal/theory/frontier-notes.md)）与历史归档
-> （[theory-archive](../../internal/theory/theory-archive.md)）。这些材料不构成
+> **理论语料（非规范）**：[`../internal/theory/`](../internal/theory/README.md)
+> 存放推导档案与元理论（[boundary-ontology](../internal/theory/boundary-ontology.md) ·
+> [meta-foundations](../internal/theory/meta-foundations.md)）、未落地方向注册表
+> （[frontier-notes](../internal/theory/frontier-notes.md)）与历史归档
+> （[theory-archive](../internal/theory/theory-archive.md)）。这些材料不构成
 > 本规范的组成部分；冲突时以上述正式文档为准。
 
 ## 阅读路径

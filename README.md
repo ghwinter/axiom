@@ -27,7 +27,7 @@ equivalent to hand-written plain Rust with zero runtime objects.
 **optional abstract-layer annotation** describing how the receiver interprets a value — not a
 physical-layer property. The physical layer treats all values uniformly as "value-flowing-through-
 structure" (shared variable / buffer / channel). Timing/Delay, threading/sync-async, and
-value-form/JSON remain physical-layer concerns — see `docs/foundations.md` §5.8.
+value-form/JSON remain physical-layer concerns — see `docs/en-us/foundations.md` §5.8.
 
 ## runtime (`axiom-semantics`)
 

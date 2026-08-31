@@ -16,11 +16,11 @@ on its own.
 | [`semantics.md`](semantics.md) | The physical layer / Carrier: runtime positioning, carrier catalog, multi-physical-implementation equivalence, boundaries and open questions | **Architecture**: what axiom's physical layer is |
 | [`unified.md`](unified.md) | The unified model: the substitution calculus (the one perspective), the definition–activation axis, three forms of substitution, the schema expressiveness ladder with (co)inductive proof, precise dynamic tax | **Upgraded view**: axiom's unified design beyond the "static blueprint" |
 
-> **Theory corpus (non-normative):** [`../internal/theory/`](../../internal/theory/README.md)
-> holds derivation archives and meta-theory ([boundary-ontology](../../internal/theory/boundary-ontology.md) ·
-> [meta-foundations](../../internal/theory/meta-foundations.md)), the unrealized-directions
-> registry ([frontier-notes](../../internal/theory/frontier-notes.md)), and the historical
-> archive ([theory-archive](../../internal/theory/theory-archive.md)). Not part of this
+> **Theory corpus (non-normative):** [`../internal/theory/`](../internal/theory/README.md)
+> holds derivation archives and meta-theory ([boundary-ontology](../internal/theory/boundary-ontology.md) ·
+> [meta-foundations](../internal/theory/meta-foundations.md)), the unrealized-directions
+> registry ([frontier-notes](../internal/theory/frontier-notes.md)), and the historical
+> archive ([theory-archive](../internal/theory/theory-archive.md)). Not part of this
 > specification; on conflicts the documents above prevail.
 
 ## Reading path
@@ -65,3 +65,20 @@ on its own.
 - **Schema / loadable typed hole**: schema = a closed diagram grammar (interface kinds closed,
   provable by (co)induction); a loadable typed hole = interface fixed, inhabitant replaceable at runtime.
   A typed hole constrains **kind**, not **count** (unbounded count comes from recursion / the generator).
+
+## Version and Stability Policy (A5)
+
+- **`cell_core` (the compile-time core) = stable**: semantic changes are constitution-level
+  decisions (§8.3 closed-boundary checklist); semantic regressions are rejected. New
+  combinators may be added only as instances of concepts 1–5 (collective ruling if in doubt).
+- **Runtime modules carry per-module `Stability` markers**: `stable` (carrier basics, flow
+  drivers), `experimental` (obligation/contract/system under active constitution work).
+  **A `stable` marker is the only bettability promise before 1.0**: third parties may pin
+  against it (subject to the versioning rule below); `experimental` modules carry no
+  bettability promise and may change in any minor release.
+- **Versioning**: before 1.0, breaking changes bump the **minor** version (SemVer); each
+  breaking change ships a **concept-migration note** (which names moved, which semantics
+  shifted, where the concept lives now) even without a compatibility layer.
+- **`forbid(unsafe_code)` persists**: if unsafe ever becomes necessary, it is isolated into a
+  dedicated feature with a documented obligation proof (modality ④ exhibition), never into
+  the stable core.

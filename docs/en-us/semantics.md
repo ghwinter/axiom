@@ -197,15 +197,6 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   touching the graph (T6). Carrier whitelists remain normative documentation (open `Carrier`
   impls cannot be whitelisted at the type level—honest A5 note).
 
-> **ToolProfile flagship case (real-world evidence, by design absent)**:
-> `redacted-project` — a 公开行情源 `行情数据流` → columnar-archive CLI built on
-> `cell_core` alone (four `PortCell`s, typed `SeqTopo` wiring) — has processed
-> **large-scale row count with zero verify errors**. Its parallel form is ~50 lines
-> of std channels; no runtime module was required. This is a *design judgment*,
-> not an omission: the tool form satisfies its physics with hand-written
-> minimal mechanisms, and `axiom-semantics` exists for when that physics surface
-> grows (bounded verdicts, profiles, hot-swap). A framework that demonstrates
-> where it should be absent gains credibility.
 - **`law` module** (`semantics/src/checks/law.rs`, `std`) — runtime-law probes (T-component
   deepening): pairing law (N sends ↔ N verdicts; received ≤ delivered), sequence monotonicity,
   broadcast fan-out counting; `debug_assertions`-gated, release zero-overhead.
@@ -254,7 +245,7 @@ seam (see [`unified.md`](unified.md) §5).
 cargo build/test --manifest-path semantics/Cargo.toml   # runtime (25 integration + 5 contract unit tests)
 cargo run --manifest-path semantics/Cargo.toml --example carrier_demo
 cargo run --manifest-path semantics/Cargo.toml --example threaded_flow
-cargo run --manifest-path semantics/Cargo.toml --example redis_like -- --corpus 500   # miniredis 子系统用例
+cargo run --manifest-path semantics/Cargo.toml --example redis_like -- --corpus 500   # Redis-like subsystem use-case (in-repo example)
 cargo test --manifest-path semantics/Cargo.toml --example redis_like                 # 6 cell 单元测试
 cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 ```

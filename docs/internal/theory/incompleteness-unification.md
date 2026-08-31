@@ -104,4 +104,4 @@
 **项目内部级 / Project-internal**：
 - `boundary-ontology.md` §2（四轴）、§5（三归宿）、§9（分层律）、定理 3.1（闭包交集）。
 - `docs/en-us/foundations.md` §0（零成本承诺）、T3（时序归物理载体）、§5.8（物理层/抽象层分离）。
-- `docs/en-us/semantics.md` §1（core 不重述，runtime 只答"值怎么动"）；`docs/internal/instance-layer-design.md` §2（可替换谓词边界）。
+- `docs/en-us/semantics.md` §1（core 不重述，runtime 只答"值怎么动"）；`docs/internal/instance-layer-design.md` §2（可替换谓词边界；本地未跟踪工作稿，新 clone 挂空）。

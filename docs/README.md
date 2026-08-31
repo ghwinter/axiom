@@ -1,4 +1,4 @@
-> **Language:** English · [中文](../zh-cn/README.md)
+> **Language:** English · [中文](zh-cn/README.md)
 
 # axiom Documentation
 
@@ -6,12 +6,12 @@ Documentation for **axiom** is maintained in two languages (English is the autho
 
 | Language | Index | Docs |
 |---|---|---|
-| **English** (default) | [`docs/en-us/README.md`](en-us/README.md) | `foundations` · `core` · `runtime` · `unified` |
-| **中文** | [`docs/zh-cn/README.md`](zh-cn/README.md) | `foundations` · `core` · `runtime` · `unified` |
+| **English** (default) | [`docs/en-us/README.md`](en-us/README.md) | `foundations` · `core` · `semantics` · `unified` |
+| **中文** | [`docs/zh-cn/README.md`](zh-cn/README.md) | `foundations` · `core` · `semantics` · `unified` |
 
 Choose a language above to read the formal specification:
 **foundations** (definitions · axioms · theorems), **core** (the compile-time core `cell_core`),
-**runtime** (the physical-layer Carrier), and **unified** (the unified model: substitution,
+**semantics** (the physical-layer Carrier), and **unified** (the unified model: substitution,
 definition–activation, schemas — axiom's upgraded design beyond the static blueprint).
 
 > **Theory corpus (non-normative):** derivation archives, meta-theory
@@ -22,10 +22,10 @@ definition–activation, schemas — axiom's upgraded design beyond the static b
 > [`docs/internal/theory/`](internal/theory/README.md). On conflicts, the formal specification prevails.
 
 > **Workspace layout (non-normative):** the workspace is layered — `core/` (compile-time
-> core), `runtime/` (physical layer; source under checks/movers/seams/drive), `instances/`
+> core), `semantics/` (physical layer; source under checks/movers/seams/drive), `instances/`
 > (ready-made swap-ins; feature doors closed by default; tokio async backend), `examples/`
 > (cross-layer comprehensive use cases, e.g. SQL-over-Redis). The async path, observation,
-> and the postponed third-party adapters are covered in the runtime volume appendix.
+> and the postponed third-party adapters are covered in the semantics volume appendix.
 
 > **Maintenance rule:** English is the authoritative default. When a spec changes, update the
 > English document first, then mirror the change into the Chinese document. Each English document
@@ -36,7 +36,7 @@ definition–activation, schemas — axiom's upgraded design beyond the static b
 - **`cell_core` (the compile-time core) = stable**: semantic changes are constitution-level
   decisions (closed-boundary checklist, §8.3); semantic regressions are rejected. New
   combinators may be added only as instances of concepts 1–5 (collective ruling if in doubt).
-- **runtime modules carry per-module `Stability` markers**: `stable` (carrier basics, flow
+- **semantics modules carry per-module `Stability` markers**: `stable` (carrier basics, flow
   drivers), `experimental` (obligation/contract/system under active constitution work).
   A `stable` marker is the only bettability promise before 1.0: third parties may pin against
   it (subject to the versioning rule below); `experimental` modules carry no bettability

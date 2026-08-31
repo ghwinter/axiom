@@ -53,8 +53,9 @@ l9_debug.txt
 # Exceptions are listed explicitly below (theory corpus is tracked).
 /docs/internal/*
 # Exception: the theory corpus IS tracked (prevention of loss of the
-# foundational documents): meta-foundations.md, boundary-ontology.md,
-# frontier-notes.md, and the history archive.
+# foundational documents): 8 files per docs/internal/theory/README.md §4 —
+# README, boundary-ontology, meta-foundations, semantics-constitution,
+# frontier-notes, positioning, incompleteness-unification, theory-archive.
 !/docs/internal/theory/
 
 # Reasonix desktop session metadata (local tool state)
