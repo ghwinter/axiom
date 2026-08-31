@@ -10,7 +10,7 @@
 > **Normative**: a self-consistent, authoritative specification focused on the
 > definition of the axiom core itself.
 >
-> **In one sentence**: axiom core layer = **compile-time DSL + verifier**: all
+> **Summary**: axiom core layer = **compile-time DSL + verifier**: all
 > "intelligence" (analysis, verification, type constraints, graph construction) is exhausted
 > at **compile time**; the product is **ordinary Rust code**. axiom has no "runtime" — only
 > the two phases "compile time" and "post-compile". This satisfies the zero-cost
@@ -126,7 +126,7 @@ again (at arbitrary depth) — the closure of concept 3 (composition closure) in
   receivers (fan-out). The type layer enforces that all receivers' inputs match the source's
   output; no `Box<dyn>`, no runtime objects. The source output requires `Clone` —
   multi-way distribution is, at its essence, copying/dispatching at the physical layer, and
-  that is precisely the physical carrier's concern; the abstraction layer merely declares at
+  this is the physical carrier's concern; the abstraction layer merely declares at
   the type layer that "this one value flows to multiple receivers".
 - **`Merge<S1, S2, DST>`**: multiple compatible sources merge into one receiver (fan-in). The
   "order" of the merge (who arrives first) is the physical carrier's concern
@@ -178,7 +178,7 @@ pub const fn blueprint_is_zero_sized<TOP>() -> bool {
 - Only true runtime generation of new code (JIT) creates new types — not the mainstream of
   non-compiled languages, and in engineering it is almost never used for reliability systems.
 - The only value of "config/JSON/serialization import" is "modifying program behavior" — and
-  precisely because the runtime does not change structure (T9), this value does not exist.
+  because the runtime does not change structure (T9), this value does not exist.
   JSON is at most "tool input for generating this Rust code", not a first-class form.
 
 **Formalization (blueprint form)**: blueprint G = a typed graph defined by Rust code (open
@@ -237,7 +237,7 @@ pseudo-verification defect.
 
 **Key correspondence: generic monomorphization = the mechanism of zero cost**
 Rust's generics generate specialized code for every concrete type at compile time
-(monomorphization) — this is precisely the mechanism of zero-cost conservation. When the
+(monomorphization) — this is the mechanism of zero-cost conservation. When the
 topology is encoded in type parameters (combinators, nested generics), the compiler expands
 it into an instruction sequence equivalent to hand-written code; one pays only when type
 erasure is triggered (`Box<dyn Any>`).

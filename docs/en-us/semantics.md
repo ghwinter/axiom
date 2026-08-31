@@ -63,7 +63,7 @@ Storage primitive (not a `Carrier`; the bounded FIFO beneath pumps/mailboxes):
 `ring::BoundedRing<T, CAP>` — no_std+alloc, dual counters (`readable`/`writable`),
 O(1) push/pop with **typed** `Full(v)`/`Empty` verdicts (value conservation), one reserve
 allocation at construction and zero per-message allocation in steady state. Single-threaded
-by contract; a cross-thread variant awaits the critical-section decision. Serves the
+by contract; a cross-thread variant is pending the critical-section decision. Serves the
 `EmbeddedProfile` (zero-alloc steady-state budget).
 
 > **Bounded-FIFO disambiguation (2026-08, external-audit reconciliation).** Three bounded
@@ -231,7 +231,7 @@ seam (see [`unified.md`](unified.md) §5).
   output on carriers such as Inline and Queue, and verify determinism (same input rerun yields
   the same output). This should serve as the **carrier semantic-equivalence regression
   acceptance** — whenever a new carrier is added, it must first assert output consistency on the
-  existing use cases, to prevent a carrier from silently breaking semantics (this is an
+  existing use cases, to prevent a carrier from breaking semantics without detection (this is an
   engineering convention derived from netpath practice).
 - **Compile-time vs runtime verification**: wiring legality and staticness verification happen
   at compile time (T1/unified `Conforms`); the carrier's space–time cost is an optional quantitative
@@ -473,5 +473,5 @@ postponed; the adapter protocol is defined when a second implementer appears
 (seam-before-socket rule).
 
 Open items: multi-core parallelism under load is unmeasured; the ledger row for Timeout
-modality ②③ awaits an authority change; real network async I/O (tokio `net`) is open — the
+modality ②③ is pending an authority change; real network async I/O (tokio `net`) is open — the
 current feed is channel-based.

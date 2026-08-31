@@ -3,8 +3,8 @@
 //! 语义层 [`Telemetry`](axiom_semantics::seams::telemetry::Telemetry) 插座的
 //! **tracing 绑定**：把接缝裁决/深度/延迟事件转发为 tracing 事件（结构化字段，
 //! 级别契约见下）。树内第一实现是语义层自带的 `ConsoleTelemetry`/`BufTelemetry`
-//! （println/缓冲）；本模块是 Telemetry 插座的**第二实现者**——按极小基律，
-//! 这正是插座开设后第一次被真实观测需求逼出的生态绑定。
+//! （println/缓冲）；本模块是 Telemetry 插座的**第二实现者**——按极小基律，插座的
+//! 扩展由真实观测需求引入，本模块即首个此类绑定。
 //!
 //! ## 级别契约（声明的映射，非约定俗成）
 //!

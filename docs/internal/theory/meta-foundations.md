@@ -8,9 +8,9 @@
 
 ## 摘要 / Abstract
 
-**中文摘要**：本文研究构造性学科的基底问题。主要内容：(1) 定义构成 C = (G, P, D) 三分区（文法区/证明区/公理区）并命名元问题 M——"证明的必要性与方式的必然性由什么决定，基底立于何处"；给出 M 的代数核心——D 是 P 的生成元集，M 即基选取问题，并立两条不变量：极小基律与落位律（第 1 节）；(2) 证明回归三难定理：任一正当性论证链终止于无限回退、循环、未证基底三态之一（第 2 节）；(3) 证明证明必要性相对于放置分层（第 3 节），并给出诚实超形式的推论（Tarski/Gödel）；(4) 确立合法性的构成相对性、小内核单一接缝的外审命题、义务源于构成的 Noether 形态（第 4–6 节）；(5) 提出软件形式即公理放置的命题、形式混合命题，与经帕累托修正的构成最优性猜想（含收割侧引理）、迁移诚实与承认规则两命题（第 7–8 节）；(6) 映射回 axiom 与 axiom-semantics：五概念是经批准的宪法词汇，模态 ①②③④ 是认识论强度谱，runtime 是义务代数的机械，诚实纪律是行动式回答 M（第 9 节）。全部命题配有跨学科锚点（逻辑学、递归论、范畴论、哲学、法学、博弈论、物理学、工程系统），并在参考文献中明确区分定理级与哲学表述级。
+**中文摘要**：本文研究构造性学科的基底问题。主要内容：(1) 定义构成 C = (G, P, D) 三分区（文法区/证明区/公理区）并命名元问题 M——"证明的必要性与方式的必然性由什么决定，基底立于何处"；给出 M 的代数核心——D 是 P 的生成元集，M 即基选取问题，并立两条不变量：极小基律与落位律（第 1 节）；(2) 证明回归三难定理：任一正当性论证链终止于无限回退、循环、未证基底三态之一（第 2 节）；(3) 证明证明必要性相对于放置分层（第 3 节），并给出诚实超形式的推论（Tarski/Gödel）；(4) 确立合法性的构成相对性、小内核单一接缝的外审命题、义务源于构成的 Noether 形态（第 4–6 节）；(5) 提出软件形式即公理放置的命题、形式混合命题，与经帕累托修正的构成最优性猜想（含解锁侧引理）、迁移诚实与承认规则两命题（第 7–8 节）；(6) 映射回 axiom 与 axiom-semantics：五概念是经批准的宪法词汇，模态 ①②③④ 是认识论强度谱，runtime 是义务代数的机械，诚实纪律是行动式回答 M（第 9 节）。全部命题配有跨学科锚点（逻辑学、递归论、范畴论、哲学、法学、博弈论、物理学、工程系统），并在参考文献中明确区分定理级与哲学表述级。
 
-**English Abstract**: This paper studies the grounding problem of constructive disciplines. Contents: (1) the constitution C = (G, P, D) is defined (grammar / proof / axiom regions) and the meta-question M named—"what determines the necessity of proof and of method, and on what the base stands"; the algebraic core of M is given—D as a generator set of P, M as basis selection—with two invariants: the Minimal-Basis Law and the Placement Law (Section 1); (2) the Regress-Trilemma Theorem: every justification chain terminates in one of three states—infinite regress, circularity, or an unproved base (Section 2); (3) the necessity of proof is proved placement-relative along the decidability ladder (Section 3), with the corollary that honesty is extra-formal (Tarski/Gödel); (4) constitution-relativity of legality, the external-audit proposition for small-kernel single-seam architectures, and the Noether form of obligation-derivation-from-constitution (Sections 4–6); (5) forms as axiom placements, hybrid forms, the Pareto-corrected Constitutional Optimality conjecture (with the Harvest-Side lemma), and two propositions on transition honesty and the rule of recognition (Sections 7–8); (6) mapping back to axiom and axiom-semantics: the five concepts are a ratified constitutional vocabulary, modalities ①②③④ are the epistemic-strength spectrum, the runtime is the machinery of the obligation algebra, and the honesty discipline is M answered in action (Section 9). Every proposition carries interdisciplinary anchors (logic, recursion theory, category theory, philosophy, law, game theory, physics, engineering systems), with a clear theorem-level vs philosophical-level distinction in the references.
+**English Abstract**: This paper studies the grounding problem of constructive disciplines. Contents: (1) the constitution C = (G, P, D) is defined (grammar / proof / axiom regions) and the meta-question M named—"what determines the necessity of proof and of method, and on what the base stands"; the algebraic core of M is given—D as a generator set of P, M as basis selection—with two invariants: the Minimal-Basis Law and the Placement Law (Section 1); (2) the Regress-Trilemma Theorem: every justification chain terminates in one of three states—infinite regress, circularity, or an unproved base (Section 2); (3) the necessity of proof is proved placement-relative along the decidability ladder (Section 3), with the corollary that honesty is extra-formal (Tarski/Gödel); (4) constitution-relativity of legality, the external-audit proposition for small-kernel single-seam architectures, and the Noether form of obligation-derivation-from-constitution (Sections 4–6); (5) forms as axiom placements, hybrid forms, the Pareto-corrected Constitutional Optimality conjecture (with the Downstream-Unlock lemma), and two propositions on transition honesty and the rule of recognition (Sections 7–8); (6) mapping back to axiom and axiom-semantics: the five concepts are a ratified constitutional vocabulary, modalities ①②③④ are the epistemic-strength spectrum, the runtime is the machinery of the obligation algebra, and the honesty discipline is M answered in action (Section 9). Every proposition carries interdisciplinary anchors (logic, recursion theory, category theory, philosophy, law, game theory, physics, engineering systems), with a clear theorem-level vs philosophical-level distinction in the references.
 
 **关键词 / Keywords**：基底问题；构成；公理区放置；回归三难；证明分层；诚实规则；义务代数；识别词 / grounding problem; constitution; axiom placement; regress trilemma; stratified proof; honesty rule; obligation algebra; rule of recognition
 
@@ -56,7 +56,7 @@
 
 **Definition 1.8 (Basis and Generators)**. Fixing an inference-rule set R, P is the closure of G ∪ D under R; D is a generator set of P relative to R. The algebraic form of the axiom-placement problem is **basis selection**: bases are not unique (an equivalent-basis swap is a refoundation), so the honest ambition is not uniqueness but the two invariants below.
 
-**定义 1.9（极小基律 / Minimal-Basis Law）**。D 中不得含有可由其余成员加 R 导出的成员。违例＝伪验证类缺陷（把可证项冒充为公设）。执行程序：审计与"声明 ≠ 证明"标注。
+**定义 1.9（极小基律 / Minimal-Basis Law）**。D 中不得含有可由其余成员加 R 导出的成员。违例＝伪验证类缺陷（把可证项不当地列为公设）。执行程序：审计与"声明 ≠ 证明"标注。
 
 **Definition 1.9 (Minimal-Basis Law)**. No member of D may be derivable from the remaining members plus R. Violation = the pseudo-verification defect (a provable item disguised as a postulate). Enforcement: audits and declaration≠proof labeling.
 
@@ -250,17 +250,17 @@ All graph paradigms share the same M-structure (open system = cell, wiring, host
 
 ## 8. 构成最优性 / Constitutional Optimality
 
-**引理 8.0（收割侧 / The Harvest Side）**。D 放置的正当性由下游解锁的可判定性追溯支付：假设全函数 ⟹ 买回编译期全函数检查；假设端口同构（C1 裁定）⟹ 买回无转换的自组合 `Rep`；假设 Kahn 缓冲 ⟹ 买回环的类型安全。放置最优性必须同时计：前向极小（D 尽量小）与反向多产（解锁尽量多）。
+**引理 8.0（解锁侧 / The Downstream-Unlock Side）**。D 放置的正当性由下游解锁的可判定性追溯支付：假设全函数 ⟹ 买回编译期全函数检查；假设端口同构（C1 裁定）⟹ 买回无转换的自组合 `Rep`；假设 Kahn 缓冲 ⟹ 买回环的类型安全。放置最优性必须同时计：前向极小（D 尽量小）与反向多产（解锁尽量多）。
 
-**Lemma 8.0 (Harvest Side)**. The justification of a D-placement is paid retroactively by the decidability it unlocks downstream: assuming totality buys compile-time totality checks; assuming port-symmetry (the C1 ruling) buys conversion-free self-composition (`Rep`); assuming Kahn buffering buys type-safe cycles. Placement optimality must count both forward minimality (small D) and backward productivity (much unlocked).
+**Lemma 8.0 (Downstream-Unlock Side)**. The justification of a D-placement is paid retroactively by the decidability it unlocks downstream: assuming totality buys compile-time totality checks; assuming port-symmetry (the C1 ruling) buys conversion-free self-composition (`Rep`); assuming Kahn buffering buys type-safe cycles. Placement optimality must count both forward minimality (small D) and backward productivity (much unlocked).
 
-**猜想 8.1（构成最优性 / Constitutional Optimality）**。在任务相关义务集固定的前提下，构成间存在帕累托偏序：C₁ ≼ C₂ 当且仅当 C₁ 的义务模态强度剖面逐点不弱于 C₂，且未展出假定不多于 C₂。三点限定：(i) 剖面而非规模——|P| 可通过削弱谓词作弊（指标腐化），强度剖面不可；(ii) 未展出而非静默——④声明的残余已被展出，不计入；(iii) 收割侧（引理 8.0）进入比较——同等剖面下解锁多者优先。若成立，公理放置成为可优化对象。
+**猜想 8.1（构成最优性 / Constitutional Optimality）**。在任务相关义务集固定的前提下，构成间存在帕累托偏序：C₁ ≼ C₂ 当且仅当 C₁ 的义务模态强度剖面逐点不弱于 C₂，且未展出假定不多于 C₂。三点限定：(i) 剖面而非规模——|P| 可通过削弱谓词作弊（指标腐化），强度剖面不可；(ii) 未展出而非静默——④声明的残余已被展出，不计入；(iii) 解锁侧（引理 8.0）进入比较——同等剖面下解锁多者优先。若成立，公理放置成为可优化对象。
 
-**Conjecture 8.1 (Constitutional Optimality)**. With the task-relevant obligation set fixed, a Pareto order exists on constitutions: C₁ ≼ C₂ iff C₁'s obligation-modality strength profile is pointwise no weaker than C₂'s and C₁'s unexhibited assumptions are no more numerous. Three qualifications: (i) profile, not size—|P| is cheatable by weakening predicates (metric gaming), a strength profile is not; (ii) unexhibited, not silent—a ④-declared residual has been exhibited and does not count; (iii) the harvest side (Lemma 8.0) enters comparison—at equal profiles, more unlocking wins. If it holds, axiom placement becomes optimizable.
+**Conjecture 8.1 (Constitutional Optimality)**. With the task-relevant obligation set fixed, a Pareto order exists on constitutions: C₁ ≼ C₂ iff C₁'s obligation-modality strength profile is pointwise no weaker than C₂'s and C₁'s unexhibited assumptions are no more numerous. Three qualifications: (i) profile, not size—|P| is cheatable by weakening predicates (metric gaming), a strength profile is not; (ii) unexhibited, not silent—a ④-declared residual has been exhibited and does not count; (iii) the downstream-unlock side (Lemma 8.0) enters comparison—at equal profiles, more unlocking wins. If it holds, axiom placement becomes optimizable.
 
-**开放问题 8.2（放置唯一性 / Uniqueness of Placement）**。给定（文法 G，软件形式 F），诚实放置 C(F) 是否唯一？倾向：不唯一——理由已精确化：剖面 × 收割的二维偏序一般有多点前沿，不唯一是常态而非反例。内核与服务对同一义务类的放置不同即其例证。稳定性补充：在生产压力下持续的放置形态可类比演化稳定策略。锚点：Maynard Smith & Price 1973（ESS）。
+**开放问题 8.2（放置唯一性 / Uniqueness of Placement）**。给定（文法 G，软件形式 F），诚实放置 C(F) 是否唯一？倾向：不唯一——理由已精确化：剖面 × 解锁的二维偏序一般有多点前沿，不唯一是常态而非反例。内核与服务对同一义务类的放置不同即其例证。稳定性补充：在生产压力下持续的放置形态可类比演化稳定策略。锚点：Maynard Smith & Price 1973（ESS）。
 
-**Open Problem 8.2 (Uniqueness of Placement)**. Given (grammar G, form F), is the honest placement C(F) unique? Inclination: no—and the reason is now precise: a two-dimensional order (profile × harvest) generally has a multi-point frontier; non-uniqueness is the normal case, not a counterexample. Kernels and services placing the same obligation class differently is the running instance. Stability addendum: placement shapes persisting under production pressure are analogous to evolutionarily stable strategies. Anchor: Maynard Smith & Price 1973 (ESS).
+**Open Problem 8.2 (Uniqueness of Placement)**. Given (grammar G, form F), is the honest placement C(F) unique? Inclination: no—and the reason is now precise: a two-dimensional order (profile × downstream unlock) generally has a multi-point frontier; non-uniqueness is the normal case, not a counterexample. Kernels and services placing the same obligation class differently is the running instance. Stability addendum: placement shapes persisting under production pressure are analogous to evolutionarily stable strategies. Anchor: Maynard Smith & Price 1973 (ESS).
 
 **开放问题 8.3（第五态 / The Fifth State）**。模态 ①②③④ 之外是否存在第五态——未展出的隐含？主张：否；未展出的隐含不是模态，是构成违反（定义 1.5 的违例）。此主张使模态体系完备为一个格：{①②③④} ∪ {∅}——∅ 为违例类（零点）；每条义务恰占一格，否则整个构成失效。诚实规则由此从道德条款提升为构成的定义条件。
 
@@ -334,13 +334,13 @@ Expression Set: Turing Machines, Category Theory, Type Theory; Stratified Emerge
 的推论；但**强涌现（后一半，须诚实）**——概念一旦被创造并形式化，其可检验内容仍落在系统内——凡可导的皆已在
 系统内，故同一形式系统内的涌现不可能是逻辑内容上的强涌现；强仅发生在"概念创造"动作上，创造落地即成验证。
 **层位图的唯一读法**：算出来的内容层层可编码（弱），创造出来的词汇层层不可推导（强），而每次创造一旦落地即成
-检查——群环域之下的逻辑在域里，模 / 层不是从域公理长出的，是被造出来的，造出之后又躺回可验证一侧。
+检查——群环域之下的逻辑在域里，模 / 层不是从域公理推导出的，是被造出来的，造出之后又归入可验证一侧。
 
 **不可表达的边界（分两层，皆有定理背书）**。(i) **类型层不可钉死**：类型切片对某些结构给不出类型级存在性
 （无完备依赖类型，常量泛型 / 特征各有封顶）；凡类型层表达不出的进不去 ②③ 见证，只能作运行期对象或 ④ 声明。
 (ii) **语义层不可验证**：即便某结构能被类型表达，其完整语义仍被 Lawvere 不动点挡在系统自证之外——越是足够表达、
 自我指涉的系统，此残余越必然；可由定理证明的封顶，非遗漏。两层的共同结论：**每一层之上都有不可表达 / 不可验证
-的封顶，由定理保证不由工程决定**，这正是 axiom 把容量未来对象、超时与取消、跨机器一致性放入 ④ 声明而非冒充
+的封顶，由定理保证不由工程决定**，这是 axiom 把容量未来对象、超时与取消、跨机器一致性放入 ④ 声明而非误置于
 ②③ 验证的原因——诚实贴住定理标注的高度，而非次优。**主张（非结论）**：本注记是注记 8.6"固定点"说法在"三个
 形式系统对 Rust 底层"上的具体展开，与开放问题 8.2 / 8.4 共同作为收敛点假说登记。
 
@@ -391,7 +391,7 @@ T6（同一抽象组合、不同物理实现、语义等价）在**有损 / 非�
 
 ## 9. 对 axiom 与 axiom-semantics 的应用 / Application to axiom and axiom-semantics
 
-- **构成**：五概念（端口体 / T1 对偶 / 组合封闭 / 代换绑定 / 激活）是词汇表；其中良构部分经类型系统执行为文法区 G——`Conforms`/`Wire` 的 T1 配对即其类型论执行（命题 4.3）。谱系诚实：五概念是从既有代码溯回概括、后经批准的宪法条款（foundations §8.1 封闭清单），其发生史属于展出内容，不呈现为赤裸公设。公理区成员须按定义 1.4 分类：全函数、纯度、Moore 声明 ∈ 逻辑-D；**零成本相对等式 ∈ 经验-D**——它是可证伪的经验命题，已有带噪声底的实测证据（Δ 在噪声区间内），随时可被新工具链推翻，不是公理。消除性验证（C1 精确同型等）∈ P 的机械。
+- **构成**：五概念（端口体 / T1 对偶 / 组合封闭 / 代换绑定 / 激活）是词汇表；其中良构部分经类型系统执行为文法区 G——`Conforms`/`Wire` 的 T1 配对即其类型论执行（命题 4.3）。谱系诚实：五概念是从既有代码溯回概括、后经批准的宪法条款（foundations §8.1 封闭清单），其发生史属于展出内容，不呈现为未证公设。公理区成员须按定义 1.4 分类：全函数、纯度、Moore 声明 ∈ 逻辑-D；**零成本相对等式 ∈ 经验-D**——它是可证伪的经验命题，已有带噪声底的实测证据（Δ 在噪声区间内），随时可被新工具链推翻，不是公理。消除性验证（C1 精确同型等）∈ P 的机械。
 - **认识论强度谱**：模态 ② 见证 / ③ 验证 / ④ 声明 = 定理 3.1 的落地形式；诚实纪律（contract.rs"声明看起来已验证比诚实缺口更糟"）= 推论 3.2 的执行。
 - **语义 = ④ 声明，与类型判定互补**：语义真值不在任何分层阶 tₖ 被系统验证（semantics-constitution 定义卷 D6）；类型判定与语义互补、不重叠——可判定者归 ①②③，不可系统验证者只允许 ④。axiom-semantics 的语义函数 ⟦·⟧ 是 σ 的范畴级推广（semantics-constitution 前置"层位身份"段）。
 - **semantics = 义务代数的机械**：物理层自分层（boundary-ontology §9 在物理层内的递归应用）；义务类语法（投递态 × 资源类 × 引用有效 × 生命周期）为物理层的前四阶公理；`assemble_link`/`assemble_seam` 为装配校验（模态③ 机械）。
@@ -404,9 +404,9 @@ T6（同一抽象组合、不同物理实现、语义等价）在**有损 / 非�
 
 ## 10. 结论 / Conclusion
 
-**中文**：本文把元问题 M 形式化为构成 C = (G, P, D) 的三分区问题，给出其代数核心（D 是 P 相对推理规则的生成元集，M ＝ 基选取）及八个子命题：回归三难（定理 2.1）、证明必要性分层（定理 3.1，放置相对）、诚实超形式（推论 3.2）、合法性构成相对性（命题 4.1–4.3）、外审命题（命题 5.1）、义务源于构成的 Noether 形态（命题 6.1），以及形式即放置与混合形式、实现域标准化六元组（命题 7.1/7.3/7.4）、构成最优性（猜想 8.1，帕累托形态＋收割侧）、迁移诚实与承认规则（命题 8.4/8.5）。结论：(1) 基底必被安置而非被证明，安置只可展出；(2) 证明必要性是分层的且相对于放置，其强度沿谱系递增；(3) 最深的公理是显式构成的意志，它由批准共同体经修正程序持有。M 不被解决，M 被实践——实践即在不漂移的意义上维护一个极小、被完整展出的基。
+**中文**：本文把元问题 M 形式化为构成 C = (G, P, D) 的三分区问题，给出其代数核心（D 是 P 相对推理规则的生成元集，M ＝ 基选取）及八个子命题：回归三难（定理 2.1）、证明必要性分层（定理 3.1，放置相对）、诚实超形式（推论 3.2）、合法性构成相对性（命题 4.1–4.3）、外审命题（命题 5.1）、义务源于构成的 Noether 形态（命题 6.1），以及形式即放置与混合形式、实现域标准化六元组（命题 7.1/7.3/7.4）、构成最优性（猜想 8.1，帕累托形态＋解锁侧）、迁移诚实与承认规则（命题 8.4/8.5）。结论：(1) 基底必被安置而非被证明，安置只可展出；(2) 证明必要性是分层的且相对于放置，其强度沿谱系递增；(3) 最深的公理是显式构成的意志，它由批准共同体经修正程序持有。M 不被解决，M 被实践——实践即在不漂移的意义上维护一个极小、被完整展出的基。
 
-**English**: This paper formalizes the meta-question M as the tri-partition problem of a constitution C = (G, P, D), gives its algebraic core (D as a generator set of P relative to the inference rules; M as basis selection), and states eight sub-propositions: the Regress Trilemma (Theorem 2.1), placement-relative Stratified Necessity of Proof (Theorem 3.1), Honesty as Extra-Formal (Corollary 3.2), Constitution-Relativity of Legality (Propositions 4.1–4.3), External Audit (Proposition 5.1), Obligations Derive from Constitution—the Noether Form (Proposition 6.1)—plus Forms as Placements, Hybrid Forms, and the six-tuple Standardization of Implementations (Propositions 7.1/7.3/7.4), Constitutional Optimality (Conjecture 8.1, Pareto form with Harvest Side), and Transition Honesty with the Rule of Recognition (Propositions 8.4/8.5). Conclusions: (1) the base must be placed, not proved, and placement can only be exhibited; (2) the necessity of proof is stratified and placement-relative, its strength ascending a spectrum; (3) the deepest axiom is the will to explicit constitution, held by a ratifying community through an amendment procedure. M is not solved; M is practiced—and practice means maintaining a minimal, fully exhibited base against drift.
+**English**: This paper formalizes the meta-question M as the tri-partition problem of a constitution C = (G, P, D), gives its algebraic core (D as a generator set of P relative to the inference rules; M as basis selection), and states eight sub-propositions: the Regress Trilemma (Theorem 2.1), placement-relative Stratified Necessity of Proof (Theorem 3.1), Honesty as Extra-Formal (Corollary 3.2), Constitution-Relativity of Legality (Propositions 4.1–4.3), External Audit (Proposition 5.1), Obligations Derive from Constitution—the Noether Form (Proposition 6.1)—plus Forms as Placements, Hybrid Forms, and the six-tuple Standardization of Implementations (Propositions 7.1/7.3/7.4), Constitutional Optimality (Conjecture 8.1, Pareto form with Downstream Unlock), and Transition Honesty with the Rule of Recognition (Propositions 8.4/8.5). Conclusions: (1) the base must be placed, not proved, and placement can only be exhibited; (2) the necessity of proof is stratified and placement-relative, its strength ascending a spectrum; (3) the deepest axiom is the will to explicit constitution, held by a ratifying community through an amendment procedure. M is not solved; M is practiced—and practice means maintaining a minimal, fully exhibited base against drift.
 
 ---
 

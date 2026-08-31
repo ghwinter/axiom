@@ -5,13 +5,13 @@
 //!
 //! 1. **真异步落地**：在同一运行中的 tokio 运行时内，`await` 驱动的
 //!    [`tokio_poll_until`] 让 `tokio::time::sleep(tick).await` 真正挂上 reactor——
-//!    tokio 定时器被 runtime 驱动。这正是同步 `park` 内 `block_on(tokio::time::sleep)`
-//!    连试三形态都报 **「there is no reactor running」** 的判死路径的对立证据：
+//!    tokio 定时器被 runtime 驱动。这是同步 `park` 内 `block_on(tokio::time::sleep)`
+//!    三种接入形态均报 **「there is no reactor running」** 之失败结论的反例：
 //!    真接入不在 `Executor` 契约层妥协（扩契约需 §4.3 破坏性许可），而在 adapter 侧
 //!    用 async worker 兑现。
 //! 2. **Timeout 升模态承载域**：`TimedOut` 由真定时器产出，运行期**测得的**（投递态可
 //!    验证/可记账的机制地面）——非"声称超时却无定时器"的退化态（第五轴，命题 2.7）。
-//!    不冒充②/不越权：② 是编译期见证，账本行升 ②③ 属 runtime `obligation.rs` 的
+//!    不宣称②/不越权：② 是编译期见证，账本行升 ②③ 属 runtime `obligation.rs` 的
 //!    权威变更（LEDGER 不可替换面），不在本演示内做。
 //! 3. **多线程运行时组合**：`tokio_poll_until(&mut p)` 在 `Poller` 为 `Send` 时整体
 //!    `Send`，可 `tokio::spawn` 到多线程 reactor——await 驱动在跨线程组合成立。
@@ -70,7 +70,7 @@ fn run_tokio() {
         println!("timeout after {elapsed:?}: {r2:?}  ← 真定时器产出、运行期可测（③ 承载域）");
 
         // 3) 多线程 `tokio::spawn` 组合：await 驱动的 future 在跨线程 reactor 成立。
-        //    同步 `park` 桥（block_on(sleep)）在此报 no-reactor——判死路径的对立证据。
+        //    同步 `park` 桥（block_on(sleep)）在此报 no-reactor——该失败结论的反例。
         let handle = tokio::spawn(async {
             let mut p3 = Poller::<Inc>::new((), Some(9));
             tokio_poll_until(&mut p3, Instant::now() + Duration::from_millis(200), Duration::from_millis(5)).await

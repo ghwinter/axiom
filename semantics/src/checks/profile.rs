@@ -126,7 +126,7 @@ impl Profile for EmbeddedProfile {
 }
 
 /// 游戏/交互体剖面（F = game；命题 7.1 第四行）。预算 External（帧内分配是常态，
-/// 不冒充零成本）；帧预算 deadline 与状态一致性下限在异步/时间层机械化前保持
+/// 不宣称零成本）；帧预算 deadline 与状态一致性下限在异步/时间层机械化前保持
 /// 模态④声明（诚实边界见 runtime.md 剖面节）。
 pub struct GameProfile;
 impl Profile for GameProfile {

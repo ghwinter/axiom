@@ -38,7 +38,7 @@
 
 **Theorem 1.2 (Tarski)**. For a sufficiently expressive language 𝓛 there is no 𝓛-formula True(x) satisfying True(⌜φ⌝) ↔ φ for every sentence φ.
 
-系统的"合法性/真"谓词总落在系统表达力之外（须外延至 Tarski 真谓词层级 True₀, True₁, …，或改采其他机制）。这正是 axiom 模态④ 声明的数学理由：系统不接受"自己无法验证的命题"为已证明，而是把它显式置于接缝由声明者担责——axiom 的工程对应物是在元层面对"概念边界"的安置。
+系统的"合法性/真"谓词总落在系统表达力之外（须外延至 Tarski 真谓词层级 True₀, True₁, …，或改采其他机制）。这是 axiom 模态④ 声明的数学理由：系统不接受"自己无法验证的命题"为已证明，而是把它显式置于接缝由声明者担责——axiom 的工程对应物是在元层面对"概念边界"的安置。
 
 ### 1.3 统一骨架：Lawvere/Yanofsky 不动点定理 / The Unified Skeleton: the Lawvere/Yanofsky Fixed-Point Theorem
 
@@ -58,7 +58,7 @@
 
 **Proposition 2.2 (Strata, against over-unification)**. Convergence on the skeleton is not sameness of strength: the halting problem is Σ₁⁰-complete; Gödel incompleteness concerns Truth(PA) (beyond the arithmetic hierarchy, above Δ¹₁); Tarski's truth hierarchy is strictly increasing strong truth; Russell/classes concern the von Neumann hierarchy V = ⋃Vα, the universe being a proper class.
 
-**观察 2.3（"会聚于骨架，分化于层级"）**。axiom 文档以 Rice 支撑"Moore 不可判定"、以闭包交集支撑"三层非递进"——前者是 Σ₁⁰ 层的直接应用，后者是集合论层的非包含陈述，两处引用精确。把二者统一于 Lawvere 是更强的抽象，其书写正是本文。
+**观察 2.3（"会聚于骨架，分化于层级"）**。axiom 文档以 Rice 支撑"Moore 不可判定"、以闭包交集支撑"三层非递进"——前者是 Σ₁⁰ 层的直接应用，后者是集合论层的非包含陈述，两处引用精确。把二者统一于 Lawvere 是更强的抽象，其书写即本文。
 
 ## 3. 词汇对应 / Lexical Correspondence
 
@@ -80,7 +80,7 @@
 
 **Corollary 4.1 (Necessity of tunnel layering)**. Self-reference entails incompleteness, hence an abstraction layer cannot fully delimit its physical residue in its own language. The three layers therefore necessarily form a tunnel—bidirectional residue (A∖M and M∖A) between layers—rather than a progressive spectrum on one scale. The felt "gap" is a corollary of the theorem, not an implementation defect.
 
-**推论 4.2（接缝 = 不动点安置）**。三归宿定理（D1 类型增强 / D2 运行期降级 / D3 显式声明）与模态②③④构成对 Lawvere 定理的工程应答：既然闭包不可能，就把"不可能的那个点"固定为接缝并显式分类安置（声明、见证、对拍），而非假装其不存在。
+**推论 4.2（接缝 = 不动点安置）**。三归宿定理（D1 类型增强 / D2 运行期降级 / D3 显式声明）与模态②③④构成对 Lawvere 定理的工程应答：既然闭包不可能，就把"不可能的那个点"固定为接缝并显式分类安置（声明、见证、对拍），而非对其不作显式安置。
 
 **Corollary 4.2 (Seams as fixed-point placement)**. The three destinations (D1 type strengthening / D2 runtime degradation / D3 explicit declaration) and modalities ②③④ constitute the engineering answer to the Lawvere theorem: since closure is impossible, the impossible point is pinned as a seam and explicitly classified—declaration, witness, cross-check—rather than pretended away.
 

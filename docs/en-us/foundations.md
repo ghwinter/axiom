@@ -2,7 +2,7 @@
 
 # axiom Compositional Systems Theory Foundations: Definitions → Axioms → Theorems → Mathematics → axiom
 
-> **One-sentence positioning**: **axiom is a compile-time type algebra — it uses the axioms of
+> **Positioning**: **axiom is a compile-time type algebra — it uses the axioms of
 > compositional systems theory to construct correct system topology (shape), uses the zero-cost
 > conservation law to guarantee shape does not charge the physical layer, and uses typed-hole
 > substitution to achieve runtime content replacement under closed static interfaces.**
@@ -70,15 +70,15 @@ The definition of an open system is "having boundaries, interacting through port
 
 **Boundary 1.0a (System ≠ Function).** Systems and functions are distinguished at the abstract plane by **three boundaries that must not be conflated**:
 
-1. **Lifetime**: the system's lifetime $\ell_\mathcal{S}$ (from creation to active release) ≠ the lifetime $\ell_f$ of a single embodiment (one function call / stack frame). A system can be **activated multiple times**, each activation carried by a different stack frame; a "system / module" is like a **fixed factory** (it has a lifetime, but not a function-concept lifetime). Formalized: $\ell_\mathcal{S} \neq \ell_f$, and under multiple activations $\bigsqcup \ell_{f_k} \not\subseteq \ell_\mathcal{S}$ holds for a single embodiment.
+1. **Lifetime**: the system's lifetime $\ell_\mathcal{S}$ (from creation to active release) ≠ the lifetime $\ell_f$ of a single embodiment (one function call / stack frame). A system can be **activated multiple times**, each activation carried by a different stack frame; a "system / module" has a lifetime independent of any single stack frame (not a function-concept lifetime). Formalized: $\ell_\mathcal{S} \neq \ell_f$, and under multiple activations $\bigsqcup \ell_{f_k} \not\subseteq \ell_\mathcal{S}$ holds for a single embodiment.
 2. **I/O form**: the system's $I/O$ is **information transfer** (can be buffered, lost, overwritten, reordered, borne by carriers), **strictly more general than** function parameters / return values — the latter is merely the **sub-case** of `Inline` + synchronous (zero transport-step duration, §8.6 item 6). I/O is not function parameters / return values. And **how the value arriving over $I/O$ is interpreted** by the receiver (data / command / observation, FlowKind, §5.8) is an **abstract-layer semantic annotation**, not a physical I/O kind — for one shared location whose bytes are overwritten / read, the physical layer makes **no distinction** among Data/Control/Observe (§5.8). A "service request" and a "dataflow input" are the same thing at the physical layer; the difference lies solely in the receiver's semantic interpretation (§5.8).
 3. **Degradation relation to functions**: a pure function $f: A \to B$ is a **special case** of a stateless minimal system ($S = \{\bullet\}$, $\delta = \mathrm{const}\circ f$); at the physical plane, a stack frame is the carrier of a single step activation of the system, **not** the system itself (§1.6 instantiation context / host). Therefore "a minimal system is at least a function" **is not a general theorem** — it only holds approximately under the engineering convention of "using functions to launch async code" — and fails in loops + counter-based pseudo-scheduling (no independent function launch, yet logically independent task systems).
 
-**Definition 1.0b (Three states: ontological · degenerate · constructive).** The relation between a system / module and a function is defined precisely through three forms:
+**Definition 1.0b (Three states: ontological · degenerate · constructive).** The relation between a system / module and a function is defined through three forms:
 
 - **① Ontological state (minimal system, complete general form)**: $\mathcal{S} = (S, I, O, \delta)$, with $S$ the state container surviving across activations (resource holder), lifetime independent of any single service. A module = **holder of resources + provider of services** (manager / scheduler / server / controller) — its "one thing to do" is to manage a class of resources or provide a class of services, not "to perform a data transformation."
 - **② Degenerate state ($S = ()$)**: when the state container degenerates to the unit $S = \{\bullet\}$, algebraically $\delta : I \to O$ — the system **completely, losslessly** degenerates into a function. If a module only does "adding two integers", virtually all of its semantics ≡ `fn add(a: i32, b: i32) -> i32`: the function is the module's **complete embodiment** (nothing is lost) — "degeneration" is a complete embodiment, not an approximation.
-- **③ Constructive state (async function as module entry)**: `async fn serve(...)` is the module's **birth method / entry point**, not the module itself — after `serve` returns, the resident service it launched is **still running**, holds resources, and keeps serving; the function is merely "the call that lights the lifetime."
+- **③ Constructive state (async function as module entry)**: `async fn serve(...)` is the module's **entry point**, not the module itself — after `serve` returns, the resident service it launched is **still running**, holds resources, and keeps serving; the function is merely the call that starts that lifetime.
 
 **Corollary 1.0c (Two-layer relation: physical equivalence / abstract inclusion, identity as the dividing line).**
 
@@ -289,7 +289,7 @@ A system "modifying itself" does not proceed through "modifying running instruct
 Observation and necessity: the vast majority of "dynamic systems" are of the first kind (self-selection); genuine kinds 2/3 (structural modification) in Rust (AOT, statically typed) must be explicitly introduced and are **rare**.
 
 **Corollary T9a (axiom's Default Coverage)**
-The coverage within which axiom's typing holds = "state/instance dynamic + structural static"—this exactly covers connection pools, configuration, routing, elastic scaling, and the **vast majority** of real complex systems. The few loading-based systems that genuinely need "structural dynamism" (changing code at runtime) are handled separately as **explicit exceptions** (plugins/loading mechanisms), without downgrading all blueprints.
+The coverage within which axiom's typing holds = "state/instance dynamic + structural static"—this covers connection pools, configuration, routing, elastic scaling, and the **vast majority** of real complex systems. The few loading-based systems that genuinely need "structural dynamism" (changing code at runtime) are handled separately as **explicit exceptions** (plugins/loading mechanisms), without downgrading all blueprints.
 
 ---
 
@@ -337,7 +337,7 @@ If α = c₁ ⊗w c₂ and Z(c₁), Z(c₂), Z(w), then Z(α) (composition prese
 > Observational corollary (empirical channel): t(⟦α⟧) = t(⟦c₁⟧) + t(⟦c₂⟧) + ε, ε/n < 0.05 — acceptance gate.
 > Proof: monomorphization still occurs at the composition site (the composite of type parameters is known); inlining can still be performed across the composition boundary; with no type erasure there is no additional allocation (no indirection layer at the product join). ∎
 
-**Corollary (constraint dividend)**
+**Corollary (constraint benefit)**
 axiom's shape constraints (typed causal flows, explicit staticity declarations, no type erasure) yield:
 > (i) exclusion of the common pitfalls of hand-writing—accidental indirection / erasure / dynamic
 >     dispatch / non-local shared mutability;
@@ -419,7 +419,7 @@ Swapping the carrier for the same blueprint changes the "dropping/blocking/synch
 ### 5.9 What "runtime modification" acts on, and its boundary: loadable typed holes
 Split "topology / dynamic" into three objects that must **not be conflated**:
 1. **Shape** (interface pairs / edge types, T1 dual pairing): fixed at compile time; **cannot** change at runtime;
-2. **Filling / content** (which implementation fills a typed hole, which edge is activated): **can** change at runtime — this is exactly what plugin loading, driver hot-plug, `dlopen`, and WASM loading do;
+2. **Filling / content** (which implementation fills a typed hole, which edge is activated): **can** change at runtime — this is what plugin loading, driver hot-plug, `dlopen`, and WASM loading do;
 3. **Instance cardinality** (how many instances, which devices exist now): **can** change at runtime — hot-plug, connection pools, elasticity.
 
 **The device tree / driver model is the archetype**: the tree's **schema** (kinds of nodes, interfaces, ABI) is compile-time fixed; the tree's **instance** (current device nodes, which drivers are bound) changes at runtime. A new driver = a node filling an **already-existing interface typed hole**. The driver must obey fixed calling conventions / ABI / interfaces — **because interfaces, addresses, and protocols are fixed, "dynamic" loading is possible**.
@@ -430,7 +430,7 @@ Therefore, the **precise meaning** of "runtime topology modification" in axiom i
 
 Runtime freedom over structure is **parameterized** by "the target interface must already be compile-time fixed"; it cannot cross that interface — that is the wall. Consequently, software with plugins / loading still has a **static host graph** — it merely declares several **loadable typed holes**: the mouth (ABI / protocol) is fixed, and the inhabitant is changeable at runtime. The dynamic boundary (type erasure / FFI / WASM / interpreter) is **localized** to where compile-time-unknown content enters, and the dynamic tax is paid only at that seam, without dragging the whole graph into dynamism (connecting to T9 / T7 and §5.5).
 
-> **Key point**: runtime "modification" is not in tension with static typing — it is precisely the process of "substituting content inside a compile-time-fixed interface / ABI envelope"; **because the interface is fixed, the dynamism is possible**.
+> **Key point**: runtime "modification" is not in tension with static typing — it is the process of "substituting content inside a compile-time-fixed interface / ABI envelope"; **because the interface is fixed, the dynamism is possible**.
 
 ---
 
@@ -603,7 +603,7 @@ else is an instance. See `core.md` §6b and `unified.md`.
    = asynchronous delivery). The two are **independently selectable and mutually non-entailing** —
    the same `step` can be paired with different carriers yielding different physical behaviors
    (blocking / async / dropping) while the abstract semantics remains unchanged (T6). This
-   precisely bounds "synchronous/asynchronous": **within a single `step` is synchronous**
+   bounds "synchronous/asynchronous": **within a single `step` is synchronous**
    (instantaneous, atomic, no external intervention); **a composite system's advance is a sequenced
    orchestration of execution steps + transport steps**, and whether it is asynchronous depends on
    whether the transport-step duration is non-zero — there is no blanket "intra-system synchronous",

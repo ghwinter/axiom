@@ -20,9 +20,9 @@
 //!
 //! ## 为什么存在 / Why an instance layer exists
 //!
-//! **"不替用户选物理" = 没有静默默认，不是"无所提供"**。提供实现 ≠ 强加：违背的时刻是你在
-//! 没写它时它却悄悄替你用了。本层经三个**架构级**机制（非自觉）通过此检验——(1) feature **默认
-//! 全关**，物理不可能悄悄到达用户；(2) **单向依赖**（`axiom ← semantics ← instances`，workspace
+//! **"不替用户选物理" = 没有静默默认，不是"无所提供"**。提供实现 ≠ 强加：违背的情形是
+//! 用户未显式引入时实现被默认启用。本层经三个**架构级**机制（结构性保证）通过此检验——
+//! (1) feature **默认全关**，不经用户显式开启不会进入编译；(2) **单向依赖**（`axiom ← semantics ← instances`，workspace
 //! 强制），core 在结构上不可能感知任何具体物理，只有采纳能发生；(3) 物理只经**命名的缝**进入
 //! （`Carrier`/`Executor`/`Telemetry` 契约 + 如实声明的 `cost()`/`saturation()`/`obligation()`）。
 //! 删除性判据：删掉本 crate，core 与语义层照常 `no_std` 编译、蓝图仍在 `InlineCarrier` 上运行——
@@ -46,8 +46,8 @@
 //!
 //! - [`backend`]（`tokio` feature 门控）：异步后端——`async_driver`（**真异步驱动**：
 //!   把轮询等待点经语言原生 `.await` 挂进 tokio reactor，`tokio_poll_until`/
-//!   `tokio_roll_until`/`tokio_poll_fed`，不扩 `Executor` 契约；同步 `park` 桥已实测
-//!   判死，真接入在此域落地）+ `tokio_exec`（同步 `Executor` 契约的占位实现）。
+//!   `tokio_roll_until`/`tokio_poll_fed`，不扩 `Executor` 契约；同步 `park` 桥实测
+//!   接入失败，真接入在此域落地）+ `tokio_exec`（同步 `Executor` 契约的占位实现）。
 //!
 //! **no_std**：本 crate **不参与** no_std 承诺——实例层依赖 `std`（tokio/embedded
 //! 实例均需）。默认 feature 下无 std 使用路径（空实例面），保持最小。
@@ -90,7 +90,7 @@ pub mod backend {
 
 /// tracing 观测汇：语义层 `Telemetry` 契约的 tracing 实现（Telemetry 插座的
 /// **第二实现者**——第一实现为语义层自带 Console/Buf；极小基律下的首个生态绑定，
-/// 由真实观测需求逼出）。级别契约见模块文档（例外 warn / 热路径 trace）。
+/// 源于真实观测需求）。级别契约见模块文档（例外 warn / 热路径 trace）。
 /// 门控：`telemetry-tracing` feature。
 #[cfg(feature = "telemetry-tracing")]
 pub mod telemetry_tracing;

@@ -1,6 +1,6 @@
 //! 异步接缝最小原型（D2 executor 契约；std 门控；零依赖）。
 //!
-//! 忠实于 async-seam.md（D2 已拍板）：**`step` 永不等**——等待点只发生在边界。
+//! 设计按 D2 裁定执行：**`step` 永不等**——等待点只发生在边界。
 //! 本模块实现三类等待点中的两类于同步域探测：
 //! - **输入到达**：未决输入 `None` → `Pending`；就绪 → 同步执行 `step` → `Ready`；
 //! - **期限**：[`Poller::poll_until`] 带期限轮询，到期 → [`PollResult::TimedOut`]；
@@ -10,7 +10,7 @@
 //!
 //! **诚实边界（A5）**：投递四态中的 `Timeout` 在 delivery.rs 保持模态④ 声明
 //! （需要真定时器/请求域机制）；本层的 `TimedOut` 是**同步轮询域内的期限判定**，
-//! 不冒充 `Delivery::Timeout`——它把"期限缺位 = 永不 TimedOut"的退化态（第五轴，
+//! 不构成 `Delivery::Timeout`——它把"期限缺位 = 永不 TimedOut"的退化态（第五轴，
 //! boundary-ontology 命题 2.7）显式化：期限必须存在才是良态轮询。
 //!
 //! **第三层（契约落定）**：[`Executor`] 契约 + 线程参考实现 [`ThreadExec`]——
@@ -56,7 +56,7 @@ pub enum Poll<O> {
 
 /// 带期限的轮询裁决：在 `Pending`/`Ready` 之上增加**期限耗尽**判定。
 ///
-/// 同步轮询域内的期限探测（见模块文档：不冒充 `Delivery::Timeout` 的 ④ 语义）。
+/// 同步轮询域内的期限探测（见模块文档：不构成 `Delivery::Timeout` 的 ④ 语义）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PollResult<O> {
     /// 期限未到且输入未就绪。

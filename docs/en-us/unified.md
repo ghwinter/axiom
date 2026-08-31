@@ -73,7 +73,7 @@ corners are the **same typed potential graph**:
 
 > **Consequence**: axiom core is the **algebra of definition (potential)** — a
 > well-formed, type-legal, zero-cost-awaiting-activation graph. **Activation is the run/carrier
-> side (actual).** "Definition carries no commitment to activation" is exactly why legality can be
+> side (actual).** "Definition carries no commitment to activation" is why legality can be
 > proven at compile time for free.
 
 ### 2.3 Expressing "future-exists" content: interface × conformance × existential holder

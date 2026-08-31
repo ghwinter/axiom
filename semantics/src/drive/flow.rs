@@ -54,7 +54,7 @@ where
 }
 
 /// **panic 边界驱动（A3）**：以 `catch_unwind` 包裹一次因果驱动
-/// （`A::step` → 载体 → `B::step`），cell 内 panic 不跨信任边界裸奔。
+/// （`A::step` → 载体 → `B::step`），cell 内 panic 不跨信任边界逃逸。
 ///
 /// **成本标注（External 级）**：本边界是**高成本**接缝——反传播检查 + 状态不可信
 /// （panic 后 `A::State`/`B::State` 可能半更新，属接缝责任，不由本函数修复）。
@@ -372,7 +372,7 @@ mod no_std_tests {
     #[cfg(feature = "std")]
     #[test]
     fn drive_catch_contains_panic_and_passes_clean_drives() {
-        // A3：panic 边界——违约 cell（step 中 panic）被捕获为 Err（不裸奔）；
+        // A3：panic 边界——违约 cell（step 中 panic）被捕获为 Err（不逃逸）；
         // 守约 cell 正常路径零干扰（Ok）。
         struct PanicCell;
         impl PortCell for PanicCell {

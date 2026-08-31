@@ -319,7 +319,7 @@ pub const LEDGER: &[LedgerEntry] = &[
     },
     LedgerEntry {
         seam: "degenerate-assembly (C13)",
-        obligation: "退化态拒绝汇编（boundary-ontology 命题 2.7 的机械落点）：容量 0（rendezvous 非背压）、同步直通冒充机械化投递态、未授权驱动（typenstate）、反饥饿席位缺席、零容量块源——可判退化态经模态②门与 fail-closed 默认拒绝",
+        obligation: "退化态拒绝汇编（boundary-ontology 命题 2.7 的机械落点）：容量 0（rendezvous 非背压）、同步直通不构成机械化投递态、未授权驱动（typenstate）、反饥饿席位缺失、零容量块源——可判退化态经模态②门与 fail-closed 默认拒绝",
         modality: Modality::ConstantWitness,
         witness: "contract::assert_capacity_nonzero / ObligationClass::default",
         conformance: "semantics/tests/degenerate_states.rs (4 tests)",
@@ -426,7 +426,7 @@ pub const LEDGER_STD_EXTRA: &[LedgerEntry] = &[
     },
     LedgerEntry {
         seam: "drive::flow::drive_catch",
-        obligation: "panic 边界（A3）：cell 的 panic 经 catch_unwind 截为值，不跨信任边界裸奔；'cell 内禁 panic'为④声明（contract::NoPanic 标记），未声明 NoPanic 的 cell 须经此边界驱动",
+        obligation: "panic 边界（A3）：cell 的 panic 经 catch_unwind 截为值，不跨信任边界逃逸；'cell 内禁 panic'为④声明（contract::NoPanic 标记），未声明 NoPanic 的 cell 须经此边界驱动",
         modality: Modality::DeploymentValidation,
         witness: "drive_catch (std::panic::catch_unwind + AssertUnwindSafe)",
         conformance: "flow.rs: drive_catch_contains_panic_and_passes_clean_drives",

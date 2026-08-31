@@ -12,7 +12,7 @@
 //! 本泵输出序列 = `Chain<A,B>` 逐输入 step 的序列——退化极限与并发形态语义一致。
 //!
 //! 诚实边界（A5）：稳态零分配是**结构**性质（`BoundedRing::push/pop` 无分配、驱动不新建
-//! 对象），非分配计数断言；`CAP ≥ 1` 由 [`BoundedRing::new`] 的模态②门强制。本模块不冒充
+//! 对象），非分配计数断言；`CAP ≥ 1` 由 [`BoundedRing::new`] 的模态②门强制。本模块不提供
 //! `Executor`/async 语义（无等待点、无 reactor）。
 
 use axiom::cell_core::PortCell;

@@ -12,7 +12,7 @@
 //! tokio 的 reactor。这是 §5.3 预先标注的开放问题，初版作诚实占位：
 //!
 //! - [`Executor::park`] 用线程级 [`std::thread::park_timeout`] 兑现等待；
-//!   **不冒充 tokio 语义**（与 `ThreadExec`（sleep）仅在唤醒机制上略异；
+//!   **不提供 tokio 定时器语义**（与 `ThreadExec`（sleep）仅在唤醒机制上略异；
 //!   相同地未挂 reactor）。
 //! - 真接入（把处理改成异步 `park`【破坏性，需 §4.3 契约升级】或 reactor
 //!   预热方案）列为 **开放项**（internal-design §8），落地时实测。
@@ -42,7 +42,7 @@ impl Executor for TokioExec {
     /// 等待点：线程级 `park_timeout`。
     ///
     /// M0 声明：此为**诚实占位**，未挂 tokio reactor（同步 `block_on(sleep)`
-    /// 连试三形态均报 no reactor，见模块文档）。不冒充 tokio 期限语义；
+    /// 连试三形态均报 no reactor，见模块文档）。不提供 tokio 期限语义；
     /// 与 `ThreadExec`（`thread::sleep`）同属线程级等待，真 tokio 接入为开放项。
     fn park(&mut self, dur: Duration) {
         std::thread::park_timeout(dur);

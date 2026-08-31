@@ -89,7 +89,7 @@ expressed by incrementing the minor version).
   dual-counter FIFO (O(1) push/pop, branch wraparound), typed
   `Full(v)`/`Empty` verdicts with value conservation, one reserve allocation at
   construction and zero per-message allocation in steady state. Single-threaded
-  by contract; cross-thread variant awaits the critical-section decision (D4).
+  by contract; cross-thread variant is pending the critical-section decision (D4).
   Serves `EmbeddedProfile`.
 - **Event-substrate carrier class** (`runtime/src/seams/event.rs`, std): `EventStream`
   (item-level input source) / `ChunkSource` (`io::Read` raw source + splitter +
