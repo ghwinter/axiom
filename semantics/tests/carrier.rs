@@ -121,3 +121,15 @@ fn wire_macro_compile_time_inline() {
     let out = flow(&mut sa, &mut sb, 4); // 4 -> 5 -> 10
     assert_eq!(out, 10);
 }
+
+#[test]
+fn wire_macro_chain_three_stages() {
+    // 过程宏新增能力：链式布线 A => B => C——每条边各带编译期布线见证
+    // （见证钉在对应箭头上），展开仍为手写等价的内联 step 链。
+    let mut sa = ();
+    let mut sb = ();
+    let mut sc = ();
+    let flow = axiom_semantics::wire!(Inc => Scaler => Inc);
+    let out = flow(&mut sa, &mut sb, &mut sc, 4); // 4 -> 5 -> 10 -> 11
+    assert_eq!(out, 11);
+}

@@ -61,7 +61,7 @@ crates (dual-form boundary — fused standard set vs. open path).
 | `tokio` | `async` + optional `tokio` dep | `TokioExec`: seam wait-point adapter toward tokio |
 | `embedded` | `axiom-semantics/std` | reserved embedded flow |
 
-Dependency direction is one-way, enforced by the workspace member table: `axiom ← axiom-semantics ← axiom-instances`. The core and semantics keep their zero-dependency promise; `tokio` lives only as an optional dep of instances.
+Dependency direction is one-way, enforced by the workspace member table: `axiom ← axiom-semantics ← axiom-instances`. The core keeps its zero-dependency promise; the semantics layer adds exactly one compile-time-only dependency (the `axiom-macros` proc-macro crate, which links nothing at runtime); `tokio` lives only as an optional dep of instances.
 
 ## Examples
 

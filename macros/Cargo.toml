@@ -1,0 +1,24 @@
+[package]
+name = "axiom-macros"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.98"
+# Compile-time wiring macros for the axiom constitution layer. This crate is
+# proc-macro-only: it runs during compilation and links nothing into the final
+# artifact, so the runtime dependency graph of downstream crates is unchanged.
+description = "Compile-time wiring macros for axiom (proc-macro crate; generates existing core vocabulary only — no second vocabulary source)."
+license = "Apache-2.0"
+repository = "https://github.com/ghwinter/axiom"
+homepage = "https://github.com/ghwinter/axiom"
+keywords = ["dataflow", "compile-time", "proc-macro", "wire"]
+categories = ["rust-patterns", "development-tools"]
+
+[lib]
+proc-macro = true
+
+# Compile-time tooling only: these run inside rustc's macro expansion and never
+# appear in the produced artifact or its dependency graph.
+[dependencies]
+syn = { version = "2", default-features = false, features = ["full", "parsing", "printing", "proc-macro"] }
+quote = "1"
+proc-macro2 = "1"

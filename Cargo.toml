@@ -9,6 +9,9 @@
 # Dependency direction is enforced one-way by the member table; any reverse
 # dependency (semantics/instances depending on external instances of core/) is
 # an M6 non-composable object and is rejected.
+# macros/ is the compile-time tooling member (proc-macro only): it links
+# nothing into any artifact, so the runtime dependency graph stays
+# axiom ← axiom-semantics ← axiom-instances.
 [workspace]
 resolver = "2"
-members = ["core", "semantics", "instances", "examples/sql-over-redis"]
+members = ["core", "macros", "semantics", "instances", "examples/sql-over-redis"]

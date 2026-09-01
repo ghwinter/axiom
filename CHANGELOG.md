@@ -7,6 +7,22 @@ minor version).
 
 ## [Unreleased]
 
+### Added — compile-time wiring macros (D1)
+
+- **`axiom-macros`** (new workspace member `macros/`, `proc-macro = true`):
+  `wire!` is now a procedural macro. The contract face is unchanged — it
+  expands to inline `step` calls and generates only existing core vocabulary
+  (`step`/`Conforms`/`Wire`), re-exported from `axiom-semantics` at the same
+  root path. New capability: chained wiring `A => B => C …` (one `&mut State`
+  parameter per stage, in chain order). Readable diagnostics: each edge's
+  pairing witness is spanned at the caller's `=>` arrow, so a type mismatch
+  (`B::In != A::Out`) is reported at that arrow and names the offending
+  port type.
+- **Dependency posture restated** (decision card D1): the runtime dependency
+  graph is unchanged (core stays zero-dependency; the macro crate links
+  nothing at runtime). The blanket "zero-dependency" claim is narrowed to
+  "zero *runtime* dependencies; compile-time macro tooling excluded".
+
 ### Added — telemetry-tracing instance (Telemetry second implementer)
 
 - **`TracingTelemetry`** (`instances/src/telemetry_tracing.rs`, feature

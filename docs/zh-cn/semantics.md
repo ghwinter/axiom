@@ -86,7 +86,7 @@ L：如实声明 `cost()`/`obligation()`/`saturation()`）；(2) 以外部消费
 （examples/tests 形态；声称处做 T6 采样等价）；(3) 使用开放剖面（`Tool`/`Embedded`，
 `assemble_profile`）——注册门剖面（Kernel/Service）需注册，`Registered` 密封（C3），
 未注册适配器在门剖面按设计编译拒绝（白名单 = 官方目录）；(4) 异步执行器实现
-`Executor` 契约（C7 三层），axiom 不随附执行器（零依赖承诺，D6）。每个入口 =
+`Executor` 契约（C7 三层），axiom 不随附执行器（零运行时依赖承诺，D6；编译期宏工具除外）。每个入口 =
 声明＋检查，绝无静默默认。
 
 每种载体独立可选、可替换：换一个实现不改拓扑（T6 多物理实现）。

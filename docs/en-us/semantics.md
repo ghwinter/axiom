@@ -105,8 +105,8 @@ To attach a physical implementation without touching the core: (1) implement
 (`Tool`/`Embedded`, `assemble_profile`) or, for gated profiles, request registration —
 `Registered` is sealed (C3), so unregistered adapters are refused at compile time on
 gated profiles by design (whitelist = official catalog); (4) async executors implement
-the `Executor` contract (C7 layer 3) instead of axiom shipping one (zero-dependency
-promise, D6). Each entry point is a declaration + a check, never a silent default.
+the `Executor` contract (C7 layer 3) instead of axiom shipping one (zero-runtime-dependency
+promise, D6; compile-time macro tooling excluded). Each entry point is a declaration + a check, never a silent default.
 
 Each carrier is independently selectable and replaceable: swapping one implementation
 does not change the topology (T6, multiple physical implementations).

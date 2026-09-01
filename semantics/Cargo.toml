@@ -21,8 +21,12 @@ categories = ["concurrency", "rust-patterns", "embedded"]
 # the "no_std composition" promise closes at the dependency layer.
 axiom = { path = "../core", version = "0.3.0", default-features = false }
 
+# Compile-time wiring macros (wire!): proc-macro crate, links nothing into the
+# produced artifact — the runtime dependency graph stays core-only.
+axiom-macros = { path = "../macros", version = "0.3.0" }
+
 # G22: property-testing scaffolding (proptest-state-machine) — dev face only;
-# the lib dependency graph stays zero-dependency.
+# the lib dependency graph carries no runtime dependencies beyond the two above.
 # The state_machine sub-crate structurally requires std (note N-G3): scaffolding
 # cases land on the std test face only; the no_std-side step laws remain
 # handwritten vectors (vacuum #10 partially maintained).

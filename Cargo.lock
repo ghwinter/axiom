@@ -33,10 +33,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "axiom-macros"
+version = "0.3.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "axiom-semantics"
 version = "0.3.0"
 dependencies = [
  "axiom",
+ "axiom-macros",
  "proptest",
  "proptest-state-machine",
 ]

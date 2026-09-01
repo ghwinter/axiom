@@ -166,6 +166,13 @@ pub mod term;
 /// Stability: experimental。
 pub mod egraph;
 
+/// `wire!` 过程宏：编译期展开的"连线 + 布线见证"一次完成——展开为手写等价
+/// 的内联 `step` 调用（T7），每条边的一致性见证钉在调用点的 `=>` 箭头上；
+/// 支持链式 `A => B => C`。自 `axiom-macros` 再导出（仅编译期，产物零链接），
+/// 宏体只生成既有核心词汇（`step`/`Conforms`/`Wire`），不立第二词汇源。
+/// Stability: stable。
+pub use axiom_macros::wire;
+
 /// 流通组合与驱动。
 pub mod drive {
     /// 编译期/运行时驱动：将蓝图（cell 拓扑）+ 载体选型兑现为执行。Stability: stable。
@@ -181,10 +188,6 @@ pub mod drive {
 
     /// 静态路径：声明为静态的子图在编译期内联展开（零运行时对象）。Stability: stable。
     pub mod static_path;
-
-    /// `wire!` 声明宏：编译期展开的"连线 + 载体 + 验证"一次完成（宏/编译期技巧）。Stability: stable。
-    #[macro_use]
-    pub mod macros;
 
     /// 异步流水线驱动：把 `PortCell` 与其前后两级异步块环接通
     /// （`run_source` 生产：step → send 等非满；`run_sink` 消费：recv 等新块 → step）。
