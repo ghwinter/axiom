@@ -5,7 +5,7 @@
 #   timing gates are flaky on shared runners. Run `cargo bench` manually when
 #   a zero-cost claim needs re-evidence.
 # - `evidence/run.sh|ps1`: probe corpus TRIAGED (2026-08, see evidence/README.md
-#   "分诊"); survivors E100/R001/R002 are carried by the no_std build, the
+#   "triage"); survivors E100/R001/R002 are carried by the no_std build, the
 #   topology determinism test, and the dynamic_tax bench respectively; the
 #   rest reference the removed v0 API and stay archived (gitignored). No
 #   standalone probe script is wired in.

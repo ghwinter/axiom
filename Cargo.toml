@@ -1,10 +1,14 @@
-# ── Workspace 虚根（实例层形态落地；instance-layer-design.md）────────────
-# 三构件单向依赖：axiom ← axiom-semantics ← axiom-instances；examples/ 为跨层综合
-# 用例命名空间（每综合用例一个 crate；首例 examples/sql-over-redis，依赖三构件）。
-# core 为核心抽象层包（标准 src/ 布局），与 semantics/、instances/ 平级成员；
-# 根路径的"全场景构建用例"面 = examples/（含各成员自有 examples/）。
-# 依赖方向单向由成员表强制；任何反向依赖（semantics/instances ←– core/ 依赖
-# 外部实例）均属 M6 不可组合对象，拒绝。
+# ── Workspace root (instance-layer shape; instance-layer-design) ────────────
+# One-way dependency across the three constituents:
+# axiom ← axiom-semantics ← axiom-instances; examples/ is the namespace for
+# cross-layer use cases (one crate per use case; first: examples/sql-over-redis,
+# depending on all three constituents).
+# core is the core-abstraction package (standard src/ layout), a sibling member
+# alongside semantics/ and instances/; the comprehensive-use-case face at the
+# repository root = examples/ (plus each member's own examples/).
+# Dependency direction is enforced one-way by the member table; any reverse
+# dependency (semantics/instances depending on external instances of core/) is
+# an M6 non-composable object and is rejected.
 [workspace]
 resolver = "2"
 members = ["core", "semantics", "instances", "examples/sql-over-redis"]

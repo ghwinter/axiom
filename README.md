@@ -65,20 +65,20 @@ Dependency direction is one-way, enforced by the workspace member table: `axiom 
 ## Build & verify
 
 ```text
-cargo build --workspace                    # core + runtime + instances + 综合用例
+cargo build --workspace                    # core + runtime + instances + use-case crates
 cargo test --workspace                     # core + runtime + demos unit/integration
 cargo bench -p axiom --bench dag              # diamond zero-cost proof (composite ≈ handwritten, Δ≈±1%) — release-only evidence
-cargo build -p axiom-instances --features tokio   # 实例层（tokio feature 门控；默认全关）
-cargo test -p axiom-instances --features tokio    # 实例层 + 对照对拍（T6 多物理语义等价）
-cargo run -p axiom-demo-sql-over-redis --bin sync_demo          # 综合用例 sync 演示（SQL-over-Redis；零第三方）
-cargo run -p axiom-demo-sql-over-redis --features tokio --bin async_demo  # async 变体（真异步馈入驱动 + 观测子系统）
-cargo run -p axiom-demo-sql-over-redis --features tokio --bin concurrent_demo  # 并发等待量化（1 线程服务 N 会话）
-cargo bench -p axiom-demo-sql-over-redis --features tokio --bench latency     # sync vs async 同口径逐步时延（min-of-N）
+cargo build -p axiom-instances --features tokio   # instance layer (tokio feature-gated; all off by default)
+cargo test -p axiom-instances --features tokio    # instance layer + equivalence cross-check (T6 multi-physics semantic equivalence)
+cargo run -p axiom-demo-sql-over-redis --bin sync_demo          # comprehensive use case, sync demo (SQL-over-Redis; zero third-party)
+cargo run -p axiom-demo-sql-over-redis --features tokio --bin async_demo  # async variant (true async feeding driver + observation subsystem)
+cargo run -p axiom-demo-sql-over-redis --features tokio --bin concurrent_demo  # concurrent waiting quantified (1 thread serving N sessions)
+cargo bench -p axiom-demo-sql-over-redis --features tokio --bench latency     # sync vs async step-by-step latency, same protocol (min-of-N)
 cargo run -p axiom --example pipeline              # run an example (core package)
 cargo run -p axiom-semantics --example threaded_flow
 ```
 
-`--workspace` 依根 `Cargo.toml` 的 `[workspace]` 统一解析（收敛旧双 manifest 分治）；单一 `Cargo.lock`/`target`。`no_std` 承诺：`cargo build -p axiom --no-default-features`、`cargo build -p axiom-semantics --no-default-features`（实例层不参与 no_std）。
+`--workspace` resolves uniformly via the root `Cargo.toml` `[workspace]` (consolidating the old dual-manifest split); one `Cargo.lock`/`target`. The `no_std` promise: `cargo build -p axiom --no-default-features`, `cargo build -p axiom-semantics --no-default-features` (the instance layer does not participate in no_std).
 
 > Benchmarks are meaningful only in release profiles; under debug builds they
 > skip themselves instead of emitting misleading numbers.
