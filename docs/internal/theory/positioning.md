@@ -1,6 +1,6 @@
 # 定位：六个透镜下的组合系统论 / Positioning: Compositional Systems Theory through Six Lenses
 
-> **性质**：I1 层定位注记（`docs/internal/theory/`，不入 git 白名单之外）。非新公理、非承诺：
+> **性质**：I1 层定位注记（`docs/internal/theory/`，白名单跟踪，公开仓库）。非新公理、非承诺：
 > 本文不对既有规范增加任何定义或定理，只把 [`boundary-ontology.md`](boundary-ontology.md)、
 > [`meta-foundations.md`](meta-foundations.md) 与公开规范 `docs/{en-us|zh-cn}/foundations.md`
 > 已确立的构件放入六个科学透镜下解读，并登记此前未收录的锚点。冲突时以上述规范为准。

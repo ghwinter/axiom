@@ -13,7 +13,7 @@ on its own.
 |---|---|---|
 | [`foundations.md`](foundations.md) | Basic definitions, axiom system, derivable theorems (T1–T9), mathematical expressions, boundary statements | **Foundations**: where axiom's "what" comes from |
 | [`core.md`](core.md) | The compile-time core `cell_core`: four constituents, blueprint-as-type, staticity declaration, compile-time verification, theory↔Rust correspondence | **Architecture**: what axiom's core is |
-| [`semantics.md`](semantics.md) | The physical layer / Carrier: runtime positioning, carrier catalog, multi-physical-implementation equivalence, boundaries and open questions | **Architecture**: what axiom's physical layer is |
+| [`semantics.md`](semantics.md) | The physical layer / Carrier: the semantics layer's positioning, carrier catalog, multi-physical-implementation equivalence, boundaries and open questions | **Architecture**: what axiom's physical layer is |
 | [`unified.md`](unified.md) | The unified model: the substitution calculus (the one perspective), the definition–activation axis, three forms of substitution, the schema expressiveness ladder with (co)inductive proof, precise dynamic tax | **Upgraded view**: axiom's unified design beyond the "static blueprint" |
 
 > **Theory corpus (non-normative):** [`../internal/theory/`](../internal/theory/README.md)
@@ -33,7 +33,7 @@ on its own.
 2. [`core.md`](core.md): how the theory becomes a compile-time core (the four-constituent
    `cell_core`) realizing "blueprint-as-type, zero runtime object, verification at compile time".
 3. [`semantics.md`](semantics.md): the core's physical-layer implementation use-case
-   (Carrier), with runtime positioning and boundaries.
+   (Carrier), with the semantics layer's positioning and boundaries.
 4. (Advanced) [`unified.md`](unified.md): the one perspective under which static/dynamic/
    plugins/loading/driver hot-plug are two binding modes of the same substitution, plus the
    definition–activation axis, schemas, the expressiveness ladder, and the (co)inductive
@@ -74,7 +74,7 @@ on its own.
 - `cell_core` (the compile-time core) = stable: semantic changes are constitution-level
   decisions (§8.3 closed-boundary checklist); semantic regressions are rejected. New
   combinators may be added only as instances of concepts 1–5 (collective ruling if in doubt).
-- Runtime modules carry per-module `Stability` markers: `stable` (carrier basics, flow
+- Semantics modules carry per-module `Stability` markers: `stable` (carrier basics, flow
   drivers), `experimental` (obligation/contract/system under active constitution work).
   A `stable` marker is the only bettability promise before 1.0: third parties may pin
   against it (subject to the versioning rule below); `experimental` modules carry no

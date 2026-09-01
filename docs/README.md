@@ -46,6 +46,12 @@ definition–activation, schemas — axiom's upgraded design beyond the static b
 - **Versioning**: before 1.0, breaking changes bump the minor version (SemVer); each
   breaking change ships a concept-migration note (which names moved, which semantics
   shifted, where the concept lives now) even without a compatibility layer.
+- **Contract evolution, three modes** (frozen-face discipline): a frozen contract changes
+  only through one of — (1) *snapshot coexistence* (the old contract remains importable
+  under its historical name; retirement keeps the name), (2) *feature gate* (the new
+  semantics rides a feature; the default face is unchanged), or (3) *breaking migration*
+  (SemVer minor bump before 1.0 + concept-migration note). Anything outside the three
+  modes is not a permitted change to a frozen contract.
 - **`forbid(unsafe_code)` persists**; if unsafe ever becomes necessary, it is isolated into a
   dedicated feature with a documented obligation proof (`docs`, modality ④ exhibition), never
   into the stable core.

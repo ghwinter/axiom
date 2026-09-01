@@ -2,7 +2,7 @@
 
 # Boundary Ontology: Four-Axis Structure of Algebraic Legality and Machine Reachability, and Two-Layer Trust Architectures
 
-> **性质**：I1 层理论注记（`docs/internal/theory/`，不入 git）。非已实现、非承诺。
+> **性质**：I1 层理论注记（`docs/internal/theory/`，白名单跟踪，公开仓库）。非已实现、非承诺。
 > 术语以中英双语并列定义，二语构成同一概念的唯一指称，不另设语际映射。
 > 记号：W 配置空间；σ 语义函数；ρ 重接线；Obs 可观察行为集；A 代数闭包；M 机器闭包；T 类型可表达闭包；K 内核不变量集；J 准入接缝。
 
@@ -52,7 +52,7 @@
 
 **定义 1.7（载体 / Carrier）**。载体是物理层的执行实体，承担运行期激活与效应承载；载体须以抽象层接口（PortCell/Conforms）的形态呈现方可被系统接受（§8.4，运行时为物理层实现用例）。
 
-**Definition 1.7 (Carrier)**. A carrier is an execution entity of the physical layer, responsible for run-time activation and effect bearing; a carrier is accepted by the system only if it presents the interface shape of the abstract layer (PortCell/Conforms) (§8.4; the runtime is the physical-layer use-case of the implementation).
+**Definition 1.7 (Carrier)**. A carrier is an execution entity of the physical layer, responsible for run-time activation and effect bearing; a carrier is accepted by the system only if it presents the interface shape of the abstract layer (PortCell/Conforms) (§8.4; the semantics layer is the physical-layer use-case of the implementation).
 
 ---
 
@@ -351,8 +351,8 @@ frame true-sum probe; monoid-law/true-sum tests + LEDGER row; no_std-safe, seman
 | Rust | 内存/别名 | 借用规则 | 编译（拒绝） | unsafe 接缝 |
 | axiom core | 组合/拓扑 | T1 对偶、五概念 | 编译（拒绝） | Conforms 缺失即不可实例化 |
 | axiom core | 失败 | step 全函数 | 类型约定 | Out = Result（失败为值） |
-| axiom runtime | 环良定义 | Moore | 声明（④） | drive_feedback_inline 门 |
-| axiom runtime | 成本 | CarrierCost 序 | 声明/部署（③） | 未声明默认 External |
+| axiom-semantics | 环良定义 | Moore | 声明（④） | drive_feedback_inline 门 |
+| axiom-semantics | 成本 | CarrierCost 序 | 声明/部署（③） | 未声明默认 External |
 | 插件 | 许可 | 型位合规 | 编译（Conforms）+ 运行（∃） | SlotDrive 装箱 |
 
 **定理 9.6（分层律 / Law of Stratification）**。对任意阶 k，其合法边界恰为两项之并：(L₁) 在 tₖ 可判定的合法性；(L₂) 显式承载不可判定残余的接缝。且 (L₂) 非空当且仅当该阶存在超出 tₖ 判定力的性质。

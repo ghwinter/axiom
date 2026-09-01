@@ -1,23 +1,24 @@
 > **语言：** 中文 · [English](../en-us/semantics.md)
 
-# axiom-semantics（原名 axiom-runtime）：语义 / 契约层
+# axiom-semantics：语义 / 契约层
 
-> **状态**：作为 runtime → semantics 重定位的第一步，在实验分支
-> `rework/rename-runtime-semantics` 上改名（runtime = 语义函子 ⟦core 形状范畴⟧ → 行为范畴）。
-> 本页散文完整重述——把现已不准确的"物理层"框架改为语义/契约层框架（物理/绑定实现归
-> `axiom-instances`）——是后续轮，尚未撰写。机械改名（目录/包/crate/文档路径）已完成且测试全绿。
+> **状态**：runtime → semantics 重定位已完成并并入主线（目录/包/crate/文档路径机械
+> 改名 + 散文重述，测试全绿）。旧称 runtime 仅存于历史记录（CHANGELOG、审计档案），
+> 按历史规则保留。
 >
-> **性质**（遗留框架，修订中）：axiom 的物理层架构规范。回答"axiom 的物理层是什么"：核心
-> `cell_core` 只声明因果数据流（`A.out -> B.in`），runtime 回答唯一一个问题——
-> 这条流的值怎么从 `A.out` 到 `B.in`，以何种时空成本。本卷描述 runtime 的形态，
-> 与已收敛的实现（分层：`semantics/src/{checks,movers,seams,drive}/*.rs`）一致。
+> **性质**：axiom 的语义/契约层架构规范。回答"形状在被执行基座上跑起来意味着什么"：
+> 核心 `cell_core` 只声明因果数据流（`A.out -> B.in`），语义层回答唯一一个问题——
+> 这条流的值怎么从 `A.out` 到 `B.in`，以何种时空成本，边界条件（等待/外部输入/
+> 失败/观测）如何定义。本卷描述契约面的形态，与已收敛的实现
+> （分层：`semantics/src/{checks,movers,seams,drive}/*.rs`）一致。
 >
-> **规范性**：自洽的权威规范，专注 axiom 物理层自身的形态。
+> **规范性**：自洽的权威规范，专注 axiom 语义/契约层自身的形态。
 >
-> **定位**：runtime = 载体（Carrier）目录 + 兑现验证：为 `cell_core`
-> 的每条因果数据流提供一种物理实现（值怎么移动），每种体现不同的时空成本，模块化、
-> 可替换。runtime 是核心的物理层实现用例——axiom 无运行时对象，只有"编译期"与
-> "编译后"两段。
+> **定位**：语义层 = 契约本体（三等待点契约：输入就绪/期限/背压 ＋ 激活契约，
+> §0.6 解散裁定）+ 载体（Carrier）目录 + 兑现验证：为 `cell_core` 的每条因果
+> 数据流声明行为与时空成本契约，由实例层（`axiom-instances`）绑定到真实基座
+> 兑现；每个载体是独立的可替换单元，换载体不改拓扑（多物理实现，T6）。
+> axiom 无运行时对象，只有"编译期"与"编译后"两段。
 
 ---
 
@@ -26,7 +27,7 @@
 - `cell_core`：开放系统（`PortCell`: In/Out/State/step）+ 因果流（`Wire`/`Chain`/
   `Broadcast`/`Merge`/`Feedback`）+ 静态性（`Static`）+ 编译期验证（统一 `Conforms`）。
 - 蓝图即类型：零大小、零运行时对象、编译期耗尽。
-- **runtime 不重复核心的声明**——runtime 只回答"这条因果流，值怎么从 A.out 到 B.in"。
+- **语义层不重复核心的声明**——语义层只回答"这条因果流，值怎么从 A.out 到 B.in"。
 
 ---
 
@@ -103,7 +104,7 @@ L：如实声明 `cost()`/`obligation()`/`saturation()`）；(2) 以外部消费
 > 跨线程载体如实承担族 A（并发维持对价）。零成本承诺（族 B = 0，见下）对二者同等成立。
 
 > **载体即属性（部署期物理）**：蓝图声明"这条流用哪个载体"（如 `Static<Chain<A,B>>`
-> 走 `InlineCarrier`/`static_path`），runtime 按声明兑现。"丢弃/阻塞/同步/异步"全是
+> 走 `InlineCarrier`/`static_path`），语义层按声明兑现。"丢弃/阻塞/同步/异步"全是
 > 物理层选择（衔接 `foundations.md` §5.8）——同一蓝图换载体即换"丢弃/阻塞/同步"行为。
 
 ---
@@ -120,9 +121,9 @@ L：如实声明 `cost()`/`obligation()`/`saturation()`）；(2) 以外部消费
 
 ---
 
-## 3b. 统一模型激活（runtime，`std`）
+## 3b. 统一模型激活（语义层，`std`）
 
-runtime 为统一模型构造子（在 `core.md` 中是定义；激活仍是运行/载体侧）提供激活：
+语义层为统一模型构造子（在 `core.md` 中是定义；激活仍是运行/载体侧）提供激活：
 
 - **存在绑定 `SlotPending<I,O>` → `SlotDrive<I, O>`**（existential binding，`semantics/src/drive/slot.rs`）——
   对 `Slot<I,O>` 的 ∃ 存在化填充，处于许可生命周期（typestate，模态①）：
@@ -178,7 +179,7 @@ runtime 为统一模型构造子（在 `core.md` 中是定义；激活仍是运�
 - 每个 carrier 是独立单元，可作为单独 crate。
 - 新的物理载体通过实现 `Carrier` trait 挂入，不改 cell 拓扑：例如用带其他调度/
   时序语义的通道载体替换队列/通道形态的载体，或用其他底层机制替换零分配载体。
-- runtime 作为参考实现用例，提供各载体作模板。
+- 语义层作为参考实现用例，提供各载体作模板。
 
 ---
 
@@ -197,7 +198,7 @@ runtime 为统一模型构造子（在 `core.md` 中是定义；激活仍是运�
 ## 6. 构建与验收基准
 
 ```text
-cargo build/test --manifest-path semantics/Cargo.toml   # runtime（25 集成 + 5 契约单元测试）
+cargo build/test --manifest-path semantics/Cargo.toml   # semantics（25 集成 + 5 契约单元测试）
 cargo run --manifest-path semantics/Cargo.toml --example carrier_demo
 cargo run --manifest-path semantics/Cargo.toml --example threaded_flow
 cargo run --manifest-path semantics/Cargo.toml --example redis_like -- --corpus 500   # Redis-like 子系统用例（仓库内示例）
@@ -206,7 +207,7 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 ```
 
 **已达成（证据链）**：
-- runtime 只依赖 cell_core（新核心），不依赖任何 v0 模块。
+- 语义层只依赖 cell_core（新核心），不依赖任何 v0 模块。
 - 载体目录：Inline（栈上函数传·零分配）/ Queue（堆队列中转）/ Bounded（有界通道，
   编译期 `CAP ≥ 1`）/ spawned_flow（跨线程 mpsc）/ static_path / wire!（声明宏）。
 - 模块化可替换：换载体不改拓扑（T6），各载体独立可单独引用。
@@ -216,9 +217,9 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 
 ---
 
-## 7. 真实用例（runtime 作为核心的实现用例）
+## 7. 真实用例（语义层作为核心的实现用例）
 
-| 用例 | 类型 | 驱动的 runtime 能力 |
+| 用例 | 类型 | 驱动的语义层能力 |
 |---|---|---|
 | `redis_like` | 多模块服务器类 | 多模块管线 + 单线程/跨线程（spawned_flow） |
 | `psql` | 解析/执行流水线类 | 流水线组合 + Inline/跨线程解析 |
@@ -227,7 +228,7 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 | `carrier_demo` | 载体演示 | 同一蓝图多载体可替换、语义等价、时空成本不同 |
 | `threaded_flow` | 同拓扑异构物理 | Inline 零分配 vs 跨线程通道 |
 
-这些用例是"基于 axiom/axiom-semantics 构建真实程序"的构建用例，也是 runtime 迭代与
+这些用例是"基于 axiom/axiom-semantics 构建真实程序"的构建用例，也是语义层迭代与
 等价性验证的载体。旧版同类用例（含 TCP 服务器形态）可在 git 历史中恢复作参考
 （`git show main:semantics/examples/<name>/main.rs`）。
 
@@ -258,13 +259,13 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 
 ## 9. 已知开放边界（薄边）
 
-> 下列是 runtime 定位内的薄边，由真实用例暴露，当前未解决。它们
+> 下列是语义层定位内的薄边，由真实用例暴露，当前未解决。它们
 > 属于"工程叠加/优化 + 一处理论边界"，不改核心（`cell_core`）的既有构成。
 
 ### 9.1 背压 / 有界缓冲
 无界 mpsc 形态（队列/线程输送）由 `QueueCarrier`/`spawned_flow` 覆盖（后者无界）；
 真实系统需要"生产快而消费慢"的有界 + 背压语义。
-- 落层：纯 runtime（`foundations.md` 已把"背压/时序"归物理载体）。
+- 落层：纯语义层（`foundations.md` 已把"背压/时序"归物理载体）。
 - **已提供**：
   - `BoundedQueue<T, CAP>`（`buffer.rs`，std）——基于 `sync_channel(CAP)` 的有界 FIFO：
     `push`（阻塞=背压）、`try_push`（满返回 `Err`=背压/容量信号，丢弃/上抛策略留给调用侧）；
@@ -277,7 +278,7 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 真实 cell（如解析器）需要 "会失败" 的语义；`PortCell::step` 被假定为总转移
 （`foundations.md` 边界已如实标注：全函数假设）。目前以 `Out = Result` 约定 + 短路载体
 拼凑。
-- 落层：可归 runtime（用 `Result` 约定 + 短路），与"丢弃/阻塞是物理"同构；若将
+- 落层：可归语义层（用 `Result` 约定 + 短路），与"丢弃/阻塞是物理"同构；若将
   "会失败的 cell"公理化（部分函数/错误输出端口），则属理论边界（`foundations.md` §7
   开放问题 5）。
 - **已提供（短路侧）**：
@@ -313,7 +314,7 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 每连接有状态 `LineSplit`（跨块缓冲）→ `CmdParse`（类型化错误、短路）→ 有界通道（背压）
 → 持有 `StoreState` 的存储工作线程（`DataStore` 全函数，无 panic 路径）→ RESP 回执路由
 （每连接 FIFO 顺序、EOF 时写半关闭）。
-- 落层：runtime（事件基座即一类载体/驱动）。
+- 落层：语义层（事件基座即一类载体/驱动）。
 - **载体类已形式化并落地**（`semantics/src/seams/event.rs`）：事件流（`EventStream`，
   条目级输入源）+ 块源适配（`ChunkSource`：`io::Read` 原始源 + 分割器 + 跨块状态，
   含通用行分割 `split_lines`）+ 泵驱动（`pump_events`：变换 cell → 投递裁决
@@ -356,7 +357,7 @@ edge_cost(seam) := class(f):
 
 ## 11. 结论
 
-> runtime = `cell_core` 的物理层实现用例：载体目录（Inline/Queue/Bounded/
+> 语义层 = `cell_core` 的物理层实现用例：载体目录（Inline/Queue/Bounded/
 > spawned_flow/static_path/wire!）+ 兑现验证，模块化可替换，解释并验证"同一张静态图可插进多种物理
 > 执行（内联/队列/跨线程），每种有可验证的语义等价"。载体可通过实现 `Carrier` trait
 > 挂入而不改拓扑，使物理层具备可扩展性；已闭合项（背压、失败×背压）与边界内的
@@ -372,7 +373,7 @@ delivery）、`movers/`（值的搬运器：carrier、buffer、ring、mailbox）
 enum_slot、static_path、macros）。`instances/src` 下为 `backend/`（async_driver 与
 tokio_exec）；`examples/sql-over-redis/src` 下为 `plans/`（sql_plan、redis_plan）。
 
-异步路径：runtime 声明 `Executor` 契约（`seams::async_seam`）；实际异步路径在
+异步路径：语义层声明 `Executor` 契约（`seams::async_seam`）；实际异步路径在
 `axiom-instances`（`backend::async_driver`）：等待挂进 tokio reactor，期限来自 tokio
 定时器（`tokio::time::timeout` 包裹输入等待），等待期间新指令可经通道馈入。输出与
 同步路径逐行一致（T6；综合用例核对 195/195 行）。`backend::tokio_exec` 与 `ThreadExec` 平级——同步域轮询面（同一组等待点契约，§0.6 解散裁定）的线程级等待实现（期限等待点在该实现内如实声明），无占位/正解之分；`async_driver` 是异步域等待模式实现（T6 对拍）。观测是普通模块（用例侧 收集 → 汇总 → 打印），默认不接入。并发演示：单线程

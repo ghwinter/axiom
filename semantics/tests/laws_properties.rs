@@ -11,6 +11,8 @@
 //!    (trace(A), trace(B))` 分量展开。
 //! 3. **Broadcast 复制语义**：复制忠实（`Δ(x) = (x,x)`，随机值域含极值）
 //!    与余单位律的随机游程面（`Δ;⟨id,ε⟩ ≡ Id`、`Δ;⟨ε,id⟩ ≡ Id`）。
+//! 4. **相容性（interchange，I5 缺口补齐）**：`(f⊗g)∘(h⊗k) ≡ (f∘h)⊗(g∘k)`
+//!    的有状态实例多步游程面。
 //!
 //! 判据同 laws.rs：行为等价（模态③器械——证明律在被测实例上成立）。
 
@@ -85,6 +87,18 @@ proptest! {
     }
 
     // ── 2. 迹展开等价 ────────────────────────────────────────────────
+
+    // ── 1.5 相容性（interchange，I5 缺口补齐）────────────────────────
+
+    #[test]
+    fn interchange_run_equivalence(
+        pairs in proptest::collection::vec((any::<i32>(), any::<i32>()), 0..64),
+    ) {
+        // (f⊗g)∘(h⊗k) ≡ (f∘h)⊗(g∘k)：有状态实例多步游程面。
+        type L = Chain<Par<Acc, Scaler>, Par<Acc, Scaler>>;
+        type R = Par<Chain<Acc, Acc>, Chain<Scaler, Scaler>>;
+        prop_assert_eq!(run_trace::<L>(&pairs), run_trace::<R>(&pairs));
+    }
 
     #[test]
     fn trace_expansion_chain(xs in proptest::collection::vec(any::<i32>(), 0..64)) {

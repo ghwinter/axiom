@@ -40,7 +40,7 @@ jobs:
           cargo clippy -p axiom-instances --all-targets --features tokio -- -D warnings
           cargo clippy -p axiom-demo-sql-over-redis --all-targets --features tokio -- -D warnings
 
-      # Tests: workspace (core + runtime unit/integration); instances feature tests.
+      # Tests: workspace (core + semantics unit/integration); instances feature tests.
       - name: Test
         run: |
           cargo test --workspace
@@ -52,7 +52,7 @@ jobs:
       - name: Docgate (docs rust blocks compile)
         run: cargo test -p axiom-semantics --test docgate -- --ignored
 
-      # no_std promise: core and runtime build without std (instance/demos
+      # no_std promise: core and semantics build without std (instance/demos
       # layers do not participate — their tokio/embedded instances need std).
       - name: Build no_std
         run: |

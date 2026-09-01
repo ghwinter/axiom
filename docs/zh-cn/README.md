@@ -12,7 +12,7 @@
 |---|---|---|
 | [`foundations.md`](foundations.md) | 基本定义、公理体系、可推导的定理（T1–T9）、数学表达、边界声明 | **奠基**：axiom 的"是什么"从何而来 |
 | [`core.md`](core.md) | 编译期核心 `cell_core`：四构件、蓝图即类型、静态性声明、编译期验证、理论↔Rust 对应 | **架构**：axiom 核心应该是什么 |
-| [`semantics.md`](semantics.md) | 物理层 / 载体（Carrier）：runtime 定位、载体目录、多物理实现等价、边界与开放问题 | **架构**：axiom 物理层应该是什么 |
+| [`semantics.md`](semantics.md) | 物理层 / 载体（Carrier）：语义层定位、载体目录、多物理实现等价、边界与开放问题 | **架构**：axiom 物理层应该是什么 |
 | [`unified.md`](unified.md) | 统一模型：代换演算（统一视角）、定义–激活轴、三种代换形式、schema 表达力阶梯与(余)归纳证明、动态税精确化 | **升级视角**：axiom 在"静态蓝图"之上的统一设计 |
 
 > **理论语料（非规范）**：[`../internal/theory/`](../internal/theory/README.md)
@@ -31,7 +31,7 @@
 2. [`core.md`](core.md)：理论与公理如何落成编译期核心（四构件
    `cell_core`），以及"蓝图即类型、零运行时对象、验证在编译期"的实现。
 3. [`semantics.md`](semantics.md)：核心的物理层实现用例（载体/Carrier），
-   以及 runtime 的定位与边界。
+   以及语义层的定位与边界。
 4. （进阶）[`unified.md`](unified.md)：统一视角——静态/动态/插件/装载/驱动热插拔
    如何是同一个"代换"的两种绑定模态，以及定义–激活轴、schema 表达力与
    "未来合规"的(余)归纳证明。
@@ -63,6 +63,6 @@
 ## 版本与稳定性政策（A5）
 
 - **cell_core（编译期核心）= stable**：语义变更是宪法级决策（§8.3 封闭清单）；语义回归被拒。新组合子仅可作为概念 1–5 的实例加入（存疑时经集体裁定）。
-- **runtime 模块带逐模块 Stability 标注**：stable（载体基础、flow 驱动）、experimental（义务/契约/宪法建设中的系统）。stable 标注是 1.0 前唯一的押注承诺：第三方可对其押注（受下述版本化规则约束）；experimental 模块无押注承诺，可在任意 minor 版本变更。
+- **语义层模块带逐模块 Stability 标注**：stable（载体基础、flow 驱动）、experimental（义务/契约/宪法建设中的系统）。stable 标注是 1.0 前唯一的押注承诺：第三方可对其押注（受下述版本化规则约束）；experimental 模块无押注承诺，可在任意 minor 版本变更。
 - **版本化**：1.0 前破坏性变更升 minor（SemVer）；每次破坏性变更随附概念迁移说明（哪些名字迁移、语义如何移位、概念现居何处），即使不做兼容层。
 - **forbid(unsafe_code) 保持**：若未来必须 unsafe，隔离进专用 feature 并附文档化义务证明（模态④展出），绝不进入 stable 核心。

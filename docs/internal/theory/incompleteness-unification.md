@@ -1,7 +1,7 @@
 # 不完备统一：Lawvere–Yanofsky 不动点、Tarski 真层级与 axiom 分层谱系
 # Incompleteness Unification: the Lawvere–Yanofsky Fixed Point, Tarski's Truth Hierarchy, and axiom's Layering
 
-> **性质**：I1 层理论注记（`docs/internal/theory/`，不入 git）。非已实现、非承诺。
+> **性质**：I1 层理论注记（`docs/internal/theory/`，白名单跟踪，公开仓库）。非已实现、非承诺。
 > **上游**：[`boundary-ontology.md`](boundary-ontology.md) §2 四轴、§5 三归宿、§9 分层律；
 > `docs/en-us/foundations.md` §0 承诺、T3（时序归载体）、§5.8；`docs/en-us/semantics.md` §1。
 > 本文把"不可判断、不可表达、定义边界、表达边界、概念边界"统一到对角化/不动点骨架，
@@ -10,9 +10,9 @@
 
 ## 摘要 / Abstract
 
-**中文摘要**：本文研究"不可完备化"现象族的统一形式。主要内容：(1) 陈述三个精确形式——递归论的不可完备化（Gödel–Rosser）、Tarski 真不可定义、Lawvere/Yanofsky 不动点定理；并证明三者共享同一对角化骨架但分处不同强度层级（第 1–2 节）；(2) 建立 axiom 边界词汇与数学表述的对应表（Rice→Moore 判定；可定义集;类型闭包 T ⊊ A；真谓词外延→模态④声明）（第 3 节）；(3) 推导分层谱系的设计推论：自指 ⇒ 不完备 ⇒ 抽象层不能以自身语言完备界定物理残差，故 core/runtime/instances 必然构成"隧道式"分层而非递进谱系；三归宿与模态②③④是对不动点定理的工程应答；T6 对拍管理而非消除边界（第 4 节）；(4) 给出诚实边界：本文为既有定理的整理而非新定理，不声称"全量统一"——非自指系统可逃逸对角化但付出表达力代价（第 5 节）。参考文献区分定理级与项目内部级。
+**中文摘要**：本文研究"不可完备化"现象族的统一形式。主要内容：(1) 陈述三个精确形式——递归论的不可完备化（Gödel–Rosser）、Tarski 真不可定义、Lawvere/Yanofsky 不动点定理；并证明三者共享同一对角化骨架但分处不同强度层级（第 1–2 节）；(2) 建立 axiom 边界词汇与数学表述的对应表（Rice→Moore 判定；可定义集;类型闭包 T ⊊ A；真谓词外延→模态④声明）（第 3 节）；(3) 推导分层谱系的设计推论：自指 ⇒ 不完备 ⇒ 抽象层不能以自身语言完备界定物理残差，故 core/semantics/instances 必然构成"隧道式"分层而非递进谱系；三归宿与模态②③④是对不动点定理的工程应答；T6 对拍管理而非消除边界（第 4 节）；(4) 给出诚实边界：本文为既有定理的整理而非新定理，不声称"全量统一"——非自指系统可逃逸对角化但付出表达力代价（第 5 节）。参考文献区分定理级与项目内部级。
 
-**English Abstract**: This note studies the unified form of the incompleteness phenomenon family. Contents: (1) three exact forms are stated—recursion-theoretic incompletability (Gödel–Rosser), Tarski's undefinability of truth, and the Lawvere/Yanofsky fixed-point theorem—and it is shown that the three share one diagonalization skeleton while occupying distinct strength strata (Sections 1–2); (2) a correspondence table maps axiom's boundary vocabulary onto mathematical formulations (Rice→Moore judgment; definable sets; type closure T ⊊ A; truth-predicate externality→modality ④ declaration) (Section 3); (3) design consequences for the layering are derived: self-reference entails incompleteness, hence an abstraction layer cannot delim its physical residue in its own language, so core/runtime/instances necessarily form a "tunnel layering" rather than a progressive spectrum; the three destinations and modalities ②③④ are the engineering response to the fixed-point theorem; T6 cross-checks manage rather than remove the boundary (Section 4); (4) honest boundaries are stated: this note organizes known theorems rather than proving new ones, and it does not claim a total unification—non-self-referential systems can escape diagonalization at the cost of expressive power (Section 5). References distinguish theorem-level from project-internal sources.
+**English Abstract**: This note studies the unified form of the incompleteness phenomenon family. Contents: (1) three exact forms are stated—recursion-theoretic incompletability (Gödel–Rosser), Tarski's undefinability of truth, and the Lawvere/Yanofsky fixed-point theorem—and it is shown that the three share one diagonalization skeleton while occupying distinct strength strata (Sections 1–2); (2) a correspondence table maps axiom's boundary vocabulary onto mathematical formulations (Rice→Moore judgment; definable sets; type closure T ⊊ A; truth-predicate externality→modality ④ declaration) (Section 3); (3) design consequences for the layering are derived: self-reference entails incompleteness, hence an abstraction layer cannot delim its physical residue in its own language, so core/semantics/instances necessarily form a "tunnel layering" rather than a progressive spectrum; the three destinations and modalities ②③④ are the engineering response to the fixed-point theorem; T6 cross-checks manage rather than remove the boundary (Section 4); (4) honest boundaries are stated: this note organizes known theorems rather than proving new ones, and it does not claim a total unification—non-self-referential systems can escape diagonalization at the cost of expressive power (Section 5). References distinguish theorem-level from project-internal sources.
 
 **关键词 / Keywords**：不完备；不可判定；真不可定义；不动点定理；对角化；闭包交集；分层谱系；三归宿 / incompleteness; undecidability; undefinability of truth; fixed-point theorem; diagonalization; closure intersection; layering spectrum; three destinations
 
@@ -76,7 +76,7 @@
 
 ## 4. 对 axiom 分层谱系的设计推论 / Design Consequences for axiom's Layering
 
-**推论 4.1（隧道式分层必然）**。自指 ⇒ 不完备 ⇒ 抽象层不能以自身语言完备界定其物理残差。故 core（结构/句法可验证层）、runtime（物理语义可声明层）、instances（生态执行接入层）必然是"隧道式"分层——层间存在双向残差（A∖M 与 M∖A），而非单一刻度上的递进谱系。错位感是定理的推论，不是实现缺陷。
+**推论 4.1（隧道式分层必然）**。自指 ⇒ 不完备 ⇒ 抽象层不能以自身语言完备界定其物理残差。故 core（结构/句法可验证层）、semantics（物理语义可声明层）、instances（生态执行接入层）必然是"隧道式"分层——层间存在双向残差（A∖M 与 M∖A），而非单一刻度上的递进谱系。错位感是定理的推论，不是实现缺陷。
 
 **Corollary 4.1 (Necessity of tunnel layering)**. Self-reference entails incompleteness, hence an abstraction layer cannot fully delimit its physical residue in its own language. The three layers therefore necessarily form a tunnel—bidirectional residue (A∖M and M∖A) between layers—rather than a progressive spectrum on one scale. The felt "gap" is a corollary of the theorem, not an implementation defect.
 
@@ -104,4 +104,4 @@
 **项目内部级 / Project-internal**：
 - `boundary-ontology.md` §2（四轴）、§5（三归宿）、§9（分层律）、定理 3.1（闭包交集）。
 - `docs/en-us/foundations.md` §0（零成本承诺）、T3（时序归物理载体）、§5.8（物理层/抽象层分离）。
-- `docs/en-us/semantics.md` §1（core 不重述，runtime 只答"值怎么动"）；`docs/internal/instance-layer-design.md` §2（可替换谓词边界；本地未跟踪工作稿，新 clone 挂空）。
+- `docs/en-us/semantics.md` §1（core 不重述，语义层只答"值怎么动"）；`docs/internal/instance-layer-design.md` §2（可替换谓词边界；本地未跟踪工作稿，新 clone 挂空）。

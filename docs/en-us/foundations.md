@@ -395,7 +395,7 @@ From Z1 / ZT / T7: axiom's runtime cost can (and must) only equal the cost of a 
 From A2 / T2 / §4.1: wiring is a relation (fan-out/fan-in/cycles/any combination), not a tree of fixed I/O. Many-to-many requires no Tee tree; the physicalization of fan-out/fan-in (copying/distributing/arbitrating) is the physical carrier's business.
 
 ### 5.4 The Abstraction Layer Only Declares Causality; Timing/Backpressure/Threading Belong to the Physical
-From T3 / §4.4: the wiring of the abstraction layer is only directed causal edges, containing no timing marks. Delay, buffering, blocking, dropping, synchronous/asynchronous, and threading are all replaceable attributes of the physical carrier (runtime). A blueprint only declares "there is a typed causal data flow."
+From T3 / §4.4: the wiring of the abstraction layer is only directed causal edges, containing no timing marks. Delay, buffering, blocking, dropping, synchronous/asynchronous, and threading are all replaceable attributes of the physical carrier (the semantics layer). A blueprint only declares "there is a typed causal data flow."
 
 ### 5.5 Blueprint-as-Code; No JSON / Value-Form Intermediate Layer
 From T9 / §5.4: within the mainstream of compiled languages (Rust), "modifying code/topology at runtime" has no necessary universal example; engineering leans toward compile-time (T9's first kind, self-selection, is dominant; genuine structural modification is rare and requires an explicit loading mechanism). Further: since blueprints are static, there is no reason to define software using non-.rs files—blueprints are defined directly in Rust code (types/macro invocations characterize the static graph structure), with no need for JSON/value-forms as a first-class expression. JSON is at most "a tool input that generates this Rust code," not a first-class form.
@@ -407,8 +407,8 @@ From Z1 / T7 / §4.3: not every composition must/can/ought to be monomorphized; 
 - Undeclared subgraphs follow the ordinary Rust / carrier path (dynamic tax acceptable).
 Rationale: all-or-nothing would cause compilation explosion; flexibility is necessary ("static-first + explicit exceptions").
 
-### 5.7 The Runtime Is a Physical-Layer Implementation Use Case and Is Replaceable
-From T6 / §5.4: the runtime intrudes on instance-layer details and does not touch the abstraction-layer topology; it is a replaceable solution library (carrier API) + the realization of physical timing/causality for "how values flow across connections," and is itself replaceable. A carrier can be plugged in by implementing the `Carrier` trait without changing the topology, giving the physical layer extensibility. See `../en-us/semantics.md`.
+### 5.7 The Semantics Layer Is a Physical-Layer Implementation Use Case and Is Replaceable
+From T6 / §5.4: the semantics layer intrudes on instance-layer details and does not touch the abstraction-layer topology; it is a replaceable solution library (carrier API) + the realization of physical timing/causality for "how values flow across connections," and is itself replaceable. A carrier can be plugged in by implementing the `Carrier` trait without changing the topology, giving the physical layer extensibility. See `../en-us/semantics.md`.
 
 ### 5.8 Semantic Annotation: Blueprints Only Declare Abstract Data Flow (FlowKind Is an Optional Abstract-Layer Annotation)
 From §5.4 / T4: the old Data/Control/Observe three-way semantics are not blueprint construction primitives (`flow_kind` is optional, `None` = no annotation), but remain optional abstract-layer semantic annotations describing how the receiver interprets a value — not attributes of the physical-layer carrier (the physical layer treats all values uniformly as value-flowing-through-structure):
@@ -442,6 +442,7 @@ Runtime freedom over structure is parameterized by "the target interface must al
 - Behavioral equivalence (A5/E5) is the hardest item—if it is not implemented, the documentation is downgraded rather than claimed.
 - **Total-function assumption (resolved boundary — see §7.5)**: in the definition of an open system, the transition δ implicitly assumes a total function—an input must have an output transition. Correspondingly, axiom's `PortCell::step` is assumed to be a total transition. "What shape a failing cell (partial function) has, and how failure propagates through composition, is not covered by any axiom or theorem"—this was a deviation between the theory and real programs (such as parsing errors); §7.5 closes it: failure is a value in `Out` (`Out = Result`), `step` stays total, and propagation crosses composition via typed combinators (`TryChain` / `drive_try`), superseding the earlier open-question pointer in `../en-us/semantics.md`.
 - **The access seam for external input sources (known open boundary)**: the documentation declares "IO is physically/carrier-replaceable," but the landing interface whereby "the external world (socket events, etc.) formally becomes the in of a causal flow" has not been formalized—see the open question in `../en-us/semantics.md`.
+- **Schema expressiveness cap (constitutional boundary clause)**: the expressiveness of `T(Σ)` is capped at the algebraic schema (level-2 closure in the ladder of [`unified.md`](unified.md) §4.1) — a syntactic boundary, not a capability deficit; the validity of graph-level schemas is undecidable, so undecidable predicates can only land in deployment validation (③) or declaration (④), never in the vocabulary (same root as the closed construction-concept boundary in §8).
 
 ---
 
@@ -458,8 +459,8 @@ Runtime freedom over structure is parameterized by "the target interface must al
    - No need to introduce "partial function / error output port" as a new shape in the core;
    - "can fail" is expressed as `Out = Result` (a type-level convention), and how failure
      crosses composition is carried by combinators: `TryChain` (single-level short-circuit)
-     and `drive_try` (runtime) — pure composition that leaves `step` total.
-   - **Landing layer**: entirely "core's type layer (`Out = Result`) + runtime combinators
+     and `drive_try` (semantics) — pure composition that leaves `step` total.
+   - **Landing layer**: entirely "core's type layer (`Out = Result`) + semantics combinators
      (short-circuit)"; `step` stays `# Total`; see [`semantics.md`](semantics.md) §9.2. This closes
      the "total-function assumption" concern in §6 boundaries.
 
@@ -527,7 +528,7 @@ Runtime freedom over structure is parameterized by "the target interface must al
 >   lattice (resources axis); "claiming activation without a resource to activate on" is a
 >   degenerate state (Prop. 2.7) — refused by gates, not faked (async-seam: a poller without a
 >   deadline; a carrier without capacity).
-> - **Code form**: runtime-side `install_trying`-shaped acquisition (fallible, configurable
+> - **Code form**: semantics-side `install_trying`-shaped acquisition (fallible, configurable
 >   acquisition at the seam), not core-level `init`; the total-construction preference
 >   (paradigm §4) keeps core constructors infallible.
 
@@ -618,7 +619,7 @@ else is an instance. See `core.md` §6b and `unified.md`.
    - **Family A (concurrency-maintenance cost)**: the synchronization + wakeup + memory-order / visibility toll of an edge under cross-thread placement — this is physical cost that an equivalent hand-written multi-threaded program also pays, not a tax of the abstract layer; same-thread placement (Inline / same-thread sharing) zeroes family A. The fair baseline for cross-thread edges is a "hand-written multi-thread channel".
    - **Family B (distinction-demand cost)**: the indirect cost paid because the consumer needs to distinguish (by type / by identity, isomorphic to §5.8) — design-level, eliminable (compile-time monomorphization eliminates it). The zero-cost promise (§0) promises family B = zero (same cost as a hand-written equivalent program); family A is outside the elimination scope, only made explicit, honest, and budgetable.
    - **Placement decision = the first lever**: same-thread placement eliminates family A, cross-thread placement budgets family A — the same topology can present entirely different cost curves depending on placement.
-9. **Concurrency/async is the semantic substrate; the synchronous pure cell is its degenerate limit — not the reverse.** The shape layer still stays silent on timing (item 3; T3) and never legislates a run strategy: it declares only causation. But the semantic/behavior layer — the runtime as the semantics functor — is by default an asynchronously concurrent substrate: complex/large systems natively run across many cores and threads, modules distributed to different threads is the base case rather than an exception, and single-thread synchronous execution is the degenerate limit of that substrate (one execution order, no interleaving, no wait), not a primitive to which concurrency is afterwards added. Restating item 7: the "placement decision" is an engineering operation taken *on top of* the concurrent substrate — it chooses a point on the spectrum or heads toward the sync limit; the ontological base is concurrency, not a sync default with async as an opt-in.
+9. **Concurrency/async is the semantic substrate; the synchronous pure cell is its degenerate limit — not the reverse.** The shape layer still stays silent on timing (item 3; T3) and never legislates a run strategy: it declares only causation. But the semantic/behavior layer — the semantics layer as the semantics functor — is by default an asynchronously concurrent substrate: complex/large systems natively run across many cores and threads, modules distributed to different threads is the base case rather than an exception, and single-thread synchronous execution is the degenerate limit of that substrate (one execution order, no interleaving, no wait), not a primitive to which concurrency is afterwards added. Restating item 7: the "placement decision" is an engineering operation taken *on top of* the concurrent substrate — it chooses a point on the spectrum or heads toward the sync limit; the ontological base is concurrency, not a sync default with async as an opt-in.
    **Detectable obligation (substrate-first)**: an implementation must treat concurrency/async as default and synchronous degradation as an explicit, declared limit; any construction order that makes "synchronous pure cell" the default primitive and requires async to be enabled by a feature is *degradation-first*, not *substrate-first*, and deviates from this requirement. The theory establishes this standard; whether the code meets it is checked and tracked, not presumed. (The present implementation's achievement audit is kept in a separate internal implementation-delta register, not in this published document.)
 
 ---

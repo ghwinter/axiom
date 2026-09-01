@@ -140,7 +140,7 @@ again (at arbitrary depth) — the closure of concept 3 (composition closure) in
   (an assertion object; negative witness in core laws.rs). The well-definedness obligation of
   the cycle is borne by this abstraction-layer guard (T3 second amendment); the equivalent
   guard of the buffered-cycle path (FIFO is delay) belongs to the physical carrier
-  (runtime `drive_feedback_inline`, Moore-gated); the unbuffered correctness assumes `FEED`
+  (semantics `drive_feedback_inline`, Moore-gated); the unbuffered correctness assumes `FEED`
   is state-only (Moore; declaration, not proof).
 
 ### 2.5 `Static` / `Blueprint` (Staticness Declaration + Blueprint-as-Type)
@@ -290,7 +290,7 @@ the unified-model constructors:
   `PortCell`s. `Choice` (input-tagged [sum]) dispatches by the input's label to `A` or `B`;
   `Opt<C>` maps `Option<C::In>` to `Option<C::Out>` (identity on `None`, one `C::step` on `Some`).
   Both are deterministic and composable like any cell (the `∃` branch-selection side remains the
-  runtime `SlotDrive`).
+  semantics `SlotDrive`).
 
 These are definitions (zero-sized, no runtime object) and reuse the same `PortCell` +
 `Conforms`-style compile-time verification — the additive realization of the unified
@@ -309,9 +309,9 @@ never a sixth concept:
 | `Feedback` | a guarded extension of concept 3 (compositionality from 3; the guard face — one-beat delay + yanking negative witness — is a ruled structure not derivable from the other members; see §2.4 and the foundations T3 second amendment) |
 | `Choice` / `Opt` | concept 1 — a cell whose input carries a tag / option (just types) |
 | `Slot<I,O>` (+ `Conforms<Slot<..>>`) | concept 4 — typed position (unbound definition) |
-| `SlotDrive` (runtime; *existential binding*) | concept 4/5 — runtime (∃) binding, then activation |
-| `TryChain` / `drive_try` (runtime) | concept 1 — failure-as-value (`Result`) through composition, keeping `step` total |
-| `drive` / `drive_seq` / carriers (runtime) | concept 5 — activation (run) / delivery (function, buffer, channel) |
+| `SlotDrive` (semantics; *existential binding*) | concept 4/5 — runtime (∃) binding, then activation |
+| `TryChain` / `drive_try` (semantics) | concept 1 — failure-as-value (`Result`) through composition, keeping `step` total |
+| `drive` / `drive_seq` / carriers (semantics) | concept 5 — activation (run) / delivery (function, buffer, channel) |
 
 **Closure checklist (from `foundations.md` §8.3)** — before adding any capability `C`, ask:
 1. Is `C` an *instance of one of the five concepts* (i.e. expressible with `PortCell` +
@@ -373,5 +373,5 @@ cargo bench --bench dag     # diamond zero-cost proof (Δ(composite−handwritte
 > **Conclusion**: the axiom core = the compile-time model of the four artifacts of
 > `cell_core` (open system, causal dataflow, composition, staticness declaration) —
 > blueprint-as-type, verification at compile time, and after compilation equivalent to
-> hand-written ordinary Rust. Physical implementation is borne by the runtime (carrier); see
+> hand-written ordinary Rust. Physical implementation is borne by the semantics layer (carriers); see
 > [`semantics.md`](semantics.md).

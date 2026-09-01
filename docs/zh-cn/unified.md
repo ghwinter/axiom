@@ -98,11 +98,11 @@
 | 形式 | 绑定 | 含义 | axiom 现状 |
 |---|---|---|---|
 | **① 静态组合** | 编译期（∀，参数化） | 已知接口组合成固定拓扑 | core（Wire/Chain/Broadcast/Merge/Static） |
-| **② 可加载型位**（∃） | 运行时，一个居留项 | 接口固定，居留项可替换 | core `Slot`/`Conforms`（定义）· runtime `SlotDrive`（存在绑定·∃ 激活） |
-| **③ 生成式/递归 schema** | schema 在编译期封闭；实例无界 | 一个有限封闭 schema F 产出无界的实例网 | core `Rep<N,C>`（静态星、有界 N）· runtime `drive_seq`（无界） |
+| **② 可加载型位**（∃） | 运行时，一个居留项 | 接口固定，居留项可替换 | core `Slot`/`Conforms`（定义）· semantics `SlotDrive`（存在绑定·∃ 激活） |
+| **③ 生成式/递归 schema** | schema 在编译期封闭；实例无界 | 一个有限封闭 schema F 产出无界的实例网 | core `Rep<N,C>`（静态星、有界 N）· semantics `drive_seq`（无界） |
 
 > **状态注**：② 与 ③ 已落地。定义侧（core `Rep<N,C>` 有界幂 `Cⁿ`、`Choice`/`Opt`、
-> `Slot`/`Conforms`、编译期 T1）与激活侧（runtime `SlotDrive`、`drive_seq`、
+> `Slot`/`Conforms`、编译期 T1）与激活侧（semantics `SlotDrive`、`drive_seq`、
 > `bounded_pump`）已实现并验证通过。*代数（互递归）schema 层* 无需新的核心组合子：递归/
 > 互递归图样由用户自定义的递归 `PortCell` 类型 + 既有组合子（全部 T1 可证、可组合）
 > 实现；*无界的生成性展开*归 ∃/物理侧（`drive_seq`/有界泵）——见 §4.1。
@@ -179,14 +179,14 @@ axiom 的零成本承诺（⟦α⟧ ≡ 使用同一机制写出等价手写程�
 
 - axiom 核心是定义（潜能）的代数：它已实现三个片段——静片段（① 编译期组合）、
   型位定义侧（② 的 `Slot`+`Conforms`，零尺寸、可证明）与激活/物理侧
-  （runtime 载体与驱动；由 `drive` 激活与定义保持分离）。
+  （语义层载体与驱动；由 `drive` 激活与定义保持分离）。
 - 统一设计已落地为两类核心构造子（都仍是*定义*——零大小、编译期定型；激活保持分离）：
   - **② 可加载型位**：core 定义侧 `Slot<I,O>` + 统一判定 `Conforms<Slot<I,O>>`
-    （接口固定且封死，`∀ T: PortCell<In=I,Out=O>` 参数化验证）；runtime 激活侧
+    （接口固定且封死，`∀ T: PortCell<In=I,Out=O>` 参数化验证）；语义层激活侧
     `SlotDrive<I,O>`（∃ 存在化填充：install/swap/drive）。
   - **③ schema / 文法构造子**：`Rep<N,C>`（恰好 N 次自组合的幂 `Cⁿ`；别名
     `Repeat<N,C>`——命名诚实裁定不使用 Kleene 星号）、`Choice<A,B>`
-    （并）、`Opt<C>`（可选）。无界计数属激活侧（runtime `drive_seq`）；互递归 schema 由
+    （并）、`Opt<C>`（可选）。无界计数属激活侧（semantics `drive_seq`）；互递归 schema 由
     用户递归类型 + 既有组合子表达，无需新构造子。② 和 ③ 共同使静态与动态成为核心内部的
     同一次代换的两种绑定模式，而非静态在核心 + 动态在物理。
 - **边界**：完全一般化的动态图在编译期不可证明 → 物理/验证边界（显式例外）。

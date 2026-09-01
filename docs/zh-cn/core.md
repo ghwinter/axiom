@@ -119,7 +119,7 @@ where A: PortCell, B: PortCell<In = A::Out>,
   每个外部输入执行一次内联闭合迭代（`BODY -> FEED -> BODY`，两拍），FEED 侧一拍延迟；
   yanking（无延迟即取）不是其语义（断言对象，负见证在 core laws.rs）。环良定义义务由该
   抽象层守卫承担（T3 二次修正）；缓冲环路径的等效守卫（FIFO 即延迟）归物理载体
-  （runtime `drive_feedback_inline`，Moore 门）；无缓冲内联正确性假设 `FEED` 仅依赖
+  （semantics `drive_feedback_inline`，Moore 门）；无缓冲内联正确性假设 `FEED` 仅依赖
   状态（Moore，声明非证明）。
 
 ### 2.5 `Static` / `Blueprint`（静态性声明 + 蓝图即类型）
@@ -240,7 +240,7 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 - **`Choice<A, B>` + `Opt<C>`** —— 正则算子 `|` 与 `?` 的一等纯 `PortCell` 表达。`Choice`
   （输入标号[和]）由输入的标签派发给 `A` 或 `B`；`Opt<C>` 把 `Option<C::In>` 映射为
   `Option<C::Out>`（`None` 恒等，`Some` 应用一次 `C::step`）。二者确定、可像普通 cell 一样
-  组合（其 ∃ 分支选择侧仍是 runtime 的 `SlotDrive`）。
+  组合（其 ∃ 分支选择侧仍是 semantics 的 `SlotDrive`）。
 
 这些是定义（零大小、无运行时对象），复用同一套 `PortCell` + `Conforms` 式编译期验证
 ——统一模型静片段的加法式实现（见 [`unified.md`](unified.md)）。
@@ -257,9 +257,9 @@ Rust 的泛型在编译期为每个具体类型生成专门代码（monomorphiza
 | `Feedback` | 概念 3 的受守卫扩展（组合性来自 3；守卫面——一拍延迟 + yanking 负见证——是不可由其余成员导出的裁决结构，见 §2.4 与 foundations T3 二次修正） |
 | `Choice` / `Opt` | 概念 1 —— 输入携带标签 / 可空的端口体（仅类型） |
 | `Slot<I,O>`（+ `Conforms<Slot<..>>`） | 概念 4 —— 型位：带类型的开放位置（未绑定义） |
-| `SlotDrive`（runtime；存在绑定） | 概念 4/5 —— 运行期（∃）绑定，然后激活 |
-| `TryChain` / `drive_try`（runtime） | 概念 1 —— 失败为值（`Result`）经组合，保持 `step` 全函数 |
-| `drive` / `drive_seq` / 载体（runtime） | 概念 5 —— 激活（运行）/ 输送（函数、缓冲、通道） |
+| `SlotDrive`（semantics；存在绑定） | 概念 4/5 —— 运行期（∃）绑定，然后激活 |
+| `TryChain` / `drive_try`（semantics） | 概念 1 —— 失败为值（`Result`）经组合，保持 `step` 全函数 |
+| `drive` / `drive_seq` / 载体（semantics） | 概念 5 —— 激活（运行）/ 输送（函数、缓冲、通道） |
 
 **封闭性检查清单（源自 §8.3）**——在加任何能力 C 之前，问：
 1. C 是否五个概念之一的实例（能用 `PortCell` + T1 组合 + 该/这些绑定 + 激活表达）？
@@ -309,4 +309,4 @@ cargo bench --bench dag     # 菱形零成本实证（Δ(复合−手写)≈±1%
 
 > **结论**：axiom 核心 = `cell_core` 四构件（开放系统、因果数据流、组合、静态性声明）
 > 的编译期模型——蓝图即类型、验证在编译期、编译后等价手写普通 Rust。物理实现由
-> runtime（载体）承担，见 [`semantics.md`](semantics.md)。
+> 语义层（载体）承担，见 [`semantics.md`](semantics.md)。

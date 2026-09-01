@@ -1,29 +1,32 @@
 > **Language:** English · [中文版](../zh-cn/semantics.md)
 
-# axiom-semantics (formerly axiom-runtime): the semantics / contract layer
+# axiom-semantics: the semantics / contract layer
 
-> **Status**: renamed on the experimental branch `rework/rename-runtime-semantics` as the
-> first step of the runtime → semantics repositioning (runtime = the semantics functor
-> ⟦core shape category⟧ → behavior category). This page's full prose re-framing — moving
-> from the now-inaccurate "physical layer" framing to the semantics/契约 layer framing
-> (physical/binding realizations belong to `axiom-instances`) — is a follow-up pass, not yet
-> written. Mechanical rename (dir/package/crate/doc paths) is complete and test-green.
+> **Status**: the runtime → semantics repositioning is complete and merged to the main
+> line (mechanical rename of dirs/packages/crates/doc paths + prose re-framing,
+> test-green). The former name survives only in historical records (CHANGELOG, audit
+> archives) per the historical-retention rule.
 >
-> **Nature** (legacy framing, being revised): the physical-layer architecture specification
-> of axiom. Answers "what axiom's physical layer is": the core `cell_core` only declares
-> causal data flows (`A.out -> B.in`), and the runtime answers the single question —
-> how the value of this flow gets from `A.out` to `B.in`, at what space–time cost. This
-> volume describes the shape of the runtime, consistent with the converged
-> implementation (layered: `semantics/src/{checks,movers,seams,drive}/*.rs`).
+> **Nature**: the semantics/contract-layer architecture specification of axiom. Answers
+> "what it means for a shape to run on an executing base": the core `cell_core` only
+> declares causal data flows (`A.out -> B.in`), and the semantics layer answers the
+> single question — how the value of this flow gets from `A.out` to `B.in`, at what
+> space–time cost, and how the boundary conditions (waiting / external input / failure /
+> observation) are defined. This volume describes the shape of the contract face,
+> consistent with the converged implementation
+> (layered: `semantics/src/{checks,movers,seams,drive}/*.rs`).
 >
-> **Normativity**: a self-consistent authoritative specification, focused
-> on the shape of axiom's physical layer itself.
+> **Normativity**: a self-consistent authoritative specification, focused on the shape
+> of axiom's semantics/contract layer itself.
 >
-> **Positioning (in one sentence)**: runtime = Carrier catalog + redemption verification:
-> a physical implementation (how the value moves) for each causal data flow of
-> `cell_core`, each embodying a different space–time cost, modular and replaceable. The
-> runtime is the core's physical-layer implementation use case — axiom has no runtime
-> objects, only two phases: "compile time" and "after compilation".
+> **Positioning**: the semantics layer = the contract body (the three wait-point
+> contracts — input-ready / deadline / backpressure — plus the activation contract,
+> the §0.6 dissolution ruling) + the Carrier catalog + redemption verification: for
+> each causal data flow of `cell_core` it declares the behavior and space–time cost
+> contracts, fulfilled by the instance layer (`axiom-instances`) binding to real bases;
+> each carrier is an independent replaceable unit — swapping carriers does not change
+> the topology (multi-physics implementations, T6). Axiom has no runtime objects, only
+> two phases: "compile time" and "after compilation".
 
 ---
 
@@ -32,7 +35,7 @@
 - `cell_core`: open systems (`PortCell`: In/Out/State/step) + causal flows (`Wire`/`Chain`/
   `Broadcast`/`Merge`/`Feedback`) + staticness (`Static`) + compile-time verification (unified `Conforms`).
 - A blueprint is a type: zero size, zero runtime objects, exhausted at compile time.
-- The runtime does not re-declare the core — the runtime only answers "for this causal flow, how does the
+- The semantics layer does not re-declare the core — the semantics layer only answers "for this causal flow, how does the
   value get from A.out to B.in".
 
 ---
@@ -129,7 +132,7 @@ does not change the topology (T6, multiple physical implementations).
 
 > **Carrier as attribute (deployment-time physicality)**: the blueprint declares "which
 > carrier this flow uses" (e.g. `Static<Chain<A,B>>` goes through
-> `InlineCarrier`/`static_path`), and the runtime redeems it per the declaration.
+> `InlineCarrier`/`static_path`), and the semantics layer redeems it per the declaration.
 > "Drop/block/synchronize/asynchronize" are all physical-layer choices (linking to
 > `foundations.md` §5.8) — swapping the carrier for the same blueprint changes the
 > "drop/block/synchronize" behavior.
@@ -150,9 +153,9 @@ does not change the topology (T6, multiple physical implementations).
 
 ---
 
-## 3b. Unified-model activation (runtime, `std`)
+## 3b. Unified-model activation (semantics layer, `std`)
 
-The runtime gives *activation* to the unified-model constructs (which are definitions in
+The semantics layer gives *activation* to the unified-model constructs (which are definitions in
 `core.md`; activation stays the run/carrier side):
 
 - **`SlotPending<I,O>` → `SlotDrive<I, O>`** — *existential binding* (`semantics/src/drive/slot.rs`) —
@@ -220,7 +223,7 @@ seam (see [`unified.md`](unified.md) §5).
   carrier carrying other scheduling/timing semantics, or replacing the zero-allocation carrier
   with other
   low-level mechanisms.
-- As a reference implementation use case, the runtime provides each carrier as a template.
+- As a reference implementation use case, the semantics layer provides each carrier as a template.
 
 ---
 
@@ -244,7 +247,7 @@ seam (see [`unified.md`](unified.md) §5).
 ## 6. Build and Acceptance Baseline
 
 ```text
-cargo build/test --manifest-path semantics/Cargo.toml   # runtime (25 integration + 5 contract unit tests)
+cargo build/test --manifest-path semantics/Cargo.toml   # semantics (25 integration + 5 contract unit tests)
 cargo run --manifest-path semantics/Cargo.toml --example carrier_demo
 cargo run --manifest-path semantics/Cargo.toml --example threaded_flow
 cargo run --manifest-path semantics/Cargo.toml --example redis_like -- --corpus 500   # Redis-like subsystem use-case (in-repo example)
@@ -253,7 +256,7 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 ```
 
 **Accomplished (chain of evidence)**:
-- The runtime depends only on cell_core (the new core), not on any v0 module.
+- The semantics layer depends only on cell_core (the new core), not on any v0 module.
 - Carrier catalog: Inline (stack pass · zero allocation) / Queue (heap-queue relay) / Bounded
   (bounded channel, `CAP ≥ 1` at compile time) / spawned_flow (cross-thread mpsc) / static_path /
   wire! (declaration macro).
@@ -267,9 +270,9 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 
 ---
 
-## 7. Real Use Cases (the Runtime as the Core's Implementation Use Case)
+## 7. Real Use Cases (the Semantics Layer as the Core's Implementation Use Case)
 
-| Use case | Type | Runtime capability exercised |
+| Use case | Type | Semantics capability exercised |
 |---|---|---|
 | `redis_like` | Multi-module server class | Multi-module pipeline + single-thread/cross-thread (`spawned_flow`) |
 | `psql` | Parse/execute pipeline class | Pipeline composition + Inline/cross-thread parsing |
@@ -279,7 +282,7 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 | `threaded_flow` | Heterogeneous physicality on the same topology | Inline zero allocation vs cross-thread channels |
 
 These use cases are build use cases for "building real programs on axiom/axiom-semantics", and
-also the carriers for runtime iteration and equivalence verification. Legacy counterparts of
+also the carriers for the semantics layer's iteration and equivalence verification. Legacy counterparts of
 these use cases (including TCP-server-shaped ones) can be recovered from git history for
 reference (`git show main:semantics/examples/<name>/main.rs`).
 
@@ -319,7 +322,7 @@ reference (`git show main:semantics/examples/<name>/main.rs`).
 
 ## 9. Known Open Boundaries
 
-> The following are thin edges within the runtime's positioning, exposed by the real use
+> The following are thin edges within the semantics layer's positioning, exposed by the real use
 > cases, currently unresolved but acknowledged. They belong to "engineering
 > accretion/optimization + a handful of theoretical boundaries" and do not change the existing
 > composition of the core (`cell_core`).
@@ -328,7 +331,7 @@ reference (`git show main:semantics/examples/<name>/main.rs`).
 The unbounded mpsc form (queue/thread transport) is covered by `QueueCarrier`/`spawned_flow`
 (the latter is unbounded); real systems need bounded + backpressure semantics for
 "producer fast, consumer slow".
-- Layer: purely runtime (`foundations.md` has already placed "backpressure/timing" under
+- Layer: purely the semantics layer (`foundations.md` has already placed "backpressure/timing" under
   physical carriers).
 - **Provided**:
   - `BoundedQueue<T, CAP>` (`buffer.rs`, `std`) — a bounded FIFO built on `sync_channel(CAP)`:
@@ -345,7 +348,7 @@ Real cells (e.g. parsers) need "can fail" semantics; `PortCell::step` is assumed
 total transition (the `foundations.md` boundary has already faithfully noted this: the
 total-function assumption). Currently patched together with the `Out = Result` convention plus
 short-circuit carriers.
-- Layer: attributable to the runtime (using the `Result` convention + short-circuit),
+- Layer: attributable to the semantics layer (using the `Result` convention + short-circuit),
   isomorphic to "drop/block is physical"; if "cells that can fail" were axiomatized
   (partial functions/error output ports), it would be a theoretical boundary (`foundations.md`
   §7, open question 5).
@@ -388,7 +391,7 @@ per-connection stateful `LineSplit` (cross-chunk buffering) → `CmdParse` (type
 short-circuit) → bounded channel (backpressure) → a store worker thread owning
 `StoreState` (`DataStore` total, no panic path) → RESP reply routing with per-connection
 FIFO order and write-half close on EOF.
-- Layer: runtime (an event substrate is just a class of carrier/driver).
+- Layer: the semantics layer (an event substrate is just a class of carrier/driver).
 - **Carrier class formalized and landed** (`semantics/src/seams/event.rs`): an event stream
   (`EventStream`, item-level input source) + chunk-source adapter (`ChunkSource`:
   `io::Read` raw source + splitter + per-source cross-chunk state, with the general
@@ -410,7 +413,7 @@ on the full queue — failure and backpressure are orthogonal and each is explic
 
 ## 10. Cost Semantics (Z1; the formalized core of the zero-cost promise)
 
-The runtime's cost claims as a formal grammar — edge cost = f(carrier, placement, types):
+The semantics layer's cost claims as a formal grammar — edge cost = f(carrier, placement, types):
 
 ```
 edge_cost(seam) := class(f):
@@ -440,7 +443,7 @@ such, never as a single number.
 
 ## 11. Conclusion
 
-> runtime = the `cell_core` physical-layer implementation use case: a carrier catalog
+> the semantics layer = the `cell_core` physical-layer implementation use case: a carrier catalog
 > (Inline/Queue/Bounded/spawned_flow/static_path/wire!) + redemption verification, modular and
 > replaceable, explaining and verifying that "the same static graph can be plugged into
 > multiple physical executions (inline/queue/cross-thread), each with verifiable semantic
@@ -460,7 +463,7 @@ obligation, law, delivery), `movers/` (value movers: carrier, buffer, ring, mail
 flow, slot, enum_slot, static_path, macros). `instances/src` has `backend/` (async_driver and
 tokio_exec); `examples/sql-over-redis/src` has `plans/` (sql_plan, redis_plan).
 
-The async path: the runtime declares the `Executor` contract (`seams::async_seam`). The real
+The async path: the semantics layer declares the `Executor` contract (`seams::async_seam`). The real
 async path lives in `axiom-instances` (`backend::async_driver`): waits suspend on the tokio
 reactor, deadlines come from tokio's timer (`tokio::time::timeout` around the input wait), and
 commands can arrive while waiting (channel feeding). Output equals the sync path line by line

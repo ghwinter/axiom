@@ -10,6 +10,7 @@
 //! | 结合 | `Chain(Chain(a,b),c) ≡ Chain(a,Chain(b,c))` | `associativity_*` |
 //! | 对合 | `Swap ∘ Swap ≡ Id` | `swap_is_involutive` |
 //! | 对称自然性 | `Par ∘ Swap ≡ Swap ∘ Par`（换侧） | `symmetry_is_natural` |
+//! | 相容性（I5） | `(f⊗g)∘(h⊗k) ≡ (f∘h)⊗(g∘k)` | `interchange_law` |
 //! | 余单位 | `Duplicate` 舍一侧 `≡ Id` | `comonoid_counit_law` |
 //! | 相干往返（听证 D） | `α⁻¹∘α ≡ Id`、`λ⁻¹∘λ ≡ Id`、`ρ⁻¹∘ρ ≡ Id`、slide 往返 | `associator_round_trip` 等 |
 //! | 张量单位（听证 D） | `λ ∘ (Id⊗C) ≡ C`、`ρ ∘ (C⊗Id) ≡ C` | `tensor_unit_through_lambda` |
@@ -170,6 +171,18 @@ mod tests {
             &PAIRS,
             "Chain<Par<A,B>, Swap> ≡ Chain<Swap, Par<B,A>> (symmetry naturality)",
         );
+    }
+
+    // ── 相容性（interchange，I5 缺口补齐：⊗ 与 ∘ 的交换律）─────────
+
+    #[test]
+    fn interchange_law() {
+        // (f⊗g) ∘ (h⊗k) ≡ (f∘h)⊗(g∘k)：先并后串 ≡ 先串后并。
+        // 左：PAIR 入 Par<Inc,Scaler> 得 (a+1, 2b)，再入第二个 Par 得 (a+2, 4b)。
+        // 右：两翼各自串行 Chain 后并。行为等价即相容性在被测实例上成立。
+        type L = Chain<Par<Inc, Scaler>, Par<Inc, Scaler>>;
+        type R = Par<Chain<Inc, Inc>, Chain<Scaler, Scaler>>;
+        assert_same_behavior::<L, R>(&PAIRS, "(f⊗g)∘(h⊗k) ≡ (f∘h)⊗(g∘k) (interchange)");
     }
 
     // ── 张量积基本性（Par 自身可组合、可布线）────────────────────

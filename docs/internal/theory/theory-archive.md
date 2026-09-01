@@ -1,5 +1,8 @@
 # 理论归档：六份早期理论文档的唯一内容合并（历史记录）
 
+> **层代注（2026-09）**：本卷历史口径中 runtime 指现 semantics 层（axiom-semantics）；
+> 正文按历史记录原样保留，不作改写。
+
 # Theory Archive: Unique Content Consolidated from Six Early Theory Documents (Historical Record)
 
 > **性质**：I1 层历史归档（`docs/internal/theory/`）。本文件由六份早期文档合并而成；

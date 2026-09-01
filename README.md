@@ -2,6 +2,13 @@
 
 **A four-constituent compile-time core: open systems + causal dataflow + composition + staticity declaration.**
 
+axiom is a **constitution layer, not a framework**: it supplies the typed vocabulary
+(shape, contracts, obligation modalities), the compile-time verification, and the
+replaceable-physics seams — not an application, not an all-in-one runtime, no control
+inversion, no lifecycle ownership. Rust gives memory safety without giving you the
+application; axiom gives topology safety, explicit obligations, and physical
+replaceability without giving you the system.
+
 Zero-dependency computation primitives for observable, controllable systems.
 axiom is a **compile-time model**: blueprints are defined in Rust code/types, and the core's
 intelligence is exhausted at compile time for analysis and verification. After compilation it is
@@ -29,14 +36,17 @@ physical-layer property. The physical layer treats all values uniformly as "valu
 structure" (shared variable / buffer / channel). Timing/Delay, threading/sync-async, and
 value-form/JSON remain physical-layer concerns — see `docs/en-us/foundations.md` §5.8.
 
-## runtime (`axiom-semantics`)
+## semantics (`axiom-semantics`)
 
-runtime is the core's **physical-layer implementation use-case (Carrier)**: for each causal
-dataflow it provides replaceable physical options for "how values flow" —
-`InlineCarrier` (stack call · zero allocation), `QueueCarrier` / `BoundedCarrier<CAP>`
-(heap queue / bounded channel), `spawned_flow` (channel + dedicated thread · cross-thread,
-worker panic propagated), and the `wire!` declaration macro. Modular and replaceable:
-a new carrier can be plugged in by implementing the `Carrier` trait without changing the topology.
+semantics is the **contract layer** (the semantics functor ⟦core shape category⟧ → behavior
+category): for each causal dataflow it declares the behavior and space–time cost contracts —
+the three wait-point contracts (input-ready / deadline / backpressure) plus the activation
+contract, and the carrier sockets. In-tree carriers: `InlineCarrier` (stack call · zero
+allocation), `QueueCarrier` / `BoundedCarrier<CAP>` (heap queue / bounded channel),
+`spawned_flow` (channel + dedicated thread · cross-thread, worker panic propagated), and the
+`wire!` declaration macro. Modular and replaceable: a new carrier plugs in by implementing
+the `Carrier` trait without changing the topology; real bases (tokio/io_uring/std/embedded)
+are bound and fulfilled by the instance layer.
 
 ## instances (`axiom-instances` · third constituent)
 
@@ -51,7 +61,7 @@ crates (dual-form boundary — fused standard set vs. open path).
 | `tokio` | `async` + optional `tokio` dep | `TokioExec`: seam wait-point adapter toward tokio |
 | `embedded` | `axiom-semantics/std` | reserved embedded flow |
 
-Dependency direction is one-way, enforced by the workspace member table: `axiom ← axiom-semantics ← axiom-instances`. The core and runtime keep their zero-dependency promise; `tokio` lives only as an optional dep of instances.
+Dependency direction is one-way, enforced by the workspace member table: `axiom ← axiom-semantics ← axiom-instances`. The core and semantics keep their zero-dependency promise; `tokio` lives only as an optional dep of instances.
 
 ## Examples
 
@@ -65,8 +75,8 @@ Dependency direction is one-way, enforced by the workspace member table: `axiom 
 ## Build & verify
 
 ```text
-cargo build --workspace                    # core + runtime + instances + use-case crates
-cargo test --workspace                     # core + runtime + demos unit/integration
+cargo build --workspace                    # core + semantics + instances + use-case crates
+cargo test --workspace                     # core + semantics + demos unit/integration
 cargo bench -p axiom --bench dag              # diamond zero-cost proof (composite ≈ handwritten, Δ≈±1%) — release-only evidence
 cargo build -p axiom-instances --features tokio   # instance layer (tokio feature-gated; all off by default)
 cargo test -p axiom-instances --features tokio    # instance layer + equivalence cross-check (T6 multi-physics semantic equivalence)

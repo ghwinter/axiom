@@ -132,4 +132,81 @@ mod tests {
             Receipt::Closed::<()>
         );
     }
+
+    /// P6（投递格复合性，closure-audit 3.5）最小复合反例。
+    ///
+    /// 命题：可分解验证（T4）依赖投递格对复合封闭——复合体边界的判定
+    /// 可由分段判定复合得出。本测试装置化一条"有损边"（饱和即无声丢弃，
+    /// 模拟外部分析中存在的 Drop 型边；非词汇表成员），证明：
+    /// - 无损边（Fail 策略，`Full(v)` 值随判回传）下复合成立：外层判定
+    ///   与分段判定逐条对应（值守恒，复合可分解）；
+    /// - 有损边（Drop 策略）下复合破坏：外层判定为 `Delivered`，而分段
+    ///   判定的真实值（Drop）不在四态格内——`Delivered` 无法由格内分段
+    ///   判定复合得出。
+    ///
+    /// 结论（P6 可证伪预测的机械化见证）：凡载体边以投递四态格声明判定
+    /// （无 Drop），复合验证可分解；引入有损边则复合性破坏，除非饱和
+    /// 策略升格为显式判定。预测绑定下一个被研究系统验证（§0.13 预测先行
+    /// 协议）；命中则 P6 升格为投递格公理条款。
+    #[test]
+    fn p6_drop_edge_breaks_verdict_compositionality() {
+        use alloc::collections::VecDeque;
+
+        /// 测试装置：有界边。`lossy = false` 为 Fail 策略（满则 Full 回传，
+        /// 判定守恒）；`lossy = true` 为 Drop 策略（满则无声丢弃，外层仍
+        /// 报 Delivered）。装置仅存在于本测试，不进词汇表。
+        struct Edge<T> {
+            q: VecDeque<T>,
+            cap: usize,
+            lossy: bool,
+            dropped: usize,
+        }
+        impl<T> Edge<T> {
+            fn push(&mut self, v: T) -> Delivery<()> {
+                if self.q.len() < self.cap {
+                    self.q.push_back(v);
+                    Delivery::Delivered
+                } else if self.lossy {
+                    self.dropped += 1;
+                    Delivery::Delivered // 有损边：外层判定照报成功（反例核心）
+                } else {
+                    Delivery::Full(()) // Fail 策略：满即判定，值守恒由调用方持 v 重试
+                }
+            }
+        }
+
+        // 面 1：无损边复合可分解——3 投 1 容量：Delivered / Full / Full，
+        // 分段判定与外层判定一一对应（值不消失）。
+        let mut solid = Edge { q: VecDeque::new(), cap: 1, lossy: false, dropped: 0 };
+        let mut held = Vec::new();
+        let outer: Vec<_> = [1, 2, 3]
+            .into_iter()
+            .map(|v| match solid.push(v) {
+                Delivery::Delivered => Delivery::<i32>::Delivered,
+                Delivery::Full(()) => {
+                    held.push(v);
+                    Delivery::Full(v)
+                }
+                Delivery::Closed(()) => unreachable!("装置无边断连"),
+            })
+            .collect();
+        assert_eq!(
+            outer,
+            vec![Delivery::Delivered, Delivery::Full(2), Delivery::Full(3)]
+        );
+        assert_eq!(solid.q.len() + held.len(), 3, "Fail 边：值全部存活（守恒，复合可分解）");
+
+        // 面 2：有损边复合破坏——同 3 投 1 容量：外层全 Delivered，
+        // 但仅 1 值入格，2 值无声消失；分段真实判定（Drop）不在四态格内，
+        // 外层 Delivered 无法由格内分段判定复合得出。
+        let mut lossy = Edge { q: VecDeque::new(), cap: 1, lossy: true, dropped: 0 };
+        let outer: Vec<_> = [1, 2, 3].into_iter().map(|v| lossy.push(v)).collect();
+        assert_eq!(
+            outer,
+            vec![Delivery::Delivered, Delivery::Delivered, Delivery::Delivered],
+            "有损边：外层判定全报成功"
+        );
+        assert_eq!(lossy.q.len(), 1, "仅 1 值真正入格");
+        assert_eq!(lossy.dropped, 2, "2 值无声消失——四态格在复合处漏值（P6 反例成立）");
+    }
 }
