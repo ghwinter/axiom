@@ -103,7 +103,9 @@ pub enum Modality {
 pub enum DeliveryKind {
     /// 投递态不适用（同步直通/无缓冲/无背压的接缝：投递要么发生要么不发生）。
     NotApplicable,
-    /// Full/Closed 已机械化（②③），Timeout/Cancelled 声明（④）。
+    /// Full/Closed 已机械化（②③）；期限等待点 Timeout 已于异步域机械化
+    /// （②③，真定时器，2026-09-01 权威变更）；`Delivery` 级 Timeout/Cancelled
+    /// 构造器仍缺位（④，投递域/请求域机制未落地）。
     MechanizedFullClosed,
 }
 

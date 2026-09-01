@@ -19,16 +19,19 @@
 //!
 //! ## Timeout 升模态（D2 承载域）
 //!
-//! D2 裁定：Timeout 现为模态④ 声明，升 ②③ 的域仅在异步接缝内
-//! （join/timer/select）。本模块即该承载域：
+//! D2 裁定：Timeout 的机制承载域在异步接缝内（join/timer/select）。本模块即
+//! 该承载域：
 //! - 同步域 [`poll_until`](axiom_semantics::seams::async_seam::Poller::poll_until) 的
 //!   `TimedOut` 是墙钟轮询近似（`thread::sleep(tick)` 让步、按拍次采墙钟判定）；
 //! - 本模块的 `TimedOut` 由真定时器（tokio time driver）驱动——运行期可测、
-//!   可记账，是 Timeout 升 ③（投递态可验证）的机制地面。
+//!   可记账，是期限等待点 Timeout 的机制地面。
 //!
-//! **不宣称②/不越权**：② 是编译期见证、账本行升 ②③ 属语义层 `obligation.rs` 的
-//! 权威变更（LEDGER 不可替换面），不在本步骤内做——本模块只提供"期限从声明变可测"
-//! 的机制地面，账本升级留作后续权威变更。
+//! **升级已执行（2026-09-01 权威变更）**：期限等待点分量的 Timeout 升 ②③——
+//! ②面：判定由真定时器机制直接映射（非伪造判定 API）；③面：行为可验证
+//! （T6 对拍同期限同裁决 + 期限下限断言，`instances/tests/t6_crosscheck.rs`；
+//! `async_driver` 单元测试同）。账本面（`obligation.rs` / `delivery.rs`）已同步；
+//! `Delivery` 级 `Timeout`/`Cancelled` 构造器仍缺位（投递域/请求域未落地），
+//! ④ 声明域收窄至该分量。
 //!
 //! ## await ↔ sync 行级等价（T6 / 多物理实现语义等价）
 //!

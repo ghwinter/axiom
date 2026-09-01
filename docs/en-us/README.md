@@ -25,6 +25,9 @@ on its own.
 
 ## Reading path
 
+0. [`vision.md`](vision.md): the charter — why axiom is built, the four
+   target systems, the AI-era consistency-machine thesis; introduces no new
+   axioms, and on conflicts the formal volumes prevail.
 1. [`foundations.md`](foundations.md): the core promise, terminology
    (especially the formal redefinition of "static/dynamic"), axioms, and theorems.
 2. [`core.md`](core.md): how the theory becomes a compile-time core (the four-constituent

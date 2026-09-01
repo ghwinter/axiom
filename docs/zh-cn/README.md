@@ -24,6 +24,8 @@
 
 ## 阅读路径
 
+0. [`vision.md`](vision.md)：纲领卷——为什么构建 axiom、四个目标系统、
+   AI 时代一致性机器论题；不新增公理，冲突以正式卷为准。
 1. [`foundations.md`](foundations.md)：axiom 的核心承诺、术语
    （尤其"静态/动态"的正式重定义）、公理与定理。
 2. [`core.md`](core.md)：理论与公理如何落成编译期核心（四构件

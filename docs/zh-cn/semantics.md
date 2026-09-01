@@ -145,8 +145,10 @@ runtime 为统一模型构造子（在 `core.md` 中是定义；激活仍是运�
   引用有效 × 生命周期）与义务账本（`LEDGER`）：机器可读的宪法摘录（接缝 × 义务 × 模态 ×
   见证 × 符合性测试），执行极小基律与诚实规则（A4/A5）。
 - **`delivery` 模块**（`semantics/src/checks/delivery.rs`，std）——投递四态税则：`Full`/`Closed` 自
-  `mpsc` 错误机械化且被拒值随错误回传（②③）；`Timeout`/`Cancelled` 声明为模态④
-  （机械化为物理选择：定时器/请求域通道），不伪造见证。
+  `mpsc` 错误机械化且被拒值随错误回传（②③）；期限等待点分量的 `Timeout` 已于异步域
+  机械化（②③，真定时器直接映射＋T6 对拍行为验证，2026-09-01 权威变更）；
+  `Delivery` 级 `Timeout`/`Cancelled` 构造器仍缺位（④，投递域定时器/请求域通道未落地），
+  不伪造见证。
 - **`mailbox` 模块**（`semantics/src/movers/mailbox.rs`，std）——反饥饿有界邮箱：容量 =
   `CAP` 缓冲槽 + 每生产者 1 个保底席位；三投递模式——`try_send`（严格，满即
   `Full(v)` 值回传）、`send`（阻塞背压，占自身保底席位等待）、`fire`（尽力：缓冲槽优先，
@@ -373,7 +375,7 @@ tokio_exec）；`examples/sql-over-redis/src` 下为 `plans/`（sql_plan、redis
 异步路径：runtime 声明 `Executor` 契约（`seams::async_seam`）；实际异步路径在
 `axiom-instances`（`backend::async_driver`）：等待挂进 tokio reactor，期限来自 tokio
 定时器（`tokio::time::timeout` 包裹输入等待），等待期间新指令可经通道馈入。输出与
-同步路径逐行一致（T6；综合用例核对 195/195 行）。`backend::tokio_exec` 与 `ThreadExec` 平级——同一 Executor 契约的线程级等待实现（期限等待点在该实现内如实声明），无占位/正解之分；`async_driver` 是异步域等待模式实现（T6 对拍）。观测是普通模块（用例侧 收集 → 汇总 → 打印），默认不接入。并发演示：单线程
+同步路径逐行一致（T6；综合用例核对 195/195 行）。`backend::tokio_exec` 与 `ThreadExec` 平级——同步域轮询面（同一组等待点契约，§0.6 解散裁定）的线程级等待实现（期限等待点在该实现内如实声明），无占位/正解之分；`async_driver` 是异步域等待模式实现（T6 对拍）。观测是普通模块（用例侧 收集 → 汇总 → 打印），默认不接入。并发演示：单线程
 服务 N 会话，墙钟与 N 无关；逐步校准（release，min-of-N + 自噪音下限）：sync
 ≈ 0.5µs/行，async ≈ 0.9µs/行。本主机上 tokio 计时等待量子 ≈ 15.6ms。
 
@@ -381,5 +383,5 @@ tokio 是异步默认后端（`tokio` 特性在 `async` 门后引入引擎）。
 （异步运行时替换层、第二后端）推迟；适配协议在第二实现者出现时定义（接缝先于
 socket）。
 
-开放项：负载下多核心并行未实测；账本行 Timeout 升 ②③ 待权威变更；真实网络异步 IO
-（tokio `net`）未接——现用通道馈入。
+开放项：负载下多核心并行未实测（多核对拍面已入档：`instances/tests/t6_crosscheck.rs`）；
+真实网络异步 IO（tokio `net`）未接——现用通道馈入。

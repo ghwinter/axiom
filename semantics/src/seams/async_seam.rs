@@ -1,4 +1,4 @@
-//! 异步接缝最小原型（D2 executor 契约；std 门控；零依赖）。
+//! 异步接缝最小原型（D2 等待点约定；std 门控；零依赖）。
 //!
 //! 设计按 D2 裁定执行：`step` 永不等——等待点只发生在边界。
 //! 本模块实现三类等待点中的两类于同步域探测：
@@ -13,10 +13,14 @@
 //! 不构成 `Delivery::Timeout`——它把"期限缺位 = 永不 TimedOut"的退化态（第五轴，
 //! boundary-ontology 命题 2.7）显式化：期限必须存在才是良态轮询。
 //!
-//! **第三层（契约落定）**：[`Executor`] 契约 + 线程参考实现 [`ThreadExec`]——
-//! 真 executor/waker 生态经实现本契约接入（如 tokio 适配器）；`SeamPoller` 的
-//! 固有递延（`thread::sleep`）即 `ThreadExec` 的语义；EX 泛型化与 `SlotDrive`
-//! 换装协同（跨异步边界在途语义，C5 协议）随适配器落地。
+//! **契约落定（§0.6 解散裁定）**：契约本体是三类等待点契约——输入就绪
+//! （[`Poller`] 就绪探测）、期限（[`Poller::poll_until`]）、背压（[`SeamPoller`]
+//! ＋[`SaturationPolicy`]）——加上激活契约（运行期绑定）；[`Executor`] 不是
+//! 插座，只是同步域把三类等待点合并轮询的一种实现（`park` 递延为实现细节），
+//! 保留为嵌入式剖面的最小退化实现。异步域是同一组等待点契约的运行期绑定
+//! 实现（第二实现者）；同步/异步对同一蓝图 T6 对拍零分歧是终局判据。
+//! EX 泛型化与 `SlotDrive` 换装协同（跨异步边界在途语义，C5 协议）随异步域
+//! 实现落地。
 
 use axiom::cell_core::PortCell;
 use std::sync::mpsc::{SyncSender, TrySendError};
@@ -24,11 +28,14 @@ use std::time::{Duration, Instant};
 
 use crate::movers::carrier::SaturationPolicy;
 
-/// **执行器契约**（C7 第三层；D2 executor 约定）：等待点的事件循环步。
+/// 同步域合并轮询面（§0.6 解散裁定）：契约本体是三类等待点契约（输入就绪 /
+/// 期限 / 背压）＋激活契约；本 trait 不是插座，是同步域把三者合并轮询时
+/// 递延 [`park`](Executor::park) 的最小面（嵌入式剖面的最小退化实现）。
+/// 异步域实现同一组等待点契约（运行期 ∃ 绑定）；两者平级（T6 对拍等价），
+/// 无占位/正解之分。
 ///
-/// axiom 不提供执行器（生态领域——广为认知锚点如 tokio）；本契约是异步接缝
-/// 对外部 executor 的最小面：宿主在轮询间隙调用 [`park`](Executor::park)
-/// 递延（供事件循环/线程/yield 语义），期限由调用方持有。
+/// 宿主在轮询间隙调用 [`park`](Executor::park) 递延（供事件循环/线程/yield
+/// 语义），期限由调用方持有。
 pub trait Executor {
     /// 递延一步（等待输入到达/腾位/期限的事件循环语义）。
     fn park(&mut self, dur: Duration);

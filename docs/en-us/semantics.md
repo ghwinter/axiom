@@ -179,8 +179,10 @@ The runtime gives *activation* to the unified-model constructs (which are defini
   conformance test), enforcing the minimal-basis and honesty rules (A4/A5).
 - **`delivery` module** (`semantics/src/checks/delivery.rs`, `std`) — the four-state delivery taxonomy:
   `Full` / `Closed` mechanized from `mpsc` errors with the rejected value preserved (②③);
-  `Timeout` / `Cancelled` declared as modality ④ (mechanization is a physical choice:
-  timer / request-scoped channels), no fabricated witnesses.
+  the deadline-wait-point component of `Timeout` is mechanized in the async domain (②③,
+  real-timer direct mapping plus T6 cross-checked behavioral verification, authority change
+  of 2026-09-01); `Delivery`-level `Timeout` / `Cancelled` constructors remain absent
+  (④ — delivery-domain timers / request-scoped channels not yet landed), no fabricated witnesses.
 - **`mailbox` module** (`semantics/src/movers/mailbox.rs`, `std`) — the anti-starvation bounded mailbox:
   capacity = `CAP` buffer slots plus one guaranteed slot per producer;
   three send modes—`try_send` (strict, `Full(v)` with the value returned), `send` (blocking
@@ -462,7 +464,7 @@ The async path: the runtime declares the `Executor` contract (`seams::async_seam
 async path lives in `axiom-instances` (`backend::async_driver`): waits suspend on the tokio
 reactor, deadlines come from tokio's timer (`tokio::time::timeout` around the input wait), and
 commands can arrive while waiting (channel feeding). Output equals the sync path line by line
-(T6; the composite use case checks 195/195 rows). `backend::tokio_exec` is on a par with `ThreadExec` — a thread-level wait implementation of the same Executor contract (its deadline wait point is declared as-is in that implementation); there is no placeholder/canonical hierarchy. `async_driver` is the async-domain wait-mode implementation (T6 cross-check). Observation is an ordinary module (collect → summary → print in the
+(T6; the composite use case checks 195/195 rows). `backend::tokio_exec` is on a par with `ThreadExec` — a thread-level wait implementation of the synchronous-domain polling face (the same set of wait-point contracts; dissolution ruling); its deadline wait point is declared as-is in that implementation; there is no placeholder/canonical hierarchy. `async_driver` is the async-domain wait-mode implementation (T6 cross-check). Observation is an ordinary module (collect → summary → print in the
 example), disabled by default. The concurrency demo serves N sessions on one thread with wall
 time independent of N; per-step calibration (release, min-of-N with self-noise floor): sync
 ≈ 0.5 µs/line, async ≈ 0.9 µs/line. On this host, tokio timed waits quantize at ≈ 15.6 ms.
@@ -472,6 +474,6 @@ Third-party physical adapters (an async-runtime replacement layer, a second back
 postponed; the adapter protocol is defined when a second implementer appears
 (seam-before-socket rule).
 
-Open items: multi-core parallelism under load is unmeasured; the ledger row for Timeout
-modality ②③ is pending an authority change; real network async I/O (tokio `net`) is open — the
+Open items: multi-core parallelism under load is unmeasured (the multi-core cross-check face is
+archived: `instances/tests/t6_crosscheck.rs`); real network async I/O (tokio `net`) is open — the
 current feed is channel-based.

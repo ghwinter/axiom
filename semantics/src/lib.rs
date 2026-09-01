@@ -135,9 +135,10 @@ pub mod movers {
 
 /// 接缝（等待 / 事件 / 观测）。
 pub mod seams {
-    /// 异步接缝（D2 executor 契约第一层）：可轮询单元（Poll/Poller/poll_until
-    /// 期限探测＋SeamPoller 背压等待点＋Executor 契约）。Stability: experimental。
-    /// 门控：`async-seam` 特性（接缝载体族）。
+    /// 异步接缝（D2 等待点约定）：可轮询单元（Poll/Poller/poll_until 期限探测
+    /// ＋SeamPoller 背压等待点）。契约本体 = 三等待点契约（输入就绪/期限/背压）
+    /// ＋激活契约；`Executor` 是同步域合并轮询实现（§0.6 解散裁定）。
+    /// Stability: experimental。门控：`async-seam` 特性（接缝载体族）。
     #[cfg(feature = "async-seam")]
     pub mod async_seam;
 

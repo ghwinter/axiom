@@ -134,9 +134,9 @@
 
 **Proposition 5.1 (The External-Audit Proposition)**. The reliability of any two-layer trust architecture (K, J) (boundary-ontology Definition 6.1) cannot be proved by K itself; any reliability argument contains an external audit step. Anchors: the de Bruijn criterion (a proof checker must be small enough to audit by hand); seL4 (Klein et al. 2009: microkernel plus machine-checked proof, whose toolchain lies outside the TCB); LCF (Gordon/Milner/Wadsworth 1979: extensions cannot breach kernel soundness); Hoare 1981 (reliability presupposes simplicity; the cost of complexity is paid by users).
 
-**命题 5.2（fail-closed 默认 / Fail-Closed Defaults）**。构造级公理：许可与能力的默认态为拒绝。锚点：Saltzer & Schroeder 1975（fail-safe defaults、least privilege、separation of privilege）；现代实据：claude-code-main 的 `buildTool` 以并发安全=否、只读=否作为默认（挖掘所得实物证据）。axiom 实例：`CarrierCost` 默认 `External`（未声明不视为零分配）。
+**命题 5.2（fail-closed 默认 / Fail-Closed Defaults）**。构造级公理：许可与能力的默认态为拒绝。锚点：Saltzer & Schroeder 1975（fail-safe defaults、least privilege、separation of privilege）。axiom 实例：`CarrierCost` 默认 `External`（未声明不视为零分配）。
 
-**Proposition 5.2 (Fail-Closed Defaults)**. Constitution-level axiom: the default state of permissions and capabilities is denial. Anchors: Saltzer & Schroeder 1975 (fail-safe defaults, least privilege, separation of privilege); modern evidence: claude-code-main's `buildTool` defaults concurrency-safety and read-only to false (mined artifact); axiom instance: `CarrierCost` defaults to `External` (undeclared is not zero-allocation).
+**Proposition 5.2 (Fail-Closed Defaults)**. Constitution-level axiom: the default state of permissions and capabilities is denial. Anchors: Saltzer & Schroeder 1975 (fail-safe defaults, least privilege, separation of privilege). Axiom instance: `CarrierCost` defaults to `External` (undeclared is not zero-allocation).
 
 ---
 

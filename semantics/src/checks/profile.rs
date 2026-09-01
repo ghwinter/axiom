@@ -23,7 +23,7 @@
 //!
 //! 剖面（meta 命题 7.1 的实例表）：
 //! - **[`KernelProfile`]**：内核形式。白名单 InlineCarrier、BoundedCarrier（有门）；
-//!   预算 ZeroAllocInline（零分配义务）；无超时义务（Timeout/Cancelled 保持④ 声明）。
+//!   预算 ZeroAllocInline（零分配义务）；无超时义务（`Delivery` 级 Timeout/Cancelled 保持④ 声明）。
 //! - **[`ServiceProfile`]**：服务形式。白名单 BoundedCarrier、BoundedMailbox、spawned_flow；
 //!   预算 PerMessageAlloc；Full/Closed 机械化下限（delivery.rs）。
 //! - **[`ToolProfile`]**：工具形式。默认 InlineCarrier；预算 External；无义务下限。

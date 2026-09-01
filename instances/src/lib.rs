@@ -1,7 +1,8 @@
 //! # axiom-instances — 实例层
 //!
-//! axiom 的实例层：经 socket（`Executor` / [`Carrier`](axiom_semantics::movers::carrier::Carrier)
-//! / `Telemetry`，见语义层模块 async-seam / carrier / telemetry）接入可替换的
+//! axiom 的实例层：经语义层命名的缝（三等待点契约＋激活契约的同步域轮询面
+//! `Executor`、载体 [`Carrier`](axiom_semantics::movers::carrier::Carrier)、观测
+//! `Telemetry`，见语义层模块 async-seam / carrier / telemetry）接入可替换的
 //! 物理/生态实现。官方标准集 = 融合单 crate + feature 门控，默认全关（空实例面
 //! 合法）；第三方实例经自建独立 crate 走开放路径（双形态边界，internal-design §3 / §5）。
 //!
@@ -24,7 +25,8 @@
 //! 用户未显式引入时实现被默认启用。本层经三个架构级机制（结构性保证）通过此检验——
 //! (1) feature 默认全关，不经用户显式开启不会进入编译；(2) 单向依赖（`axiom ← semantics ← instances`，workspace
 //! 强制），core 在结构上不可能感知任何具体物理，只有采纳能发生；(3) 物理只经命名的缝进入
-//! （`Carrier`/`Executor`/`Telemetry` 契约 + 如实声明的 `cost()`/`saturation()`/`obligation()`）。
+//! （等待点契约＋激活契约与 `Carrier`/`Telemetry`；同步域轮询面 `Executor`
+//! 为实现细节，§0.6 解散裁定；如实声明的 `cost()`/`saturation()`/`obligation()`）。
 //! 删除性判据：删掉本 crate，core 与语义层照常 `no_std` 编译、蓝图仍在 `InlineCarrier` 上运行——
 //! 可删、可加、可平行替换三者同时成立，边界在架构上成立。
 //!
