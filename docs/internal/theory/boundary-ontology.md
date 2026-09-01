@@ -2,7 +2,7 @@
 
 # Boundary Ontology: Four-Axis Structure of Algebraic Legality and Machine Reachability, and Two-Layer Trust Architectures
 
-> **性质**：I1 层理论注记（`docs/internal/theory/`，不入 git）。**非已实现、非承诺**。
+> **性质**：I1 层理论注记（`docs/internal/theory/`，不入 git）。非已实现、非承诺。
 > 术语以中英双语并列定义，二语构成同一概念的唯一指称，不另设语际映射。
 > 记号：W 配置空间；σ 语义函数；ρ 重接线；Obs 可观察行为集；A 代数闭包；M 机器闭包；T 类型可表达闭包；K 内核不变量集；J 准入接缝。
 
@@ -236,41 +236,53 @@
 - Time as value: located in A ∖ T (run-time clock must be threaded as State data); axiom does not legislate scheduling (§8.4).
 - Closed minimal specification API (derive generation): located within T; an engineering improvement, not a new concept; fix the minimal primitive set before generating.
 
-**注记 7.3（行为范畴五结构与准入四轴（细化））**。本节细化 §2 四轴（机器可达性过滤：可定义 / 可实现 /
-可行 / 可验证）的**目标侧**结构，不新增公理。语义目标范畴承载五结构——序（因果序）、成本（时空）、容量（界）、
-传递（投递语义）、并发资源（交换复合与单属主）；准入侧另有四轴——效应、状态即资源、并发、时间（时间 / 并发
-是否入论域），决定"一个新能力是否需要新增概念"。定位：§2 四轴判定对象能否穿过；五结构描述穿过之后进入的
+**注记 7.3（行为范畴五结构与物理压力的三通道（细化；I1 元裁定修正））**。本节细化 §2 四轴（机器可达性过滤：可定义 / 可实现 /
+可行 / 可验证）的目标侧结构，不新增公理。语义目标范畴承载五结构——序（因果序）、成本（时空）、容量（界）、
+传递（投递语义）、并发资源（交换复合与单属主）；准入侧（物理压力如何入宪）有且仅有三条通道——
+**State 内容**（作为实例代数的载体）、**基声明**（作为关于基的侧条件）、**④标注**（附让渡合同）——
+没有第四条门；新能力原则上不新增概念（I1 元裁定，2026-09-01；原"准入四轴：效应、状态即资源、并发、时间"
+框架随之撤销，四类压力逐一对号入座：效应 = 基声明、资源 = State 内容上的实例代数、时间/并发 = ④标注与基座）。
+定位：§2 四轴判定对象能否穿过；五结构描述穿过之后进入的
 目标范畴长什么样；二者是一条定理的两面，非平行新论。资源幺半群（semantics-constitution D11）是"并发资源"
-结构的一等对象化。
+结构的导出物（State 上的实例代数，与 monoidal 同构族同格——律的审计对象，非一等新概念；I1 裁决）。
 
-**Remark 7.3 (Five Structures of the Behavior Category and Four Admission Axes (refinement))**. This note refines
+**Remark 7.3 (Five Structures of the Behavior Category and the Three Channels of Physical Pressure (refinement; amended by the I1 meta-ruling))**. This note refines
 the target-side structure against which the §2 four axes (machine-reachability: definability / computability /
 feasibility / verifiability) filter; it introduces no new axioms. The semantic target category carries five
 structures—order (causal), cost (spacetime), capacity (bound), transfer (delivery semantics), and
-concurrency-resource (commutative composition and single-ownership). The admission side carries four axes—
-effect, state-as-resource, concurrency, and time (whether time / concurrency enter the domain of discourse),
-deciding whether a new capability requires a new concept. Placement: the §2 four axes judge whether an object
+concurrency-resource (commutative composition and single-ownership). On the admission side (how physical
+pressure enters the constitution) there are exactly three channels—**State content** (as the carrier of
+instance algebras), **base declarations** (as side conditions about the base), and **modality-④ annotations**
+(with concession contracts)—and no fourth gate; new capabilities in principle do not add concepts (I1
+meta-ruling, 2026-09-01; the former "four admission axes: effect, state-as-resource, concurrency, time"
+framework is thereby withdrawn, the four pressure classes mapping onto the channels: effect = base
+declaration, resource = instance algebra over State content, time/concurrency = ④ annotation and the base).
+Placement: the §2 four axes judge whether an object
 passes; the five structures describe what the target category looks like once passed; the two are two faces of
-one theorem, not a new parallel doctrine. The resource monoid (semantics-constitution D11) is the first-class
-objecthood of the "concurrency-resource" structure.
+one theorem, not a new parallel doctrine. The resource monoid (semantics-constitution D11) is a derived
+artifact of the "concurrency-resource" structure (an instance algebra over State, same rank as the monoidal
+isomorphism family—an audit object of laws, not a first-class new concept; I1 ruling).
 
 **注记 7.4（为何恰恰是五结构；资源的不可替代性 / Why Exactly Five Structures; the Irreplaceability of
-Resource）**。五结构（注记 7.3）的个数**不是数论必然，是"问题类封闭性"主张，未证**。"运行一个形状"强制
+Resource）**。五结构（注记 7.3）的个数不是数论必然，是"问题类封闭性"主张，未证。"运行一个形状"强制
 回答几种彼此不可互相回答的问题类：序（顺序）、成本（时空）、容量（界）、传递（投递语义）、并发资源（正交于
 其余四者的可组合所有权关系）。"故五"意为：这五种问题类的每一种都不能用其余任何一种来回答；只要每一类又彼此
 构造得出物理差异，三结构必漏一类。判别例（两两独立变化）：成本 ≠ 容量（大界每消息 O(1) 对 小界每消息 O(n)）；
 容量 ≠ 传递（有界不告知某条消息被投递还是被弃，"满/关闭"是界，"到达/被拒/覆盖"是投递语义）；序 ≠ 传递（确定
 顺序位置与投递结果独立）。N 只当自愿增加问题类（更强的义务目标）时出现；新结构须带来既有五类都答不了的新问题类
-（按注记 8.6 不构成找补）。**第六候选为时间，已被放置迁出行为范畴**：时间不作为目标范畴一等结构，而作为可
+（按注记 8.6 不构成找补）。第六候选为时间，已被放置迁出行为范畴：时间不作为目标范畴一等结构，而作为可
 升可降的值（直通 State）与退化（运行期时序进④ 声明）；迁出后五为当前封闭数——不是不能有六，是有六时把它
 归实例层 / 声明层而从范畴五移走。**资源的不可替代性**：成本 / 容量 / 传递 / 序皆描述"单条接缝 / 单 cell 运行"
 的幅度（贵不贵、多深、到没到、先后），资源描述"横跨拓扑的可组合所有权关系"（frame 律 P∗R：两件事不相干 ⟹
 可分别验证再总合）。没有资源代数，说不出"这两个并行 cell 可以分开证"这句组合的机械化话——而这是大型组合系统
-（愿景）唯一买得到验证可扩展的途径；即便无限容量，资源问题仍在（还能否并行两个不相干 cell，是所有权非缓冲），
+验证可扩展的唯一已知途径；即便无限容量，资源问题仍在（还能否并行两个不相干 cell，是所有权非缓冲），
 故资源与前四者正交。**为何资源涌现得晚**：前四结构在 carrier 分类里早已寄居为属性（成本=CarrierCost、
 容量=CAP、传递=投递四态、序=因果流与 T5 等价），只是被重新命名整理；资源无旧居——义务类 D1 只有资源"类"
 （ZeroAllocInline / PerMessageAlloc / External）而无一等代数对象，故资源是唯一需造新对象、唯一配称"真新增"
-者。**已代码化（2026-08，commit 667ee92）**：D11 资源幺半群现已落为 `semantics/src/checks/resource.rs`
+者。**【I1 裁决修正（2026-09-01）：上句"真新增"降格**——资源幺半群是 State 上的实例代数（导出物），
+`State: Default + step` 已是全部承载机制，与 monoidal 同构族同格——律的审计对象，非词汇新概念（H2 封顶：
+实例代数不付可判定性税即入词汇 = 封顶失守）；"已代码化"事实不变，地位重估如上。】
+**已代码化（2026-08，commit 667ee92）**：D11 资源幺半群现已落为 `semantics/src/checks/resource.rs`
 （`ResourceAmount` 交换幺半群 + `FrameProbe` frame 真和探针；幺半群三律与真和探针测试 + LEDGER 账本行；
 no_std 安全、语义层不分配）。仍守主张（非结论）：五结构与开放问题 8.2 / 8.4 作为收敛点假说登记。
 
@@ -290,7 +302,12 @@ two parallel cells can be proved apart", the only route by which a large composi
 scalability. Resource appears late because the other four already live as attributes in the carrier
 classification (cost=CarrierCost, capacity=CAP, transfer=delivery states, order=causal flow and T5), while
 resource has no prior home—obligation class D1 has only resource *classes*, no first-class object—so resource is
-the only one requiring a new object and the only legitimate "genuinely new" item. Claim, not conclusion: the
+the only one requiring a new object and the only legitimate "genuinely new" item. **[Amended by the I1 ruling
+(2026-09-01): the "genuinely new" status above is downgraded**—the resource monoid is an instance algebra over
+State (a derived artifact); `State: Default + step` already is the entire carrying mechanism, same rank as the
+monoidal isomorphism family—an audit object of laws, not a new vocabulary concept (H2 cap: instance algebras
+entering the vocabulary without paying the decidability tax would breach the cap); the "now coded" fact stands,
+the status is re-assessed as above.] Claim, not conclusion: the
 five, with Open Problems 8.2 / 8.4, are registered as a convergence-point hypothesis. The D11 resource monoid is
 now coded (2026-08, commit 667ee92): semantics/src/checks/resource.rs (ResourceAmount monoid laws + FrameProbe
 frame true-sum probe; monoid-law/true-sum tests + LEDGER row; no_std-safe, semantics layer allocates nothing).
@@ -358,9 +375,9 @@ frame true-sum probe; monoid-law/true-sum tests + LEDGER row; no_std-safe, seman
 
 **Remark 9.9 (Projections of the Same Law)**. The §8.3 "no sixth concept" criterion, frontier-notes item 3 (closed minimal specification API), and the scale neutrality of concept 1 are all projections of the law of stratification: a new plane must satisfy the closure criterion; a closed minimal API maximizes the decidable domain and minimizes the seam surface; scale neutrality makes the law hold recursively inside a system (a subsystem is a same-scale cell).
 
-**注记 9.10（矛盾分类学 / Taxonomy of Contradictions）**。分层律的经验注记：清晰的定义并不消灭矛盾，而把矛盾从"散落隐含"改写为"定位展出"。三类矛盾的命运各异：(i) **类别矛盾**（构造期不可写、语义不可静默）——被定义**消除**（A1 拒绝 + 四轴分类）；(ii) **边界矛盾**（层间接口、语言表达力；定理 3.1 的闭包差异）——被定义**定位**到接缝，由四模态承接（② 见证、③ 验证、④ 声明，定理 9.6 (L₂)）；(iii) **经验矛盾**（性能、工具链）——被定义**展出**（经验-D 的 E1 界 + 监测）。故被完备封闭的是概念层（构造拒绝区）；实现层的矛盾残余在接缝被展出而非被消灭，这是"无第六概念"判据只约束概念层、而不禁止实现层新增机制的原因（新机制仍须满足 §8.3 闭包判据）。
+**注记 9.10（矛盾分类学 / Taxonomy of Contradictions）**。分层律的经验注记：清晰的定义并不消灭矛盾，而把矛盾从"散落隐含"改写为"定位展出"。三类矛盾的命运各异：(i) **类别矛盾**（构造期不可写、语义不可静默）——被定义消除（A1 拒绝 + 四轴分类）；(ii) **边界矛盾**（层间接口、语言表达力；定理 3.1 的闭包差异）——被定义定位到接缝，由四模态承接（② 见证、③ 验证、④ 声明，定理 9.6 (L₂)）；(iii) **经验矛盾**（性能、工具链）——被定义展出（经验-D 的 E1 界 + 监测）。故被完备封闭的是概念层（构造拒绝区）；实现层的矛盾残余在接缝被展出而非被消灭，这是"无第六概念"判据只约束概念层、而不禁止实现层新增机制的原因（新机制仍须满足 §8.3 闭包判据）。
 
-**Remark 9.10 (Taxonomy of Contradictions).** An empirical note on the law of stratification: precise definitions do not eliminate contradictions; they rewrite them from "scattered and implicit" to "located and exhibited". The three kinds of contradictions have different fates: (i) **categorical contradictions** (unwritable at construction time, not silently semantic) — **eliminated** by definition (A1 refusal + the four-axis taxonomy); (ii) **boundary contradictions** (inter-plane interfaces / language expressiveness, the closure difference of Thm. 3.1) — **located** by definition at the seam, carried by the four modalities (witness ②, deployment validation ③, declaration ④; Theorem 9.6 (L₂)); (iii) **empirical contradictions** (performance, toolchain) — **exhibited** by definition (the empirical-D E1 bound + instrumentation). Hence it is the conceptual plane that is completely closed (the construction-refusal region); the residual contradictions of the implementation plane are exhibited at the seam rather than eliminated — which is why the "no sixth concept" criterion constrains only the conceptual plane and does not forbid new mechanisms in the implementation plane (new mechanisms still must satisfy the §8.3 closure criterion).
+**Remark 9.10 (Taxonomy of Contradictions).** An empirical note on the law of stratification: precise definitions do not eliminate contradictions; they rewrite them from "scattered and implicit" to "located and exhibited". The three kinds of contradictions have different fates: (i) **categorical contradictions** (unwritable at construction time, not silently semantic) — eliminated by definition (A1 refusal + the four-axis taxonomy); (ii) **boundary contradictions** (inter-plane interfaces / language expressiveness, the closure difference of Thm. 3.1) — located by definition at the seam, carried by the four modalities (witness ②, deployment validation ③, declaration ④; Theorem 9.6 (L₂)); (iii) **empirical contradictions** (performance, toolchain) — exhibited by definition (the empirical-D E1 bound + instrumentation). Hence it is the conceptual plane that is completely closed (the construction-refusal region); the residual contradictions of the implementation plane are exhibited at the seam rather than eliminated — which is why the "no sixth concept" criterion constrains only the conceptual plane and does not forbid new mechanisms in the implementation plane (new mechanisms still must satisfy the §8.3 closure criterion).
 
 ---
 

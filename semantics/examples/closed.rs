@@ -1,4 +1,4 @@
-//! closed —— 封闭边界（`foundations.md` §8）的**整合演示**。
+//! closed —— 封闭边界（`foundations.md` §8）的整合演示。
 //!
 //! 用统一命名的核心/runtime 构造展示 §8 的五个构造概念皆是实例：
 //! - **组合自封闭（概念 1/3）**：`Chain`/`Rep`/`Broadcast` 等都是 `PortCell`，可任意嵌套；

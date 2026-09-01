@@ -3,7 +3,7 @@
 //! **四构件编译期核心：开放系统 + 因果数据流 + 组合 + 静态性声明。**
 //!
 //! Zero-dependency computation primitives for observable, controllable systems.
-//! axiom 是一个**编译期模型**：蓝图用 Rust 代码/类型定义（无 JSON/值形态中间层），
+//! axiom 是一个编译期模型：蓝图用 Rust 代码/类型定义（无 JSON/值形态中间层），
 //! 核心能力到编译期耗尽用于分析、验证，编译后等价手写普通 Rust、零运行时对象。
 //!
 //! - **开放系统（端口体）** [`PortCell`](crate::cell_core::PortCell)：有边界的计算体，
@@ -47,12 +47,30 @@ extern crate self as axiom;
 // 旧核心（v0：machine/port/link/deploy/FlowKind/值形态等）已移出 src；
 // 物理实现（载体/宏/编译期展开）由语义层承担（axiom-semantics crate）。
 //
-// Module maturity: `cell_core` is **stable** (closed five-concept boundary,
+// Module maturity: `cell_core` is stable (closed five-concept boundary,
 // foundations.md §8); additive-only evolution via the closure checklist.
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// 核心主轴：四构件编译期模型（Stability: **stable**）。
+/// 核心主轴：四构件编译期模型（Stability: stable）。
 pub mod cell_core;
+
+/// 张量结构（S₀ 宪法修正，2026-09；审计 F1 裁决选项 (b)）：
+/// [`Par`](crate::monoidal::Par)（张量积 ⊗）、[`Swap`](crate::monoidal::Swap)（对称 σ）、
+/// [`Discard`](crate::monoidal::Discard)（余单位 ε）、[`Duplicate`](crate::monoidal::Duplicate)
+/// （余乘 δ）。使 T2 对称律获得态射级见证、trace 形态前提齐备。
+///
+/// 第二次修正（2026-09-01，听证 D 裁决）：相干同构族入词汇——
+/// [`Assoc`](crate::monoidal::Assoc)/[`AssocInv`](crate::monoidal::AssocInv)（α）、
+/// [`UnitL`](crate::monoidal::UnitL)/[`UnitLInv`](crate::monoidal::UnitLInv)（λ）、
+/// [`UnitR`](crate::monoidal::UnitR)/[`UnitRInv`](crate::monoidal::UnitRInv)（ρ）、
+/// [`Slide`](crate::monoidal::Slide)/[`SlideInv`](crate::monoidal::SlideInv)（半辫）；
+/// [`Feedback`](crate::cell_core::Feedback) 既有 C2 结构批准为守卫反馈语义。
+/// Stability: experimental。
+pub mod monoidal;
+
+/// 律断言（审计推演 4 表的代码落点）：单位/结合/对合/对称自然性/余单位律的
+/// 行为等价测试器械（模态③）。Stability: experimental。
+pub mod laws;
 
 /// 核心 prelude：四构件主轴线的默认导出面。
 pub mod prelude_all {
@@ -60,5 +78,9 @@ pub mod prelude_all {
         Blueprint, Broadcast, Chain, Choice, ChoiceIn, ChoiceOut, Conforms, Diamond, Feedback,
         Id, Merge, Opt, PortCell, Rep, Repeat, Slot, Static, Wire, assert_conforms,
         assert_wiring, blueprint_is_zero_sized, drive, wired,
+    };
+    pub use crate::monoidal::{
+        Assoc, AssocInv, Discard, Duplicate, Par, Slide, SlideInv, Swap, UnitL, UnitLInv, UnitR,
+        UnitRInv,
     };
 }

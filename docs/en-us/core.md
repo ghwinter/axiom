@@ -2,17 +2,17 @@
 
 # axiom Compile-Time Core: cell_core (Core Volume)
 
-> **Nature**: axiom's **core architecture specification**. Answers "what the axiom core
-> is": it turns the axioms and theorems of `foundations.md` into a **compile-time core**
+> **Nature**: axiom's core architecture specification. Answers "what the axiom core
+> is": it turns the axioms and theorems of `foundations.md` into a compile-time core
 > `core/src/cell_core.rs`. This volume describes the form of the axiom core, consistent with the
 > converged implementation (`core/src/cell_core.rs`, `core/src/lib.rs`).
 >
 > **Normative**: a self-consistent, authoritative specification focused on the
 > definition of the axiom core itself.
 >
-> **Summary**: axiom core layer = **compile-time DSL + verifier**: all
+> **Summary**: axiom core layer = compile-time DSL + verifier: all
 > "intelligence" (analysis, verification, type constraints, graph construction) is exhausted
-> at **compile time**; the product is **ordinary Rust code**. axiom has no "runtime" — only
+> at compile time; the product is ordinary Rust code. axiom has no "runtime" — only
 > the two phases "compile time" and "post-compile". This satisfies the zero-cost
 > promise (no axiom objects after compilation).
 
@@ -20,20 +20,20 @@
 
 ## 1. Core Proposition
 
-> axiom core layer = **compile-time DSL + verifier**: all of its "intelligence" is exhausted
-> at **compile time**; the product is **ordinary Rust code**. axiom has no "runtime" — only
+> axiom core layer = compile-time DSL + verifier: all of its "intelligence" is exhausted
+> at compile time; the product is ordinary Rust code. axiom has no "runtime" — only
 > the two phases "compile time" and "post-compile".
 
-**Implication**: a blueprint is a **compile-time construct**
+**Implication**: a blueprint is a compile-time construct
 (type + const + macro-generated code). Verification is done at compile time by macros /
-types / const — violating a blueprint rule = **compile
-error** (`compile_error!`) or a failed type constraint, rather than a runtime `Result`.
+types / const — violating a blueprint rule = compile
+error (`compile_error!`) or a failed type constraint, rather than a runtime `Result`.
 
 ---
 
 ## 2. The Four Artifacts (The Main Axis of cell_core)
 
-`cell_core` carries **four artifacts**, corresponding to the theoretical convergence
+`cell_core` carries four artifacts, corresponding to the theoretical convergence
 (bridging to `foundations.md`):
 
 | Artifact | Content | Rust Correspondence | Compile-Time Nature |
@@ -43,7 +43,7 @@ error** (`compile_error!`) or a failed type constraint, rather than a runtime `R
 | **Composition / nesting** | Combinators are still port bodies, at arbitrary depth | `Chain<A,B>` | Operational structure (T2) |
 | **Staticness declaration** | Marks which subgraphs require zero cost | `Static<SUB>` / `Blueprint<TOP>` | Monomorphized, no `Box<dyn>` (T7/§5.6) |
 
-**Many-to-many unified as first-class**: `Broadcast` (fan-out), `Merge` (fan-in), `Feedback`
+Many-to-many unified as first-class: `Broadcast` (fan-out), `Merge` (fan-in), `Feedback`
 (loop) are expressed at the type layer, with no Tee tree (bridging to `foundations.md`
 §5.3/A2).
 
@@ -62,7 +62,7 @@ pub trait PortCell: Sized {
   internal state, default-constructible;
 - `step` is a pure transition (`#[inline(always)]` makes inlining hold across crates → (b) of
   Z1);
-- A purely abstract layer — it does **not** incorporate threading/synchronization/backpressure/
+- A purely abstract layer — it does not incorporate threading/synchronization/backpressure/
   timing; those are the concern of the physical carrier (T3 / §5.4).
 
 **Naming ladder & scale neutrality** (the canonical register; the normative copy lives in
@@ -97,8 +97,8 @@ where A: PortCell, B: PortCell<In = A::Out>,   // dual pairing at the type layer
 ```
 
 **Wiring legality = type judgment (T1)**: `B::In == A::Out` is required. If the types do not
-match, this type cannot even be instantiated — an illegal connection is rejected at **compile
-time** (not a runtime check). `Wire<A,B>` is a *typed position* (the unified `Conforms` object)
+match, this type cannot even be instantiated — an illegal connection is rejected at compile
+time (not a runtime check). `Wire<A,B>` is a *typed position* (the unified `Conforms` object)
 and the compile-time-bound composition action — the compile-time side of the substitution/binding
 concept 4 (`foundations.md` §8).
 
@@ -117,7 +117,7 @@ where A: PortCell, B: PortCell<In = A::Out>,
 }
 ```
 
-Composing A -> B (A's output wired to B's input) is **still a port body** and can be nested
+Composing A -> B (A's output wired to B's input) is still a port body and can be nested
 again (at arbitrary depth) — the closure of concept 3 (composition closure) in `foundations.md` §8.
 
 ### 2.4 `Broadcast` / `Merge` / `Feedback` (Many-to-Many, Loops)
@@ -133,13 +133,15 @@ again (at arbitrary depth) — the closure of concept 3 (composition closure) in
   (T3/Kahn) — the abstraction layer only declares the causal form "multiple sources can wire
   into the same receiver".
 - **`Feedback<BODY, FEED>`**: `BODY`'s output is fed back through `FEED` into `BODY`'s input,
-  forming a causal closure. The abstraction layer **only declares the existence of the loop**
-  (causal closure, T3); whether the loop is well-defined and whether buffering is needed is
-  the physical carrier's concern (Kahn channels ⟹ loop safety; inlining ⟹ Moore required).
-  **C2 ruling**: the cell form fixes exactly one inline-unbuffered loop iteration
-  (`BODY -> FEED -> BODY`, two ticks) per external input — an explicit abstract-layer choice;
-  buffered/other tickings are physical (runtime `drive_feedback_inline`, Moore-gated); the
-  unbuffered correctness assumes `FEED` is state-only (Moore; declaration, not proof).
+  forming a causal closure. **Hearing D ruling (guarded feedback)**: the abstraction layer
+  does more than declare the loop's existence — the unit form of `Feedback` is the guard:
+  exactly one inline closed iteration (`BODY -> FEED -> BODY`, two ticks) per external input,
+  with a one-beat delay on the FEED side; yanking (instant retrieval) is not its semantics
+  (an assertion object; negative witness in core laws.rs). The well-definedness obligation of
+  the cycle is borne by this abstraction-layer guard (T3 second amendment); the equivalent
+  guard of the buffered-cycle path (FIFO is delay) belongs to the physical carrier
+  (runtime `drive_feedback_inline`, Moore-gated); the unbuffered correctness assumes `FEED`
+  is state-only (Moore; declaration, not proof).
 
 ### 2.5 `Static` / `Blueprint` (Staticness Declaration + Blueprint-as-Type)
 
@@ -155,7 +157,7 @@ pub const fn blueprint_is_zero_sized<TOP>() -> bool {
   declared static does the compiler enforce monomorphization + inlining and verify zero cost
   (Z ⟹ unfolding); undeclared ones take the ordinary Rust/carrier path (dynamic tax is
   acceptable) — "static-first + explicit exceptions" (bridging to `foundations.md` §5.6).
-- **`Blueprint<TOP>`**: a blueprint = a **zero-sized, compile-time-fixed type** (a set of type
+- **`Blueprint<TOP>`**: a blueprint = a zero-sized, compile-time-fixed type (a set of type
   parameters). The opposite of "value-form blueprint/JSON" (bridging to `foundations.md`
   §5.5): a blueprint is not a runtime object but a set of type parameters;
   `size_of::<Blueprint<TOP>>() == 0` — there is no blueprint object at runtime.
@@ -166,9 +168,9 @@ pub const fn blueprint_is_zero_sized<TOP>() -> bool {
 
 > **Conclusion (bridging to `foundations.md` §5.5 / 4.1)**: in the mainstream of compiled
 > languages (Rust), "modifying code/topology at runtime" has no necessary universal example;
-> engineering **leans toward compile time**. Blueprints are defined directly in Rust
-> code (types / macro invocations describe the static graph structure); **no JSON/value-form
-> is needed as a first-class expression**.
+> engineering leans toward compile time. Blueprints are defined directly in Rust
+> code (types / macro invocations describe the static graph structure); no JSON/value-form
+> is needed as a first-class expression.
 
 **Argument**:
 - Dynamic library loading (dlopen/.so) is a common "plugin" form, but what is loaded is not
@@ -206,17 +208,17 @@ pub fn assert_wiring<A, B>() where A: PortCell, B: PortCell<In = A::Out> {
 - **Compile-time duality judgment (unified)**: if `Conforms<Wire<A,B>>` is constructible (the
   impl exists), then that wiring is legal under the type duality — purely type-level (T1). The
   same one judgment covers typed-hole conformance (`Conforms<Slot<I,O>>`).
-- **Asserting a wiring is legal**: if it holds at compile time, a zero-sized witness is produced;
-  if the types do not pair, that impl does not exist → **compile error**. The entry point "for
+- Asserting a wiring is legal: if it holds at compile time, a zero-sized witness is produced;
+  if the types do not pair, that impl does not exist → compile error. The entry point "for
   analysis and verification" — verification is completed at compile time, zero runtime overhead.
 
 ---
 
 ## 4b. Verification Responsibility Boundary (type-level constraints vs macro checks)
 
-By the placement law: a property goes into **trait/type-level constraints** when its
+By the placement law: a property goes into trait/type-level constraints when its
 violation must be *unrepresentable* (structural witness, modality ① — e.g. `Conforms`,
-`CAP` gates, port-symmetry); it goes into **macro-emit checks** (`compile_error!`) when
+`CAP` gates, port-symmetry); it goes into macro-emit checks (`compile_error!`) when
 it is decidable but *representable-with-diagnostic* is more usable than unrepresentable
 (e.g. blueprint lint: "every registered slot has an inhabitant"). Properties that are
 undecidable stay declarations (modality ④). A macro never *proves* — it only relocates
@@ -235,7 +237,7 @@ pseudo-verification defect.
 | Zero-cost conservation | generic monomorphization (monomorphization) | compile time (size for speed) |
 | no_std | no runtime dependency | — |
 
-**Key correspondence: generic monomorphization = the mechanism of zero cost**
+Key correspondence: generic monomorphization = the mechanism of zero cost
 Rust's generics generate specialized code for every concrete type at compile time
 (monomorphization) — this is the mechanism of zero-cost conservation. When the
 topology is encoded in type parameters (combinators, nested generics), the compiler expands
@@ -250,8 +252,8 @@ To keep the core "clean", the following legacy semantics are moved out of the ab
 layer (bridging to `foundations.md` §5.4/5.8):
 
 - **FlowKind (Data/Control/Observe trichotomy)**: not a blueprint construction primitive
-  (`flow_kind` is optional, `None` = no annotation); it is an **abstract-layer optional semantic
-  annotation** describing how the receiver interprets a value — not a physical-carrier attribute
+  (`flow_kind` is optional, `None` = no annotation); it is an abstract-layer optional semantic
+  annotation describing how the receiver interprets a value — not a physical-carrier attribute
   (the physical layer treats all values uniformly as value-flowing-through-structure; see
   `foundations.md` §5.8).
 - **LinkKind's carrier/backpressure/timing semantics**: the concern of the physical carrier,
@@ -271,7 +273,7 @@ layer (bridging to `foundations.md` §5.4/5.8):
 
 ## 6b. Unified-model Constructors (Additive)
 
-Beyond the four constituents, `cell_core` adds, **additively** (no rewrite of existing types),
+Beyond the four constituents, `cell_core` adds, additively (no rewrite of existing types),
 the unified-model constructors:
 
 - **`Rep<N, C>`** — regular power: `N`-fold self-composition of a cell `C` (exactly `N`
@@ -279,31 +281,32 @@ the unified-model constructors:
   (manual `Default`) zeros
   dependency on the built-in array `Default`; zero-cost, monomorphized; `N=0` is identity.
   Unbounded count (runtime) is the generative/physical side — see `semantics.md`, `drive_seq`.
-- **`Slot<I, O>` + `Conforms` / `assert_conforms`** — ∃ typed-hole **definition**: a
+- **`Slot<I, O>` + `Conforms` / `assert_conforms`** — ∃ typed-hole definition: a
   compile-time-fixed interface (dual pair, T1) with a compile-time parametrically-quantified
   conformity verdict for any future inhabitant (`∀ T: PortCell<In=I, Out=O>` ⟹ `Conforms<Slot<I,O>>`,
-  the same shape as `Conforms`). The runtime existential fill is `SlotDrive` (**existential
-  binding**) — see `semantics.md`.
+  the same shape as `Conforms`). The runtime existential fill is `SlotDrive` (existential
+  binding) — see `semantics.md`.
 - **`Choice<A, B>` + `Opt<C>`** — the *regular* operators `|` and `?` as first-class pure
   `PortCell`s. `Choice` (input-tagged [sum]) dispatches by the input's label to `A` or `B`;
   `Opt<C>` maps `Option<C::In>` to `Option<C::Out>` (identity on `None`, one `C::step` on `Some`).
   Both are deterministic and composable like any cell (the `∃` branch-selection side remains the
   runtime `SlotDrive`).
 
-These are **definitions** (zero-sized, no runtime object) and reuse the same `PortCell` +
+These are definitions (zero-sized, no runtime object) and reuse the same `PortCell` +
 `Conforms`-style compile-time verification — the additive realization of the unified
 model's static fragment (see [`unified.md`](unified.md)).
 
 ### 6c. Constructor → concept instance matrix, and the closure checklist
 
-Every constructor is an **instance** of the five construction concepts (`foundations.md` §8.1),
+Every constructor is an instance of the five construction concepts (`foundations.md` §8.1),
 never a sixth concept:
 
 | Constructor | Construction concept it instantiates |
 |---|---|
 | `PortCell` | concept 1 — the cell / open system |
 | `Wire<A,B>` (+ `Conforms<Wire<..>>`) | concepts 1/2/4 — a typed causal flow + T1 dual composition (compile-time-binding position) |
-| `Chain` / `Rep` / `Broadcast` / `Merge` / `Feedback` | concept 3 — composition closure (each is itself a cell, nestable) |
+| `Chain` / `Rep` / `Broadcast` / `Merge` | concept 3 — composition closure (each is itself a cell, nestable) |
+| `Feedback` | a guarded extension of concept 3 (compositionality from 3; the guard face — one-beat delay + yanking negative witness — is a ruled structure not derivable from the other members; see §2.4 and the foundations T3 second amendment) |
 | `Choice` / `Opt` | concept 1 — a cell whose input carries a tag / option (just types) |
 | `Slot<I,O>` (+ `Conforms<Slot<..>>`) | concept 4 — typed position (unbound definition) |
 | `SlotDrive` (runtime; *existential binding*) | concept 4/5 — runtime (∃) binding, then activation |
@@ -314,8 +317,8 @@ never a sixth concept:
 1. Is `C` an *instance of one of the five concepts* (i.e. expressible with `PortCell` +
    T1-composition + this/these binding(s) + activation)? If yes → legitimate (an instance, not a
    patch).
-2. If `C` requires a **new sixth construction concept** (not expressible via 1–5), it must either
-   be rejected or explicitly added by collective ruling — **no implicit new rules** (no new type /
+2. If `C` requires a new sixth construction concept (not expressible via 1–5), it must either
+   be rejected or explicitly added by collective ruling — no implicit new rules (no new type /
    trait that smuggle a concept beyond the five).
 
 ---
@@ -348,7 +351,7 @@ cargo bench --bench dag     # diamond zero-cost proof (Δ(composite−handwritte
 
 ## 8. Boundaries and Open Questions
 
-- **The core is a compile-time model**: capability is exhausted at compile time, with no
+- The core is a compile-time model: capability is exhausted at compile time, with no
   axiom objects after compilation; "intelligence" beyond compile time (e.g., linear temporal /
   graph analysis) is not a default capability of the core and must be designed separately.
 - **Total-function assumption**: `PortCell::step` is assumed to be a total transition;

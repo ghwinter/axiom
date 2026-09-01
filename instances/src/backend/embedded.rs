@@ -1,17 +1,17 @@
 //! 同步块环流水线（实例层 embedded 基座；`async_flow` 的单线程退化极限）。
 //!
 //! 把 [`async_flow`](axiom_semantics::drive::async_flow) 的「`Source ─step→ ring ─recv→ Transform ─step→ ring ─recv→ Sink`」
-//! 块流水线形态，在 **单线程物理** 上兑现：交接点用
+//! 块流水线形态，在 单线程物理 上兑现：交接点用
 //! [`BoundedRing`](axiom_semantics::movers::ring::BoundedRing)（EmbeddedProfile 白名单存储原语）——
 //! 构造一次预留、稳态每消息零分配。
 //!
 //! 与异步路径的分工（§11 基座优先）：并发/异步流水线的等待点（等非满 / 等新块）以
-//! tokio `Notify` 承载；本模块是那个意义的**退化极限**——单线程下无并发的等待可选，
+//! tokio `Notify` 承载；本模块是那个意义的退化极限——单线程下无并发的等待可选，
 //! 背压 = 立即 `Full` 判定（[`BoundedRing::push`] 满即交还原值），泵在此让出给消费侧排空。
 //! t6 多物理：缓冲不改变流经顺序（单线程排空即 FIFO），故
 //! 本泵输出序列 = `Chain<A,B>` 逐输入 step 的序列——退化极限与并发形态语义一致。
 //!
-//! 诚实边界（A5）：稳态零分配是**结构**性质（`BoundedRing::push/pop` 无分配、驱动不新建
+//! 诚实边界（A5）：稳态零分配是结构性质（`BoundedRing::push/pop` 无分配、驱动不新建
 //! 对象），非分配计数断言；`CAP ≥ 1` 由 [`BoundedRing::new`] 的模态②门强制。本模块不提供
 //! `Executor`/async 语义（无等待点、无 reactor）。
 

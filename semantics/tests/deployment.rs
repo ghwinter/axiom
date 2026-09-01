@@ -1,4 +1,4 @@
-//! 部署期模态③接线测试：`assemble_link` / `assemble_seam` = 装配点**一次**校验，
+//! 部署期模态③接线测试：`assemble_link` / `assemble_seam` = 装配点一次校验，
 //! 越界 = 装配失败（返回 [`ContractError`]），不进入驱动；通过后经 `drive_link`
 //! 的编译期验证 + 零成本路径运行。
 

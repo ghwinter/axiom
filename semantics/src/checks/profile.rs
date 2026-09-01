@@ -1,11 +1,11 @@
 //! 剖面目录（六元组标准化 C 构件；meta-foundations 命题 7.1 的 F↦C(F) 代码形态）。
 //!
-//! 每个剖面 = {允许载体集（文档化白名单）、义务类下限、成本预算}。剖面是**类型级令牌**
+//! 每个剖面 = {允许载体集（文档化白名单）、义务类下限、成本预算}。剖面是类型级令牌
 //! （模态①）：同一拓扑在不同剖面下装配，即 T6"同一图层换物理"（内核剖面拒绝
 //! 每消息分配载体，工具剖面默认内联）。
 //!
 //! **诚实声明（A5）**：受开放 `Carrier` impl 约束，载体白名单不可在类型层强制
-//! （任何实现者都可自行 `impl Carrier`）；类型层可强制的是**成本预算与义务下限**——
+//! （任何实现者都可自行 `impl Carrier`）；类型层可强制的是成本预算与义务下限——
 //! 装配点按模态③ 校验（[`assemble_profile`]）。白名单因此是规范文档（S/L 构件），
 //! 预算是可执行投影（T 构件）。
 //!
@@ -47,18 +47,18 @@ pub trait Profile {
     /// 饱和下限（A1；模态③ 于 [`assemble_profile`] 校验）。载体的
     /// [`Carrier::saturation`] 不得弱于该下限（
     /// [`SaturationPolicy::meets_saturation_floor`] 偏序）。默认 `NotApplicable`
-    /// ——无饱和义务（外松）；需要"不得静默丢弃"的剖面声名更高档。**取值随剖面
-    /// 分化，为设计决断，非命题结论。**
+    /// ——无饱和义务（外松）；需要"不得静默丢弃"的剖面声名更高档。取值随剖面
+    /// 分化，为设计决断，非命题结论。
     fn saturation_floor() -> SaturationPolicy {
         SaturationPolicy::NotApplicable
     }
-    /// 是否为**注册门剖面**（C3）：若为 `true`，装配须经
+    /// 是否为注册门剖面（C3）：若为 `true`，装配须经
     /// [`assemble_profile_gated`]（编译期要求 `C: Registered`——白名单升为
     /// 模态①事实；未注册载体编译失败）。
     const GATED: bool = false;
 }
 
-/// 内核形式剖面（F = kernel）：**注册门**（C3）——仅注册载体可装配。
+/// 内核形式剖面（F = kernel）：注册门（C3）——仅注册载体可装配。
 pub struct KernelProfile;
 impl Profile for KernelProfile {
     const GATED: bool = true;
@@ -77,7 +77,7 @@ impl Profile for KernelProfile {
     }
 }
 
-/// 服务形式剖面（F = service/server）：**注册门**（C3）。
+/// 服务形式剖面（F = service/server）：注册门（C3）。
 pub struct ServiceProfile;
 impl Profile for ServiceProfile {
     const GATED: bool = true;
@@ -142,8 +142,8 @@ impl Profile for GameProfile {
     }
 }
 
-/// 按剖面装配（模态③）：载体成本 ≤ 剖面预算 **且** 载体义务不弱于剖面义务下限
-/// **且** 载体饱和策略不弱于剖面饱和下限（A1 第三门），越界 = 装配失败；返回
+/// 按剖面装配（模态③）：载体成本 ≤ 剖面预算 且 载体义务不弱于剖面义务下限
+/// 且 载体饱和策略不弱于剖面饱和下限（A1 第三门），越界 = 装配失败；返回
 /// [`drive_link`] 函数指针（热路径零税）。同一 `A`/`B` 拓扑换剖面 = 换预算门 +
 /// 换义务下限 + 换饱和下限，不改拓扑（T6：义务随剖面变化，语义一致）。
 ///
@@ -168,7 +168,7 @@ where
 
 /// **注册门装配**（C3；模态①）：与 [`assemble_profile`] 同语义，另要求
 /// `C: Registered`（官方载体）——未注册（第三方）载体在注册门剖面
-/// （Kernel/Service）**编译失败**：白名单从文档约定升为编译期事实。
+/// （Kernel/Service）编译失败：白名单从文档约定升为编译期事实。
 pub fn assemble_profile_gated<P, A, B, C>() -> Result<Driver<A, B>, ContractError>
 where
     P: Profile,

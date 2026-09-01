@@ -1,11 +1,11 @@
 //! netpath —— 网络接收路径多段管线，用 cell_core + runtime Carrier 重建
-//! （阶段 6 硬化：解析失败由**类型化错误**表达，杜绝静默默认→数据污染）。
+//! （阶段 6 硬化：解析失败由类型化错误表达，杜绝静默默认→数据污染）。
 //!
-//! 多段**解析管线**（EthFrame → IpParse → TcpParse → Deliver），合成数据包输入；
+//! 多段解析管线（EthFrame → IpParse → TcpParse → Deliver），合成数据包输入；
 //! 前三级 `Out = Result<_, NetErr>`（失败为值），经 `TryChain` 短路——解析失败
 //! 立即停，不流到后续级、不产生零值/空串污染。
 //! 用 Carrier 多载体驱动同一管线（Inline 静态零分配 vs Queue 队列），
-//! 并验证**确定性**（同一输入 → 相同结果）。
+//! 并验证确定性（同一输入 → 相同结果）。
 
 use std::collections::HashMap;
 

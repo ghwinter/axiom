@@ -2,22 +2,23 @@
 //!
 //! ## 形态与诚实边界（instance-layer-design §5.3 落地）
 //!
-//! axiom 的 [`Executor`] 契约是**同步签名** `park(&mut self, dur)`；而 tokio 的
+//! axiom 的 [`Executor`] 契约是同步签名 `park(&mut self, dur)`；而 tokio 的
 //! 计时器是异步语义（`tokio::time::sleep` 需挂在 reactor 上由 runtime 驱动）。
 //!
 //! **实测发现（M5 展出，非静默）**：在同步 `park` 内以三种方式接入
 //! `block_on(tokio::time::sleep)` —— current-thread `enable_time`、多线程
 //! `Runtime::new`、多线程 `Builder::enable_time` —— 全部运行时报
-//! **「there is no reactor running」**。即：同步签名无法把等待真正挂进
-//! tokio 的 reactor。这是 §5.3 预先标注的开放问题，初版作诚实占位：
+//! 「there is no reactor running」。即：同步签名无法把等待真正挂进
+//! tokio 的 reactor。这是 §5.3 预先标注的开放问题；裁决落点是语言原生的
+//! 异步路径（`async_driver`），本模块以平级实现保留（非待替换占位）：
 //!
 //! - [`Executor::park`] 用线程级 [`std::thread::park_timeout`] 兑现等待；
-//!   **不提供 tokio 定时器语义**（与 `ThreadExec`（sleep）仅在唤醒机制上略异；
+//!   不提供 tokio 定时器语义（与 `ThreadExec`（sleep）仅在唤醒机制上略异；
 //!   相同地未挂 reactor）。
 //! - 真接入（把处理改成异步 `park`【破坏性，需 §4.3 契约升级】或 reactor
-//!   预热方案）列为 **开放项**（internal-design §8），落地时实测。
+//!   预热方案）列为 开放项（internal-design §8），落地时实测。
 //!
-//! 本模块持 [`tokio`] 依赖（`tokio` feature）作为接入所需；当前代码**未引用**
+//! 本模块持 [`tokio`] 依赖（`tokio` feature）作为接入所需；当前代码未引用
 //! 其运行时类型（诚实：接入未落地，不假用类型）。
 //!
 //! MSRV / 行为待实测（§8 观测缺损）：不在本文件确权。
@@ -25,14 +26,15 @@
 use axiom_semantics::seams::async_seam::Executor;
 use std::time::Duration;
 
-/// tokio 桥接执行器（首版诚实占位）。
+/// tokio 依赖的同步执行器——`Executor` 契约的线程级等待实现（与 `ThreadExec` 平级）。
 ///
-/// 当前 `park` 退化为线程级等待；真 tokio reactor 接入为开放项（§5.3/§8）。
+/// `park` 用线程级等待兑现；未挂 tokio reactor（真异步路径由 `async_driver`
+/// 的语言原生 `.await` 承担，§5.3/§8）。
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TokioExec;
 
 impl TokioExec {
-    /// 构造：占位执行器（无状态、无外部资源）。
+    /// 构造：线程级等待执行器（无状态、无外部资源）。
     pub fn new() -> Self {
         TokioExec
     }
@@ -41,9 +43,9 @@ impl TokioExec {
 impl Executor for TokioExec {
     /// 等待点：线程级 `park_timeout`。
     ///
-    /// M0 声明：此为**诚实占位**，未挂 tokio reactor（同步 `block_on(sleep)`
-    /// 连试三形态均报 no reactor，见模块文档）。不提供 tokio 期限语义；
-    /// 与 `ThreadExec`（`thread::sleep`）同属线程级等待，真 tokio 接入为开放项。
+    /// 实现声明：线程级等待（非占位、非待替换），未挂 tokio reactor（同步
+    /// `block_on(sleep)` 连试三形态均报 no reactor，见模块文档）。不提供 tokio
+    /// 期限语义；与 `ThreadExec`（`thread::sleep`）平级、同属线程级等待。
     fn park(&mut self, dur: Duration) {
         std::thread::park_timeout(dur);
     }
@@ -69,7 +71,7 @@ mod tests {
 
     #[test]
     fn tokio_exec_parks_for_at_least_requested() {
-        // 占位 park_timeout 至少等待 dur（诚实：非 tokio 期限，而是线程级）。
+        // 线程级 park_timeout 至少等待 dur（如实声明：非 tokio 期限）。
         let mut ex = TokioExec::new();
         let t0 = Instant::now();
         ex.park(Duration::from_millis(15));
@@ -78,7 +80,7 @@ mod tests {
 
     #[test]
     fn tokio_exec_powers_wait_point_until_timeout() {
-        // 占位执行器经 poll_with 跑等待点：无输入 → 期限内 Pending、期限到 TimedOut。
+        // 线程级等待执行器经 poll_with 跑等待点：无输入 → 期限内 Pending、期限到 TimedOut。
         let mut ex = TokioExec::new();
         let mut p = Poller::<Inc>::new((), None);
         let r = p.poll_with(

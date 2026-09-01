@@ -1,7 +1,7 @@
 //! 基于 runtime Carrier 的"同拓扑、异构物理" example。
 //!
 //! 替代旧 `threaded_pipeline`（多线程阶段流水线）的精神，但用新 runtime：
-//! **同一张 cell 逻辑**，用不同 Carrier（InlineCarrier 单线程零分配 /
+//! 同一张 cell 逻辑，用不同 Carrier（InlineCarrier 单线程零分配 /
 //! `spawned_flow` 跨线程通道载体）执行，语义等价、物理不同（T6 多物理实现）。
 //!
 //! 演示：一个"传感器 → 归一化 → 累加 → 输出"的因果链，分别：

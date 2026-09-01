@@ -1,10 +1,10 @@
-//! 综合用例 async 演示：SQL-over-Redis 计划经**观测式**真异步馈入驱动（tokio）。
+//! 综合用例 async 演示：SQL-over-Redis 计划经观测式真异步馈入驱动（tokio）。
 //!
 //! 运行：`cargo run -p axiom-demo-sql-over-redis --features tokio --bin async_demo`
 //!
 //! 演示：① 观测子系统（三段式：`ObservedPoller` 收集 → `ObsSummary` 提交 →
 //! `print_summary` 打印；观测面属用例侧，非通用）；② 真异步馈入驱动
-//! `observed_fed_run`——命令经 tokio mpsc 在等待窗内异步抵达；③ 期限由**真定时器**
+//! `observed_fed_run`——命令经 tokio mpsc 在等待窗内异步抵达；③ 期限由真定时器
 //! 驱动（`timeout` 包裹 `recv`，Timeout 升模态承载）；④ **T6 断言**：观测式 async
 //! 输出与 sync inline 全行（含错误行）逐行等价——观测不改变行为（透明性证据）；
 //! ⑤ 多线程运行时组合。

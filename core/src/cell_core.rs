@@ -1,6 +1,6 @@
 //! **cell_core — 四构件蓝图核心（编译期模型）**
 //!
-//! 这是 axiometric 重构后的**新主轴线**：围绕 Rust 编译器能力，把核心层的"智能"
+//! 这是 axiometric 重构后的新主轴线：围绕 Rust 编译器能力，把核心层的"智能"
 //! 在编译期耗尽，产出与手写等价的普通 Rust，无运行时对象。
 //!
 //! 四构件（corresponding to the theory收敛）：
@@ -34,10 +34,10 @@ pub trait PortCell: Sized {
 
 // ── 2. 因果数据流（布线）──────────────────────────────────────────
 
-/// 一条**线**（带方向的因果数据流）：`A.out -> B.in`。它同时是：
-/// - 一个**类型化位置/接口** `Wire<A,B>`（对偶组合 T1 的统一 `Conforms` 对象），
+/// 一条线（带方向的因果数据流）：`A.out -> B.in`。它同时是：
+/// - 一个类型化位置/接口 `Wire<A,B>`（对偶组合 T1 的统一 `Conforms` 对象），
 ///   期望"从 `A.out` 流入 `B.in`"；
-/// - 一个编译期绑定该线的**组合动作**（`fire`：`B::step(A::step(x))`）。
+/// - 一个编译期绑定该线的组合动作（`fire`：`B::step(A::step(x))`）。
 ///
 /// **布线合法性 = 类型判定（T1）**：要求 `B::In == A::Out`。若类型不匹配，本类型根本
 /// 无法实例化 —— 非法连接在编译期被拒绝（不是运行时检查）。这是"代换绑定"概念 4
@@ -103,9 +103,9 @@ impl<I> PortCell for Id<I> {
 
 /// 广播：把 `SRC` 的输出同时布线到多个接收者（`R1`, `R2`）。
 ///
-/// 这是多对多连接（fan-out）的**编译期静态**表达——在类型层强制所有接收者
+/// 这是多对多连接（fan-out）的编译期静态表达——在类型层强制所有接收者
 /// 输入类型与源输出类型一致；无 `Box<dyn>`、无运行时对象（T1 对偶配对）。
-/// fan-out 到多个接收者是**因果数据流的多对多**，无需 Tee 树。
+/// fan-out 到多个接收者是因果数据流的多对多，无需 Tee 树。
 ///
 /// 源输出 `SRC::Out` 要求 `Clone`：多路分发在物理层本质是复制/分发——这属于
 /// "物理载体"的职责，抽象层只是在类型层声明"这一个值流向多个接收者"。
@@ -242,7 +242,7 @@ where
 /// diamonds nest chains, all still cells (composition closure, concept 3).
 /// The sink consumes the pair `(R1::Out, R2::Out)` as its input.
 ///
-/// On the `SRC::Out: Clone` bound: it is **symmetric with [`Broadcast`]** and
+/// On the `SRC::Out: Clone` bound: it is symmetric with [`Broadcast`] and
 /// is the shape layer's minimal capability assumption for one value flowing to
 /// several places under value semantics — replication *mechanism* stays a
 /// physical/carrier concern. Reference-sharing or message-replication fan-out
@@ -278,16 +278,16 @@ where
 
 /// 反馈环：`BODY` 的输出回喂到 `BODY` 的输入，形成因果闭合。
 ///
-/// 抽象层**只声明环的存在**（因果闭合，T3）；环是否良定义、是否需要缓冲，
+/// 抽象层只声明环的存在（因果闭合，T3）；环是否良定义、是否需要缓冲，
 /// 是物理载体的事（Kahn 通道 ⟹ 环安全；内联 ⟹ 需 Moore）。这里在类型层表达
 /// 闭合：回喂经过 `FEED`（可改变值），`FEED` 的输入来自 `BODY` 输出、
 /// 输出回到 `BODY` 输入 —— 编译期保证这条因果闭合合法。
 ///
-/// **单元形式的拍次裁定（C2）**：`Feedback` 作为 `PortCell`，每次外部输入执行**一次
-/// 内联无缓冲回环迭代**（`BODY -> FEED -> BODY`，即两拍）——这是抽象层对"无缓冲内联"
-/// 这一拍次的**显式选择**；缓冲环与其它拍次归物理载体（runtime 的 `drive_feedback_inline`
-/// 以 `Moore` 声明把关）。无缓冲内联的正确性**假设** `FEED` 只依赖状态、不依赖同拍输入
-/// （即 `Moore`）——这是**声明、非证明**（Rice 不可判定），错误声明由作者在部署 /
+/// **单元形式的拍次裁定（C2）**：`Feedback` 作为 `PortCell`，每次外部输入执行一次
+/// 内联无缓冲回环迭代（`BODY -> FEED -> BODY`，即两拍）——这是抽象层对"无缓冲内联"
+/// 这一拍次的显式选择；缓冲环与其它拍次归物理载体（runtime 的 `drive_feedback_inline`
+/// 以 `Moore` 声明把关）。无缓冲内联的正确性假设 `FEED` 只依赖状态、不依赖同拍输入
+/// （即 `Moore`）——这是声明、非证明（Rice 不可判定），错误声明由作者在部署 /
 /// 运行期承担。
 pub struct Feedback<BODY, FEED>
 where
@@ -340,7 +340,7 @@ where
 
 // ── 3d. 统一模型：正则 / 星（同一 cell 的 N 次自组合）──────────────
 
-/// 正则 / 星：同一端口体 `C` 的 `N` 次**自组合**（有界计数、编译期定型）。
+/// 正则 / 星：同一端口体 `C` 的 `N` 次自组合（有界计数、编译期定型）。
 ///
 /// `Rep<N, C>` 表示"把 `C` 重复作用 N 次"——Kleene 星 `C*` 的编译期有界片段：
 /// 种类（`C` 的接口）在类型平面封闭，计数 N 是类型层面常量（编译期不变）。
@@ -349,14 +349,14 @@ where
 /// 否则无法把输出再喂回自身。语义 = 一遍 `C::step` 的 N 次链接；
 /// `State = [C::State; N]`，零分配、无运行时对象，编译期单态化 / 展开（零成本静态路径）。
 ///
-/// > **统一模型衔接**：有界计数 N 是"正则/星"的**静片段**；无界计数（任意 N）属
+/// > **统一模型衔接**：有界计数 N 是"正则/星"的静片段；无界计数（任意 N）属
 /// > 生成/递归层面的运行期实例网（由 runtime/载体驱动）。本构造子表达"种类封闭、
 /// > 计数为类型级常量"的部分，`N=0` 即恒等（`Rep<0,C>` 输出等于输入）。
 pub struct Rep<const N: usize, C>(core::marker::PhantomData<C>);
 
 /// Rep 的状态：`N` 个 `C::State` 的定长序列。
 ///
-/// 自定义类型以**手动提供** `Default`（用 `core::array::from_fn`），不依赖原生数组
+/// 自定义类型以手动提供 `Default`（用 `core::array::from_fn`），不依赖原生数组
 /// 对泛型 `N` 的 `Default` 实现（避免编译器边界问题）。
 pub struct RepState<const N: usize, C: PortCell>(pub [C::State; N]);
 
@@ -421,7 +421,7 @@ where
 /// Bounded repetition — a reading-friendly alias of [`Rep`]`<N, C>` (`Cⁿ`,
 /// exactly N applications, N a compile-time constant).
 ///
-/// Naming note (literal honesty): this is the **power** `Cⁿ`, not Kleene star.
+/// Naming note (literal honesty): this is the power `Cⁿ`, not Kleene star.
 /// The unbounded operators `C*` / `C⁺` have no honest static constructor here —
 /// their home is the ∃/activation side (runtime's `drive_seq`), where count is
 /// a runtime quantity. For sites that require at least one application, use
@@ -438,7 +438,7 @@ where
     ///
     /// Referencing this associated constant from a monomorphized site aborts
     /// constant evaluation when `N = 0` — for callers whose semantics demand
-    /// at least one application. It is deliberately **opt-in**: `Rep<0, C>`
+    /// at least one application. It is deliberately opt-in: `Rep<0, C>`
     /// is a legal identity cell, so no invariant is imposed on the type itself.
     pub const NONEMPTY: () = assert!(
         N >= 1,
@@ -449,12 +449,12 @@ where
 
 // ── 3e. 统一模型：型位（∃ / 定义侧）──────────────────────────────
 
-/// 型位：一个"接口固定、居留项运行时可换"的**定义**（∃ 绑定，编译期定型）。
+/// 型位：一个"接口固定、居留项运行时可换"的定义（∃ 绑定，编译期定型）。
 ///
 /// `Slot<I, O>` 本身不是可运行的 cell，而是声明"这个位置需要一个 `In=I, Out=O`
 /// 的端口体居留"。它把"未来居留项"约束在一个类型对偶对（T1）——这是统一模型里
-/// ∃（运行期绑定）在**定义侧**的锚点；具体的运行期存在化填充由 runtime/载体承担。
-/// 本构造子是零大小、编译期定型的**定义**（不占运行时；定义可永不激活）。
+/// ∃（运行期绑定）在定义侧的锚点；具体的运行期存在化填充由 runtime/载体承担。
+/// 本构造子是零大小、编译期定型的定义（不占运行时；定义可永不激活）。
 pub struct Slot<I, O>(core::marker::PhantomData<(I, O)>);
 
 impl<I, O> Slot<I, O> {
@@ -464,9 +464,9 @@ impl<I, O> Slot<I, O> {
     }
 }
 
-/// 编译期"合规"判定：`OCC` 能否填入一个**类型化位置/接口** `EXPECT`（T1 对偶）。
+/// 编译期"合规"判定：`OCC` 能否填入一个类型化位置/接口 `EXPECT`（T1 对偶）。
 ///
-/// 这是 T1 对偶判定的**统一入口**：
+/// 这是 T1 对偶判定的统一入口：
 /// - `EXPECT = Slot<I, O>`：`OCC` 能否作为型位的居留项（`OCC::In=I, OCC::Out=O`）；
 /// - `EXPECT = Wire<A, B>`：一条布线是否合法（`B::In == A::Out`，见 [`Wire`]）；
 /// - 两种都是"把符合类型的居留项/值放入带类型的位置"，即代换绑定（概念 4，见 §8）的合法性。
@@ -507,11 +507,11 @@ pub enum ChoiceOut<OA, OB> {
     B(OB),
 }
 
-/// 并（|）：两个同处一个接口代数的 cell，作为**类型层的和**。
+/// 并（|）：两个同处一个接口代数的 cell，作为类型层的和。
 ///
-/// `Choice<A, B>` 接一个带标号的输入（[`ChoiceIn`]），**由输入标号决定**把内容派发给
+/// `Choice<A, B>` 接一个带标号的输入（[`ChoiceIn`]），由输入标号决定把内容派发给
 /// `A` 或 `B` 的 `step`，产出对应标号的输出（[`ChoiceOut`]）。纯、确定（无运行时模式
-/// 选择——是输入携带决定），是正则语言算子的 `|` 的**一等 PortCell** 表达；两个分支
+/// 选择——是输入携带决定），是正则语言算子的 `|` 的一等 PortCell 表达；两个分支
 /// 的状态各自独立保存。
 pub struct Choice<A, B>(core::marker::PhantomData<(A, B)>);
 
@@ -575,7 +575,7 @@ impl<SUB> Static<SUB> {
 
 // ── 4b. 蓝图即类型（无 JSON / 值形态中间层；无运行时对象）──────
 
-/// 一张蓝图 = 一个**零大小、编译期定型**的类型（类型参数集合）。
+/// 一张蓝图 = 一个零大小、编译期定型的类型（类型参数集合）。
 ///
 /// 与"值形态蓝图/JSON"相反：这里蓝图不是一个运行时对象，而是一个类型参数
 /// 集合（§4.1）。`TOP` 承载整个拓扑（端口体 + 连接 + 组合 + 静态性），
@@ -625,9 +625,9 @@ where
 ///
 /// **实测诊断形态（采纳证据层；rustc 1.98，2026-08）**：错配报 **`E0271: type mismatch
 /// resolving \`<S as PortCell>::In == i32\``**，点在调用行。即便错误埋在深层 `Chain` 末端，
-/// 投影归一化仍把失配归结为**原子不相等 + 调用点**，不埋在深层泛型堆式错误里。此形态随
-/// rustc 漂移、单类型错配专属，不作持久承诺——意在纠"深层泛型编译错误难啃"的担忧，而非
-/// 承诺诊断从此完美。
+/// 投影归一化仍把失配归结为原子不相等 + 调用点，不埋在深层泛型堆式错误里。此形态随
+/// rustc 漂移、单类型错配专属，不作持久承诺——意在纠"深层泛型编译错误难啃"的担忧，
+/// 不是对诊断质量的普遍承诺。
 pub fn assert_wiring<A, B>()
 where
     A: PortCell,
@@ -650,6 +650,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
 
     struct Inc;
     struct Scaler;
@@ -832,10 +834,10 @@ mod tests {
 
     #[test]
     fn recursive_cell_type_composes_with_t1() {
-        // 代数（递归）schema 的 running 形态：用户自定义**递归** cell（内部可递归、
+        // 代数（递归）schema 的 running 形态：用户自定义递归 cell（内部可递归、
         // `step` 仍是全函数），并作为组合子参与既有组合（Chain）与编译期 T1 验证。
         // 结论（K）：递归/互递归图样无需新的核心组合子——由用户递归类型 + 既有组合子表达；
-        // 无界的**生成性展开**（任意运行时计数）归 ∃/物理侧（见 runtime 的 drive_seq/泵）。
+        // 无界的生成性展开（任意运行时计数）归 ∃/物理侧（见 runtime 的 drive_seq/泵）。
         struct Sum;
         impl PortCell for Sum {
             type In = Vec<i32>;

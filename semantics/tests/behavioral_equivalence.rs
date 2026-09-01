@@ -11,11 +11,11 @@
 //!   behavioral equivalence, witnessed by a concrete counterexample.
 //! - `behavioral_equivalence_holds_within_depth`: two composites expected to be
 //!   behaviorally equivalent agree on the same small domain — the
-//!   **verifiable fragment** of T6 (sampling verification, modality ③), never
+//!   verifiable fragment of T6 (sampling verification, modality ③), never
 //!   a proof.
 //!
 //! Honest scope note (A5): exhaustive search over a bounded domain is
-//! **sampling**, not a universal judgment; it falsifies, it does not prove.
+//! sampling, not a universal judgment; it falsifies, it does not prove.
 
 use axiom::cell_core::{Chain, PortCell};
 

@@ -1,6 +1,6 @@
 //! 观测子系统（综合用例侧；三段式：收集 → 提交 → 打印）。
 //!
-//! **观测面不是通用面**（不同软件观测需求不同）——本模块只服务本用例的观测：
+//! 观测面不是通用面（不同软件观测需求不同）——本模块只服务本用例的观测：
 //! 轮询裁决直方图（Ready/Pending/TimedOut）、馈入计数、步进数、应答 ok/err 分类、
 //! 墙钟时延采样。不扩 runtime `Telemetry` 面（其投递语义保持通用）。
 //!
@@ -10,7 +10,7 @@
 //! - **提交**：[`ObsSummary`] 按序汇总观测事件；
 //! - **打印**：[`print_summary`] 格式化输出（输出目的地）。
 //!
-//! 诚实边界（M8 熵）：观测到的是**裁决与计数**，不是 tokio 内部（调度器/任务队列）
+//! 诚实边界（M8 熵）：观测到的是裁决与计数，不是 tokio 内部（调度器/任务队列）
 //! 状态；时延为墙钟采样（与 sync 同刻度），不称 tokio 内部时延。
 
 use axiom::cell_core::PortCell;
@@ -132,7 +132,7 @@ impl<A: PortCell> ObservedPoller<A> {
 
 /// 观测型馈入驱动（async 侧；与 `tokio_poll_fed` 同语义，每拍经观测）。
 ///
-/// 期限由**真定时器**驱动（`timeout` 包裹 `recv`）；`tokio` feature 门控。
+/// 期限由真定时器驱动（`timeout` 包裹 `recv`）；`tokio` feature 门控。
 #[cfg(feature = "tokio")]
 pub async fn observed_fed_run<A: PortCell>(
     obs: &mut ObservedPoller<A>,

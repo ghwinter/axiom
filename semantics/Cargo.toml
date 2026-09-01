@@ -17,6 +17,13 @@ categories = ["concurrency", "rust-patterns", "embedded"]
 # 默认 no_std：semantics 的 `std` feature 显式映射 `axiom/std`，使 "no_std 组合" 在依赖层闭合。
 axiom = { path = "../core", version = "0.3.0", default-features = false }
 
+# G22：属性测试骨架（proptest-state-machine）——仅 dev 面，lib 依赖图保持零依赖。
+# state_machine 子 crate 结构性依赖 std（N-G3 注记）：骨架用例只落 std 测试面；
+# no_std 侧跨步律维持手写向量（真空 #10 部分维持）。
+[dev-dependencies]
+proptest = "1.11"
+proptest-state-machine = "0.8"
+
 [features]
 default = ["std", "event", "async-seam", "telemetry"]
 std = ["axiom/std"]

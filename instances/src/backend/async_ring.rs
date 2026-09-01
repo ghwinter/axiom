@@ -1,7 +1,7 @@
 //! # TokioBlockRing — 事件驱动异步块环（tokio 实例）
 //!
 //! 实现语义层 [`AsyncBlockRing`](axiom_semantics::movers::async_ring::AsyncBlockRing)
-//! 契约的 **notify（事件驱动）** 路径：等待点挂进 tokio reactor，非忙轮询。
+//! 契约的 notify（事件驱动） 路径：等待点挂进 tokio reactor，非忙轮询。
 //!
 //! 唤醒协议（双 `tokio::sync::Notify`）：
 //! - 生产者 [`send`](TokioBlockRing::send) 因满而等待时，挂在 `not_full`；
@@ -10,8 +10,8 @@
 //!   生产者提交（`send` 入队）后 `not_empty.notify_waiters()` 唤醒一个消费者。
 //!
 //! 语义（T6 与同步路径同序）：
-//! - `send` = 等**非满**；`Closed` 拒绝后续投递（值随错误回传，L1 无静默丢失）；
-//! - `recv` = 等**新块**；关闭且排空后返回 `None`。
+//! - `send` = 等非满；`Closed` 拒绝后续投递（值随错误回传，L1 无静默丢失）；
+//! - `recv` = 等新块；关闭且排空后返回 `None`。
 //!
 //! 取消安全：等待期间任务被 cancel 不破坏不变量——`send` 未入队时值随任务
 //! 丢弃（调用方持有所有权，可重建）；`recv` 未取块时队列原样。等待循环
@@ -28,7 +28,7 @@
 //!   时此值可见地变大，是"性能取决于最慢步骤"的直接读数）；
 //! - `send` 因关闭被拒 → `on_verdict(Dropped)`（值随错误回传，观测同步登记）。
 //!
-//! 钩子是**实例侧扩展**，不改 `AsyncBlockRing` 契约（契约级遥测是后续裁定）；
+//! 钩子是实例侧扩展，不改 `AsyncBlockRing` 契约（契约级遥测是后续裁定）；
 //! 未挂载时零分支开销（`Option::None` 快路径）。
 
 use axiom_semantics::movers::async_ring::Closed; // 内部实现用（re-export 的对外契约见下）
@@ -51,7 +51,7 @@ type TelHook = (
 /// 事件驱动异步块环（tokio 实现）。
 ///
 /// `C` = 块类型（`Send`）；容量 = 环可积压的块数（背压点：满则生产者等待）。
-/// 多生产/多消费**不承诺**（SPSC 语义：单写单读——但经
+/// 多生产/多消费不承诺（SPSC 语义：单写单读——但经
 /// Mutex 允许多消费者竞争，语义退化为 FIFO 队列，仍正确；效率建议 SPSC）。
 pub struct TokioBlockRing<C> {
     inner: Mutex<VecDeque<C>>,
@@ -68,7 +68,7 @@ pub struct TokioBlockRing<C> {
 impl<C: Send> TokioBlockRing<C> {
     /// 新建：容量 `cap`（块数）。
     ///
-    /// 模态② 精神：`cap == 0` 在构造点**拒绝**（rendezvous 形态不属于有界队列语域），
+    /// 模态② 精神：`cap == 0` 在构造点拒绝（rendezvous 形态不属于有界队列语域），
     /// 与语义层 [`BoundedRing`](axiom_semantics::movers::ring::BoundedRing) 同门。
     pub fn new(cap: usize) -> Self {
         assert!(cap > 0, "TokioBlockRing 容量必须 >= 1");
@@ -123,7 +123,7 @@ impl<C: Send> TokioBlockRing<C> {
 }
 
 impl<C: Send> AsyncBlockRing<C> for TokioBlockRing<C> {
-    async fn send(&self, item: C) -> Result<(), Closed> {
+    async fn send(&self, item: C) -> Result<(), Closed<C>> {
         #[cfg(feature = "telemetry-tracing")]
         let t0 = std::time::Instant::now();
         loop {
@@ -132,7 +132,7 @@ impl<C: Send> AsyncBlockRing<C> for TokioBlockRing<C> {
                 if self.closed.load(Ordering::Acquire) {
                     #[cfg(feature = "telemetry-tracing")]
                     self.report_dropped();
-                    return Err(Closed); // 值随错误回传，不静默丢
+                    return Err(Closed(item)); // 值随错误回传，不静默丢
                 }
                 if self.count.load(Ordering::Relaxed) < self.cap {
                     q.push_back(item);
@@ -289,7 +289,7 @@ mod tests {
             assert_eq!(ring.send(2).await, Ok(()));
             assert_eq!(ring.recv().await, Some(1));
             ring.close();
-            assert_eq!(ring.send(9).await, Err(Closed), "关闭后 send 拒绝");
+            assert_eq!(ring.send(9).await, Err(Closed(9)), "关闭后 send 拒绝");
         });
 
         let t = tel.lock().unwrap();
@@ -314,7 +314,7 @@ mod tests {
             ring.close();
             assert_eq!(ring.recv().await, Some(2), "关闭后仍排空积压");
             assert_eq!(ring.recv().await, None, "关闭且空 → None");
-            assert_eq!(ring.send(9).await, Err(Closed), "关闭后 send 拒绝（值回传）");
+            assert_eq!(ring.send(9).await, Err(Closed(9)), "关闭后 send 拒绝（值回传）");
         });
     }
 }

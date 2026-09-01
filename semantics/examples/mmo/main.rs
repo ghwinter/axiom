@@ -1,8 +1,8 @@
 //! mmo —— 用 cell_core 四构件 + runtime Carrier 构建的多人世界核心子图（阶段 6 硬化）。
 //!
-//! 多玩家事件 → 有状态世界 → 通用视图投影 → **按在线名单数据驱动扇出**（N 玩家循环，
+//! 多玩家事件 → 有状态世界 → 通用视图投影 → 按在线名单数据驱动扇出（N 玩家循环，
 //! 非固定双接收者）；解析失败（缺名/坐标非法）为类型化错误计入台账，不静默成 "?"/0。
-//! Carrier 演示：`PlayerHandler → WorldState`（Result 车道）经**短路载体**驱动
+//! Carrier 演示：`PlayerHandler → WorldState`（Result 车道）经短路载体驱动
 //! （`ResultCarrier`，Inline 零分配）。
 //!
 //! 运行：`cargo run --manifest-path runtime/Cargo.toml --example mmo`

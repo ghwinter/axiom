@@ -6,10 +6,10 @@
 //! 1. **真异步落地**：在同一运行中的 tokio 运行时内，`await` 驱动的
 //!    [`tokio_poll_until`] 让 `tokio::time::sleep(tick).await` 真正挂上 reactor——
 //!    tokio 定时器被 runtime 驱动。这是同步 `park` 内 `block_on(tokio::time::sleep)`
-//!    三种接入形态均报 **「there is no reactor running」** 之失败结论的反例：
+//!    三种接入形态均报 「there is no reactor running」 之失败结论的反例：
 //!    真接入不在 `Executor` 契约层妥协（扩契约需 §4.3 破坏性许可），而在 adapter 侧
 //!    用 async worker 兑现。
-//! 2. **Timeout 升模态承载域**：`TimedOut` 由真定时器产出，运行期**测得的**（投递态可
+//! 2. **Timeout 升模态承载域**：`TimedOut` 由真定时器产出，运行期测得的（投递态可
 //!    验证/可记账的机制地面）——非"声称超时却无定时器"的退化态（第五轴，命题 2.7）。
 //!    不宣称②/不越权：② 是编译期见证，账本行升 ②③ 属 runtime `obligation.rs` 的
 //!    权威变更（LEDGER 不可替换面），不在本演示内做。

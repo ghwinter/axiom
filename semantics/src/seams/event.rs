@@ -1,7 +1,7 @@
 //! 事件基座载体类（§9.3 从首案例到载体类）。std 门控。
 //!
-//! 事件基座回答 §9.3 的接缝问题：**外部世界（套接字事件等）如何正式成为一条因果流的
-//! `in`**。本类 = 事件流（条目级输入源）＋ 泵驱动（拉取→变换→按裁决投递→计数）：
+//! 事件基座回答 §9.3 的接缝问题：外部世界（套接字事件等）如何正式成为一条因果流的
+//! `in`。本类 = 事件流（条目级输入源）＋ 泵驱动（拉取→变换→按裁决投递→计数）：
 //!
 //! ```text
 //! 原始源 (io::Read) ─块─▶ ChunkSource（分割器＋跨块状态）─条目─▶ pump_events
@@ -18,7 +18,7 @@
 //! **义务（A3 落位）**：
 //! - 配对律：N 条事件 ↔ N 个判定（`delivered + dropped`），经 [`EventPumpStats`]
 //!   机械统计（模态③，测试见证，账本行见 `obligation::LEDGER_STD_EXTRA`）。
-//! - 失败归属：`A::Out` 是 [`Result`] 时，**失败也是数据**——泵不短路吞值（不做
+//! - 失败归属：`A::Out` 是 [`Result`] 时，失败也是数据——泵不短路吞值（不做
 //!   丢弃裁决），失败如何处置（转发/计数/丢弃）由 sink 的 `push` 裁决；这与
 //!   `redis_like` 首案例一致（解析错误经通道转发为 `-ERR` 应答）。
 //! - 拆除语义：消费端断连（[`PushVerdict::Closed`]）⟹ 泵停止拉取、不再静默延续
@@ -70,7 +70,7 @@ pub trait EventStream<In> {
 /// 行分割（`redis_like` 的 `LineSplit` 语义的通用形态）：把 `&[u8]` 块按 `\n`
 /// 拆为条目（去行尾、去首尾空白），未完成行保留在 `buf`（跨块拼接）。
 ///
-/// 与首案例一致：**EOF 时不冲刷残留行**——残留只可能在后续块中完成；连接关闭时
+/// 与首案例一致：EOF 时不冲刷残留行——残留只可能在后续块中完成；连接关闭时
 /// 未完成的半个条目按协议语义丢弃（Redis 协议的命令总以 `\n` 结束）。
 pub fn split_lines(buf: &mut String, chunk: &[u8]) -> Vec<String> {
     buf.push_str(&String::from_utf8_lossy(chunk));
@@ -86,7 +86,7 @@ pub fn split_lines(buf: &mut String, chunk: &[u8]) -> Vec<String> {
 /// 块源适配：`io::Read` 原始源 + 分割器 → [`EventStream`]。
 ///
 /// 跨块状态（如行拼接的未完成行）由 `split` 状态持有，每源一份。读缓冲长度 `N`
-/// 为编译期常量；**`N = 0` 是退化态**（目的条款"源能推进"被违背），构造点经模态②门
+/// 为编译期常量；`N = 0` 是退化态（目的条款"源能推进"被违背），构造点经模态②门
 /// 编译期拒绝（同 `BoundedCarrier`/`BoundedRing` 的 CAP≥1 门）。
 pub struct ChunkSource<R, F, SS, In, const N: usize> {
     reader: R,
@@ -156,9 +156,9 @@ where
 /// 投递到 sink。
 ///
 /// - [`PushVerdict::Delivered`] → `delivered` 计一；[`PushVerdict::Closed`]
-///   （消费端断连）→ `dropped` 计一并**停止拉取**（拆除语义，同 `bounded_pump`：
+///   （消费端断连）→ `dropped` 计一并停止拉取（拆除语义，同 `bounded_pump`：
 ///   不静默延续生产）。
-/// - 失败归属：`A::Out` 为 [`Result`] 时**失败也是数据**——泵不短路吞值；失败如何
+/// - 失败归属：`A::Out` 为 [`Result`] 时失败也是数据——泵不短路吞值；失败如何
 ///   处置由 `push` 裁决（首案例：解析错误转发为 `-ERR` 应答）。
 /// - 配对律：`delivered + dropped = 泵拉取的事件总数`（[`EventPumpStats::total`]）。
 /// - 背压由 `push` 内嵌（如有界通道满时阻塞），本驱动不替代背压机制。

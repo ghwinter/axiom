@@ -1,15 +1,15 @@
 //! 异步接缝最小原型（D2 executor 契约；std 门控；零依赖）。
 //!
-//! 设计按 D2 裁定执行：**`step` 永不等**——等待点只发生在边界。
+//! 设计按 D2 裁定执行：`step` 永不等——等待点只发生在边界。
 //! 本模块实现三类等待点中的两类于同步域探测：
 //! - **输入到达**：未决输入 `None` → `Pending`；就绪 → 同步执行 `step` → `Ready`；
 //! - **期限**：[`Poller::poll_until`] 带期限轮询，到期 → [`PollResult::TimedOut`]；
-//! - **背压（第二层，A1/C7）**：[`SeamPoller`] ——把 `A::Out` 经**真有限通道**
+//! - **背压（第二层，A1/C7）**：[`SeamPoller`] ——把 `A::Out` 经真有限通道
 //!   （`mpsc::SyncSender`）投递，饱和时依 [`SaturationPolicy`]（Block=滞留值并期限
 //!   轮询 / Fail=值随判回传）；与 `bounded_pump` 生产端同构，但 poll 化、期限化。
 //!
 //! **诚实边界（A5）**：投递四态中的 `Timeout` 在 delivery.rs 保持模态④ 声明
-//! （需要真定时器/请求域机制）；本层的 `TimedOut` 是**同步轮询域内的期限判定**，
+//! （需要真定时器/请求域机制）；本层的 `TimedOut` 是同步轮询域内的期限判定，
 //! 不构成 `Delivery::Timeout`——它把"期限缺位 = 永不 TimedOut"的退化态（第五轴，
 //! boundary-ontology 命题 2.7）显式化：期限必须存在才是良态轮询。
 //!
@@ -54,7 +54,7 @@ pub enum Poll<O> {
     Ready(O),
 }
 
-/// 带期限的轮询裁决：在 `Pending`/`Ready` 之上增加**期限耗尽**判定。
+/// 带期限的轮询裁决：在 `Pending`/`Ready` 之上增加期限耗尽判定。
 ///
 /// 同步轮询域内的期限探测（见模块文档：不构成 `Delivery::Timeout` 的 ④ 语义）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,7 +122,7 @@ where
     /// 语义与 [`poll_until`](Poller::poll_until) 相同，但 `Pending` 间隙的
     /// 递延经 `ex.park(tick)` 交给执行器（替代硬编码 `thread::sleep`）。
     /// `ThreadExec`（sleep）与第三方 executor（如 `axiom-instances` 的 tokio
-    /// 桥接）经此接管等待点。**additive**：不改动既有入口，现有调用语义不变。
+    /// 桥接）经此接管等待点。additive：不改动既有入口，现有调用语义不变。
     pub fn poll_with<EX: Executor>(
         &mut self,
         ex: &mut EX,
@@ -160,7 +160,7 @@ pub enum SeamRoll<X> {
 ///
 /// `A::Out` 经有限通道（`mpsc::SyncSender`）投递——等待点第三类（背压）的
 /// 同步域形态：与 [`bounded_pump`](crate::drive::flow::bounded_pump) 生产端同构，
-/// 但 **poll 化 + 期限化**：
+/// 但 poll 化 + 期限化：
 /// - 饱和且策略 [`Fail`](SaturationPolicy::Fail)/断连 → 值随 `Full(v)` 回传；
 /// - 饱和且策略 [`Block`](SaturationPolicy::Block) → 值滞留（值保留），
 ///   [`roll_until`](SeamPoller::roll_until) 带期限轮询等待腾位；
@@ -255,7 +255,7 @@ where
     ///
     /// 同 [`roll_until`](SeamPoller::roll_until)，但 `Idle`/`Blocked` 间隙的
     /// 递延经 `ex.park(tick)` 交给执行器（替代硬编码 `thread::sleep`）——
-    /// 背压等待点同样可被第三方 executor（tokio 桥接）接管。**additive**。
+    /// 背压等待点同样可被第三方 executor（tokio 桥接）接管。additive。
     pub fn roll_with<EX: Executor>(
         &mut self,
         ex: &mut EX,

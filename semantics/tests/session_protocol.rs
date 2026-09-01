@@ -3,7 +3,7 @@
 //! Ruling (2026-08): compile-time session duality in the current model is carried
 //! by (a) the typed-hole duality of T1 (`Slot`/`Wire` conformance: ports are
 //! dual by In/Out exchange) and (b) `Choice` tags for protocol branching; a
-//! protocol *state machine* is an explicit **state-phase cell** (concept-1
+//! protocol *state machine* is an explicit state-phase cell (concept-1
 //! instance, §8.3) — no new mechanism needed. The v0 `is_dual`/`project`
 //! (archived E40–E43) thesis is thus resettled as: duality is a type judgment;
 //! protocol progress is a value-level state machine; illegal transitions are

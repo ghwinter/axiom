@@ -1,6 +1,6 @@
 # 定位：六个透镜下的组合系统论 / Positioning: Compositional Systems Theory through Six Lenses
 
-> **性质**：I1 层定位注记（`docs/internal/theory/`，不入 git 白名单之外）。**非新公理、非承诺**：
+> **性质**：I1 层定位注记（`docs/internal/theory/`，不入 git 白名单之外）。非新公理、非承诺：
 > 本文不对既有规范增加任何定义或定理，只把 [`boundary-ontology.md`](boundary-ontology.md)、
 > [`meta-foundations.md`](meta-foundations.md) 与公开规范 `docs/{en-us|zh-cn}/foundations.md`
 > 已确立的构件放入六个科学透镜下解读，并登记此前未收录的锚点。冲突时以上述规范为准。
@@ -96,13 +96,18 @@ a mapping table plus a boundary statement; only two anchors are new (§6.1, §6.
 类型论；共代数；层论/透镜（foundations §1）；闭包系统与格（boundary-ontology；
 meta-foundations）；帕累托偏序与不动点（meta-foundations 猜想 8.1、结论）。
 
-### 6.1 增量一：迹单调范畴 = Feedback 的数学形态
+### 6.1 增量一：反馈的数学形态（听证 D 修正后）
 
-**Trace**（Joyal–Street–Verity 1996）：对称单调范畴上的迹算子 Tr 把 f: X⊗U → Y⊗U 变为
-X → Y，恰好形式化"内部线 U 绕回、外部端口不变"。`Feedback<BODY, FEED>` 的
-In/Out 不变性与值绕回即迹的结构；C2 拍次裁定的"单元形式固定一次内联闭合迭代"对应
-迹的一次展开（trace 的展开律），缓冲环对应其它展开策略。**登记为形态对应，非已证
-定理**；SCADE/Lustre 传统的反馈方程是其工程先例。
+**裁定基线（听证 D / 修正 12.10）**：`Feedback<BODY, FEED>` 的被裁决形态是
+**守卫反馈**——单元形式固定一次内联闭合迭代、FEED 侧一拍延迟（外部端口不变、
+内部线 U 绕回经一拍守卫），yanking（无延迟即取）是断言对象（负见证：守卫
+反馈 ≠ 即取交换，laws.rs `yanking_fails_under_guarded_ruling`）。
+**"迹算子 = Feedback 的数学形态"这一强主张不取**：迹的不动点语义（Trace
+Joyal–Street–Verity 1996）与一拍守卫的语义序不同构；修正 12.10 后幸存的可说
+内容收缩为**部分迹等式**（消失/连接/叠加/张紧）与结构形态的有限对应，
+非形态等同。缓冲环对应"其它展开策略"的说法随之降级为工程对照，非同一定律
+的展开变体。SCADE/Lustre 传统的反馈方程仍是守卫反馈的工程先例（一拍延迟
+与同步数据流的拍次语义一致）。
 
 ### 6.2 增量二：模态体系的两种逻辑读法
 
@@ -118,7 +123,7 @@ In/Out 不变性与值绕回即迹的结构；C2 拍次裁定的"单元形式固
 
 **概要**：本事业＝给 Bertalanffy 的组织之问一个 Church–Turing 有效的答案——一个封闭
 组合基，其项是编译期可判定的形状（范畴论），缝携带 Shannon 可读的契约（类型化擦除
-信道），证据主张按直觉主义见证纪律分级（模态格），不可约动力学被诚实地围入声明区与
+信道），证据主张按直觉主义见证纪律分级（模态格），不可约动力学被围入声明区与
 经验区（涌现围栏），成本服从相对手写的守恒律（描述长度框架）。
 
 **三条可检验推论**（与既有判据一致）：

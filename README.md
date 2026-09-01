@@ -24,7 +24,7 @@ equivalent to hand-written plain Rust with zero runtime objects.
 - After compilation, equivalent to hand-written plain Rust (see `examples/cell_demo.rs`).
 
 **Semantics annotations, not physical mechanisms**: FlowKind (Data/Control/Observe) is an
-**optional abstract-layer annotation** describing how the receiver interprets a value — not a
+optional abstract-layer annotation describing how the receiver interprets a value — not a
 physical-layer property. The physical layer treats all values uniformly as "value-flowing-through-
 structure" (shared variable / buffer / channel). Timing/Delay, threading/sync-async, and
 value-form/JSON remain physical-layer concerns — see `docs/en-us/foundations.md` §5.8.
@@ -42,7 +42,7 @@ a new carrier can be plugged in by implementing the `Carrier` trait without chan
 
 The **instance layer** plugs replaceable physical/ecosystem implementations into the core
 through the seams (`Executor` / `Carrier` / `Telemetry`). Official instances ship as one
-fused crate with feature gating, **all off by default**; third parties self-build separate
+fused crate with feature gating, all off by default; third parties self-build separate
 crates (dual-form boundary — fused standard set vs. open path).
 
 | feature | pulls | provides |

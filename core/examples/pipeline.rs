@@ -1,6 +1,6 @@
 //! 基于 cell_core 四构件的综合流水线 example。
 //!
-//! 替代旧 `threaded_pipeline`/`http_tutorial` 的数据流精神，但完全用**新核心**
+//! 替代旧 `threaded_pipeline`/`http_tutorial` 的数据流精神，但完全用新核心
 //! （开放系统 + 因果数据流 + 组合 + 静态性声明）表达。演示：
 //! - **链路**（Chain + Wire）：传感器 → 归一化 → 累加；
 //! - **广播**（Broadcast）：主数据流 + 观测旁路（fan-out，无 Tee 树）；

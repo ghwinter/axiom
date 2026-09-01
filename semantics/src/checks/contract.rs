@@ -1,4 +1,4 @@
-//! Deploy-time & compile-time seam contracts — with **explicit proof modality**.
+//! Deploy-time & compile-time seam contracts — with explicit proof modality.
 //!
 //! Every check in this module states honestly *how* it is guaranteed, following
 //! the project's four-modality discipline (② compile-time witness / ③ deployment
@@ -6,11 +6,11 @@
 //!
 //! | Check | Modality | Guarantee source |
 //! |---|---|---|
-//! | [`Moore`] + [`declare_inline_loop_moore`] | **④ declaration** | deployer axiom: the feed cell's output is claimed state-only. NOT a proof — semantic properties are Rice-undecidable; nothing here can verify the claim |
-//! | [`validate_cost`] / [`validate_seam`] | **③ deployment validation** | cost budgets are deployment decisions; wired into the assembly entries [`assemble_link`](crate::drive::flow::assemble_link) / [`assemble_seam`](crate::drive::flow::assemble_seam) — deployment-time, once, before the zero-cost drive path; rejection = assembly failure |
-//! | [`assert_capacity_nonzero`] | **② compile-time witness** | capacity is a const parameter; sites may force rejection of `CAP = 0` at compile time |
-//! | [`validate_capacity`] | **③ deployment validation** | runtime aggregate form of the same fact for assembled seams |
-//! | [`validate_saturation`] | **③ deployment validation** | the carrier's saturation policy must meet the profile's saturation floor (A1; wired into the profile assembly gate) |
+//! | [`Moore`] + [`declare_inline_loop_moore`] | ④ declaration | deployer axiom: the feed cell's output is claimed state-only. NOT a proof — semantic properties are Rice-undecidable; nothing here can verify the claim |
+//! | [`validate_cost`] / [`validate_seam`] | ③ deployment validation | cost budgets are deployment decisions; wired into the assembly entries [`assemble_link`](crate::drive::flow::assemble_link) / [`assemble_seam`](crate::drive::flow::assemble_seam) — deployment-time, once, before the zero-cost drive path; rejection = assembly failure |
+//! | [`assert_capacity_nonzero`] | ② compile-time witness | capacity is a const parameter; sites may force rejection of `CAP = 0` at compile time |
+//! | [`validate_capacity`] | ③ deployment validation | runtime aggregate form of the same fact for assembled seams |
+//! | [`validate_saturation`] | ③ deployment validation | the carrier's saturation policy must meet the profile's saturation floor (A1; wired into the profile assembly gate) |
 //!
 //! The one thing this layer never does is dress ③/④ up as compile-time proofs.
 //! A declaration that looks verified is worse than an honest gap.
@@ -20,7 +20,7 @@ use axiom::cell_core::PortCell;
 
 // ── 1. Moore marker (inline feedback loops) — modality ④: declaration ─────
 
-/// Marker: **declaration** that this cell's output depends only on its `State`,
+/// Marker: declaration that this cell's output depends only on its `State`,
 /// never on the same-tick input.
 ///
 /// This is modality ④ (deployer axiom), not a proof. Whether `step`'s output
@@ -47,14 +47,22 @@ where
 {
 }
 
-/// Marker: **declaration** (modality ④) that this cell's `step` does not panic.
+/// Marker: declaration (modality ④) that this cell's `step` does not panic.
 ///
-/// "cell 内禁 panic"是**声明纪律，非类型证明**——panic 语义不可判定（A5 诚实）：
+/// "cell 内禁 panic"是声明纪律，非类型证明——panic 语义不可判定（A5 诚实）：
 /// 码 `NoPanic` 或误声明都为作者责任。机械落点（已存在，不重造）：
 /// [`drive_catch`](crate::drive::flow::drive_catch) 是失败边界载体——未声明
 /// `NoPanic` 的 cell 可能 panic，须经它（`catch_unwind` 截为值）跨信任边界驱动，
 /// 不得直接落零成本快速路径（[`drive_link`](crate::drive::flow::drive_link)）。
 /// 同 [`Moore`]：声明被类型承接，其真理性由声明者背书。
+///
+/// **让渡合同（N1 捆绑条款）**：①让渡了什么——未声明者的 `catch_unwind`
+/// 边界成本（码 `NoPanic` 者豁免该边界，走零成本快速路径）；②为什么——
+/// panic 可判定性超出编译期（H2 封顶），且不可逆后果（在途 State 丢失）
+/// 已由默认边界（未声明者必经 `drive_catch`，模态① fail-closed）兜底，
+/// 本 ④ 只是豁免记录而非违规容忍；③代价由谁承担——声明作者（误声明即
+/// 作者责任）；边界测试——未声明 `NoPanic` 走 `drive_link` 不得编译通过
+/// 的面由驱动选型纪律钉住（声明域不得无声扩张到“系统默认无边界”）。
 pub trait NoPanic {}
 
 // ── 2/3. Seam validation — modalities ② and ③ ─────────────────────────────
@@ -120,7 +128,7 @@ impl core::fmt::Display for ContractError {
 #[cfg(feature = "std")]
 impl std::error::Error for ContractError {}
 
-/// Compile-time witness (**modality ②**): reject `CAP = 0` where the seam is named.
+/// Compile-time witness (modality ②): reject `CAP = 0` where the seam is named.
 ///
 /// Use at assembly points that must not compile with a degenerate rendezvous
 /// channel:
@@ -138,7 +146,7 @@ pub const fn assert_capacity_nonzero<const CAP: usize>() {
     );
 }
 
-/// Cost conformance (**modality ③**): the carrier must declare a cost within
+/// Cost conformance (modality ③): the carrier must declare a cost within
 /// `budget`.
 ///
 /// Ordering follows the [`CarrierCost`] declaration order:
@@ -159,7 +167,7 @@ where
     }
 }
 
-/// Backpressure readiness (**modality ③**): a bounded seam requires capacity ≥ 1.
+/// Backpressure readiness (modality ③): a bounded seam requires capacity ≥ 1.
 ///
 /// Capacity 0 would still typecheck (rendezvous channels are legal), but it
 /// provides neither buffering nor backpressure headroom. Runtime aggregate form;
@@ -172,7 +180,7 @@ pub fn validate_capacity<const CAP: usize>() -> Result<(), ContractError> {
     }
 }
 
-/// Combined seam check (**modality ③**): cost budget **and** capacity in one call.
+/// Combined seam check (modality ③): cost budget and capacity in one call.
 ///
 /// One entry point a deployment driver runs before wiring a bounded seam.
 pub fn validate_seam<A, B, C, const CAP: usize>(
@@ -187,7 +195,7 @@ where
     validate_capacity::<CAP>()
 }
 
-/// Obligation-minimum conformance (**modality ③**; C10 step 2): the carrier's
+/// Obligation-minimum conformance (modality ③; C10 step 2): the carrier's
 /// declared obligation class must be no weaker than the profile's obligation
 /// minimum, axis by axis (resource declared ≤ minimum; delivery declared
 /// ≥ minimum per the `DeliveryKind` strength order `NotApplicable <
@@ -211,7 +219,7 @@ pub fn validate_obligation_min(
     }
 }
 
-/// Saturation-conformance (**modality ③**; A1): the carrier's saturation policy
+/// Saturation-conformance (modality ③; A1): the carrier's saturation policy
 /// must be no weaker than the profile's saturation floor.
 ///
 /// The compatibility is [`SaturationPolicy::meets_saturation_floor`]'s partial

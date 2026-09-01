@@ -1,6 +1,6 @@
 # 元基础：公理放置问题 / Meta-Foundations: The Axiom-Placement Problem
 
-> **性质**：I1 层理论注记（`docs/internal/theory/`，不入 git）。**非已实现、非承诺**。
+> **性质**：I1 层理论注记（`docs/internal/theory/`，不入 git）。非已实现、非承诺。
 > **上游**：[`boundary-ontology.md`](boundary-ontology.md) §9 分层律（合法边界 = 可判定合法性 ∪ 显式残余接缝），
 > §2 四轴、§5 三归宿、§6 双层信任架构。本文把 §9 之下隐含的元问题显式化并给出其跨学科锚点。
 > 术语以中英双语并列，二语构成同一概念的唯一指称，不另设语际映射。
@@ -18,7 +18,7 @@
 
 ## 0. 引言：元问题 M / Introduction: the Meta-Question M
 
-**中文**：对任何构造性学科，存在两类必然性追问：(a) "该性质**必须被证明**吗"；(b) "学科**必须如此组织**吗"。此类追问不能在该学科内部获得最终答案——对 (a) 的证明链沿可判定性上行必达不可判定段，对 (b) 的组织论证下行必达未证基底。本文把 a/b 的共同根系命名为**元问题 M**：*一个构造性学科把合法性建立分为三区（文法区、证明区、公理区），三区的划分由谁决定，划分本身立于什么之上。* 第 1 节给出构成的形式定义与 M 的代数核心（基选取、极小基律、落位律）；第 2–6 节以定理与命题形式陈述 M 的子命题并附跨学科锚点；第 7–8 节给出软件形式与最优性问题；第 9 节映射回 axiom。
+**中文**：对任何构造性学科，存在两类必然性追问：(a) "该性质必须被证明吗"；(b) "学科必须如此组织吗"。此类追问不能在该学科内部获得最终答案——对 (a) 的证明链沿可判定性上行必达不可判定段，对 (b) 的组织论证下行必达未证基底。本文把 a/b 的共同根系命名为**元问题 M**：*一个构造性学科把合法性建立分为三区（文法区、证明区、公理区），三区的划分由谁决定，划分本身立于什么之上。* 第 1 节给出构成的形式定义与 M 的代数核心（基选取、极小基律、落位律）；第 2–6 节以定理与命题形式陈述 M 的子命题并附跨学科锚点；第 7–8 节给出软件形式与最优性问题；第 9 节映射回 axiom。
 
 **English**: For any constructive discipline there are two questions of necessity: (a) "must this property be proved"; (b) "must the discipline be organized this way". Neither admits a final answer inside the discipline: chains of justification for (a) ascend the decidability ladder into the undecidable; arguments for (b) descend into an unproved base. This paper names the common root of a/b the meta-question M: *a constructive discipline divides the establishment of legality into three regions (grammar, proof, axiom); who decides the division, and on what does the division itself stand.* Section 1 formalizes the constitution and gives the algebraic core of M (basis selection, Minimal-Basis Law, Placement Law); Sections 2–6 state the sub-propositions of M with interdisciplinary anchors; Sections 7–8 treat software forms, hybridity, and optimality; Section 9 maps back to axiom.
 
@@ -44,9 +44,9 @@
 
 **Definition 1.5 (Honesty Rule)**. Every member of D must be exhibited and must not be disguised as a member of P; "a declaration that looks verified" violates the rule.
 
-**定义 1.6（义务类 / Obligation Class）**。义务类是物理层（或任何非代数层）谓词的参数化族：投递态（Full/Closed/Timeout/Cancelled）× 资源类（零分配/每消息/外部）× 引用有效（代戳）× 生命周期（许可阶段）；每条接缝声明其义务类，装配点按模态③ 校验。
+**定义 1.6（义务类 / Obligation Class）**。义务类是物理层（或任何非代数层）谓词的参数化族：投递态（Delivered/Full/Closed 机械化；Timeout/Cancelled ④ 声明——L1 判别四态口径，delivery.rs）× 资源类（零分配/每消息/外部）× 引用有效（代戳）× 生命周期（许可阶段）；每条接缝声明其义务类，装配点按模态③ 校验。
 
-**Definition 1.6 (Obligation Class)**. An obligation class is a parameterized family of physical-layer (or any non-algebraic layer) predicates: delivery state (Full/Closed/Timeout/Cancelled) × resource class (zero-alloc / per-message / external) × reference validity (generation stamps) × lifecycle (license phases); each seam declares its obligation class, and assembly points validate it at modality ③.
+**Definition 1.6 (Obligation Class)**. An obligation class is a parameterized family of physical-layer (or any non-algebraic layer) predicates: delivery state (Delivered/Full/Closed mechanized; Timeout/Cancelled declared ④—the L1 discriminating four-state caliber, delivery.rs) × resource class (zero-alloc / per-message / external) × reference validity (generation stamps) × lifecycle (license phases); each seam declares its obligation class, and assembly points validate it at modality ③.
 
 **定义 1.7（公理放置 / Axiom Placement）**。公理放置是从软件形式 F 到构成 C(F) 的映射：F ↦ (G(F), P(F), D(F))；不同形式差别仅在 D 与 P 的相对边界位置。
 
@@ -142,7 +142,7 @@
 
 ## 6. 义务源于构成 / Obligations Derive from Constitution
 
-**命题 6.1（Noether 形态 / The Noether Form）**。对称性假设 ⇒ 守恒义务；构成选择 ⇒ 规范义务。数学形态（已证）：Noether 1918（守恒律源于对称性）；规范原理（Yang & Mills 1954：要求局部规范不变性决定相互作用内容——"公理放置决定内容"的物理学标准实例）。构造形态（构成性表述，非可证定理）：义务类语法（投递态 × 资源类 × 引用有效 × 生命周期）由构成规则导出；**断言其与 Noether 形态同构，而非声称其可证明**。标注纪律的自用：本条整体为命题级——数学内核引用已证定理，工程映射为定义后果，故不冠"定理"。
+**命题 6.1（Noether 形态 / The Noether Form）**。对称性假设 ⇒ 守恒义务；构成选择 ⇒ 规范义务。数学形态（已证）：Noether 1918（守恒律源于对称性）；规范原理（Yang & Mills 1954：要求局部规范不变性决定相互作用内容——"公理放置决定内容"的物理学标准实例）。构造形态（构成性表述，非可证定理）：义务类语法（投递态 × 资源类 × 引用有效 × 生命周期）由构成规则导出；断言其与 Noether 形态同构，而非声称其可证明。标注纪律的自用：本条整体为命题级——数学内核引用已证定理，工程映射为定义后果，故不冠"定理"。
 
 **Proposition 6.1 (The Noether Form)**. Symmetry assumptions imply conservation obligations; constitution choices imply normative obligations. Mathematical form (proved): Noether 1918 (conservation from symmetry); the gauge principle (Yang & Mills 1954: requiring local gauge invariance determines the interaction content—physics' canonical instance of "axiom placement determines content"). Constructive form (constitutional statement, not a provable theorem): the obligation-class grammar (delivery state × resource class × reference validity × lifecycle) is derived from the constitution rules; the claim is isomorphism with the Noether form, not provability. Labeling discipline applied to ourselves: this item is proposition-level overall—the mathematical core cites proved theorems, the engineering mapping is a consequence of definitions, hence no "theorem" heading.
 
@@ -169,7 +169,7 @@
 >
 > **Table note**: "hardware" and "environment" in the table are empirical-D (Definition 1.4)—not logical starting points but bounded assumptions; their honesty duty is bounds and monitoring (SLAs, telemetry, load tests), not logical coherence.
 
-**注记 7.1（图范式覆盖 / Coverage of the Graph Paradigm）**。"节点 + 边"图是计算机科学最通用的描述与驱动范式，分布于十个领域：深度学习计算图、流处理数据流图（Beam/Flink/Ray）、工作流 DAG（Airflow/Temporal）、ECS＋场景图、渲染图（Scene/Frame Graph、wgpu）、构建依赖图（Cargo/Make/Bazel/Ninja）、响应式信号图（Dioxus/SolidJS/egui）、Actor/服务调用图、区块链状态机、编译器 IR（CFG/DFG/调用图）。按**边的语义**三分，其与 axiom 的关系各异：
+**注记 7.1（图范式覆盖 / Coverage of the Graph Paradigm）**。"节点 + 边"图是计算机科学最通用的描述与驱动范式，分布于十个领域：深度学习计算图、流处理数据流图（Beam/Flink/Ray）、工作流 DAG（Airflow/Temporal）、ECS＋场景图、渲染图（Scene/Frame Graph、wgpu）、构建依赖图（Cargo/Make/Bazel/Ninja）、响应式信号图（Dioxus/SolidJS/egui）、Actor/服务调用图、区块链状态机、编译器 IR（CFG/DFG/调用图）。按边的语义三分，其与 axiom 的关系各异：
 
 | 类别 | 边语义 | 代表 | 与 axiom 的关系 |
 |---|---|---|---|
@@ -177,9 +177,9 @@
 | (2) | 控制/时序依赖 | 工作流 DAG、GPU barrier、ECS 系统调度 | **编码或物理化**：完成依赖编码为令牌值流；隐式布线仲裁归物理层调度器；World 共享状态违反 M1，经载体物理化 |
 | (3) | 非因果约束/隐式关系 | 反向传播（梯度为沿边反向的第二流）、电路/多体仿真（方程组）、响应式隐式订阅 | **axiom 边界**：落入三归宿（接缝声明/降级编码/类型强化）与分层律（L₂）的接缝位置 |
 
-结论：所有图范式共享同一 M 结构（开放系统 = cell、布线 = wiring、宿主 = 载体、组合 = 组合子），差异只在公理区放置与物理载体选择——这是命题 7.1（形式即放置）与 theory-archive.md §1.2（三种组织策略："开放系统 + 布线 + 实例 + 组合，仅布线隐/显、宿主形态、组合打包不同"）的更大跨度实例。axiom 是**因果数据流图的最小封闭内核（五概念，§8.3）+ 物理层载体市场**，不是一切图的元模型。
+结论：所有图范式共享同一 M 结构（开放系统 = cell、布线 = wiring、宿主 = 载体、组合 = 组合子），差异只在公理区放置与物理载体选择——这是命题 7.1（形式即放置）与 theory-archive.md §1.2（三种组织策略："开放系统 + 布线 + 实例 + 组合，仅布线隐/显、宿主形态、组合打包不同"）的更大跨度实例。axiom 是因果数据流图的最小封闭内核（五概念，§8.3）+ 物理层载体市场，不是一切图的元模型。
 
-**Remark 7.1 (Coverage of the Graph Paradigm).** The node-and-edge graph is the most general description-and-driving paradigm in computing, instantiated across ten domains: DL computation graphs, streaming dataflow graphs (Beam/Flink/Ray), workflow DAGs (Airflow/Temporal), ECS + scene graphs, render graphs (Scene/Frame Graph, wgpu), build dependency graphs (Cargo/Make/Bazel/Ninja), reactive signal graphs (Dioxus/SolidJS/egui), actor/service call graphs, blockchain state machines, and compiler IR (CFG/DFG/call graphs). Classified by **edge semantics**, three kinds differ in their relation to axiom:
+**Remark 7.1 (Coverage of the Graph Paradigm).** The node-and-edge graph is the most general description-and-driving paradigm in computing, instantiated across ten domains: DL computation graphs, streaming dataflow graphs (Beam/Flink/Ray), workflow DAGs (Airflow/Temporal), ECS + scene graphs, render graphs (Scene/Frame Graph, wgpu), build dependency graphs (Cargo/Make/Bazel/Ninja), reactive signal graphs (Dioxus/SolidJS/egui), actor/service call graphs, blockchain state machines, and compiler IR (CFG/DFG/call graphs). Classified by edge semantics, three kinds differ in their relation to axiom:
 
 | Class | Edge semantics | Representatives | Relation to axiom |
 |---|---|---|---|
@@ -187,7 +187,7 @@
 | (2) | Control/timing dependencies | Workflow DAGs, GPU barriers, ECS system scheduling | **Encoded or physicalized**: completion dependencies become token-valued flows; implicit wiring arbitration belongs to the physical scheduler; shared World state violates M1 and is physicalized through carriers |
 | (3) | Non-causal constraints / implicit relations | Backpropagation (gradients: a second reverse flow), circuit/multi-body simulation (equation systems), reactive implicit subscription | **Axiom boundary**: falls into the three settlements (seam admission / encoding degradation / type strengthening) and the stratification-law (L₂) seam |
 
-All graph paradigms share the same M-structure (open system = cell, wiring, host = carrier, composition = combinators); differences are only axiom placement and physical carrier choice—a larger instantiation of Prop. 7.1 (forms are placements) and of the archived theory-archive.md §1.2 conclusion (three organization strategies: "open system + wiring + instance + composition, differing in implicit/explicit wiring, host form, and composition packaging"). Axiom is the **minimal closed kernel of causal dataflow graphs (five concepts, §8.3) plus a physical-layer carrier market**, not a meta-model of all graphs.
+All graph paradigms share the same M-structure (open system = cell, wiring, host = carrier, composition = combinators); differences are only axiom placement and physical carrier choice—a larger instantiation of Prop. 7.1 (forms are placements) and of the archived theory-archive.md §1.2 conclusion (three organization strategies: "open system + wiring + instance + composition, differing in implicit/explicit wiring, host form, and composition packaging"). Axiom is the minimal closed kernel of causal dataflow graphs (five concepts, §8.3) plus a physical-layer carrier market, not a meta-model of all graphs.
 
 **命题 7.2（普遍性 / Universality）**。所有软件形式共享同一 M 结构；参数 = 公理区放置。义务代数是构成的语法，M 是构成的语义：每条接缝的声明义务 + 装配校验，是把"该系统的公理区放在何处"写成可检查句子。锚点：topos 宇宙（命题 4.2）；Lamport 2002（TLA+：规约语言即构成语言）；逆向数学（基底选择可度量）。
 
@@ -200,10 +200,10 @@ All graph paradigms share the same M-structure (open system = cell, wiring, host
 **命题 7.4（实现域的标准化体系 / Standardization of Implementations）**。实例实现的标准化在业界已成熟，其普遍解剖为六元组 (S, L, T, C, V, R)：
 
 - **S 接口与可观察行为契约**（机制自由、表面受约）＝型位许可面的工业形态；
-- **L 规范强度语言**（RFC 2119/8174 的 MUST/SHOULD/MAY）＝义务论轴，与认识论模态 ①②③④ **正交**：MUST 只规定义务绑定，其卸载仍须按落位律（定义 1.10）指派模态——写成符合性测试（③）或仅作文本声明（④）皆可；SHOULD 的"偏离须附文档化理由"条款即诚实规则的标准语形态；MAY 即放置自由；
+- **L 规范强度语言**（RFC 2119/8174 的 MUST/SHOULD/MAY）＝义务论轴，与认识论模态 ①②③④ 正交：MUST 只规定义务绑定，其卸载仍须按落位律（定义 1.10）指派模态——写成符合性测试（③）或仅作文本声明（④）皆可；SHOULD 的"偏离须附文档化理由"条款即诚实规则的标准语形态；MAY 即放置自由；
 - **T 符合性测试与认证**（POSIX VSX、USB-IF、Java TCK、WASM 符合性套件）＝外审命题（5.1）的机制化：实现者不自证；
 - **C 剖面/等级**（POSIX 1003.13 PSE51–54、ISO 26262 ASIL A–D、DO-178C DAL A–E、RISC-V RVA20/22）＝公理区放置（命题 7.1）的标准化版本：实现类别即放置类别；
-- **V 版本化**（POSIX 版次、bcdUSB、semver）＝生态跨时间互操作的代计数——与句柄生成戳**同形不同效**：前者防混认于生态时间，后者防陈旧引用于系统生存期（类比边界依注记 6.2 方式标定）；
+- **V 版本化**（POSIX 版次、bcdUSB、semver）＝生态跨时间互操作的代计数——与句柄生成戳同形不同效：前者防混认于生态时间，后者防陈旧引用于系统生存期（类比边界依注记 6.2 方式标定）；
 - **R 治理与修订程序**（IETF rough consensus、ISO 委员会、USB-IF 董事会）＝承认规则（命题 8.5）的工业形态；五元组若无 R 则 V 无引擎——版本由谁决定？
 
 最佳完整实例：WebAssembly（规范正文＋形式操作语义＋参考解释器＋符合性套件＋核心/扩展分层——P 区达①级形态语义）；OSI 服务原语四元组（REQUEST/INDICATION/RESPONSE/CONFIRMATION，1984）是投递态分类学的先驱形态。反例张力：Rust 长期以 rustc 为事实规范——de Bruijn 判据未满足（检查器不小），Ferrocene 语言规范是补位尝试。MISRA C:2012 是文法区的标准化（对不安全语言施加可检查子集）；ARINC 653 与 ISO 26262 是义务类的标准化。推论：约束经六个通道作用于实现域——表面契约、强度分级、外部认证、剖面子集、版本代计、治理程序；独立发明收敛到同一结构，是构成理论的经验证据。
@@ -212,9 +212,9 @@ All graph paradigms share the same M-structure (open system = cell, wiring, host
 
 **命题 7.5（系统间接缝与契约型位 / Inter-System Seams and Contractual Slots）**。跨系统交互面（设备树、插件系统、客户端-服务端、跨机器微服务）是同一结构的四种绑定形态：
 
-- **契约型位（contractual slot）**：交互面在编译期以"类型 = 契约"存在（外部系统的签名：消息类型、方向、义务类、模态），实现在未来/运行期被安装；外部系统**不在编译图中**——所在构成独立编译，不编译对方实现。参数 = **绑定时刻 × 绑定机制**：设备树（构建期编译 + 运行期枚举，match 表配对）、插件系统（运行期加载，接口注册）、客户端-服务端（连接建立，地址 + 协议握手）、微服务（网络载体，契约 + 投递态）。
+- **契约型位（contractual slot）**：交互面在编译期以"类型 = 契约"存在（外部系统的签名：消息类型、方向、义务类、模态），实现在未来/运行期被安装；外部系统不在编译图中——所在构成独立编译，不编译对方实现。参数 = **绑定时刻 × 绑定机制**：设备树（构建期编译 + 运行期枚举，match 表配对）、插件系统（运行期加载，接口注册）、客户端-服务端（连接建立，地址 + 协议握手）、微服务（网络载体，契约 + 投递态）。
 - **可判定性分界**：凡"关于已存在之物"的相合性 → 可判（证明性：契约相合 ①③、自身实现内部性质 ①②③）；凡"关于未来实现或外部语义"的行为 → 不可判（编译期），只能采样验证（运行期测试）或诚实声明（④）＋监测（经验-D）。
-- **占位角色**：占位（stub/mock）使宿主内集成在编译期闭合——它验证**契约-宿主相合**，不验证**真实端-宿主相合**（占位通过 ⊬ 真实端通过）；真实端的行为等价属运行期（T6 类）。
+- **占位角色**：占位（stub/mock）使宿主内集成在编译期闭合——它验证契约-宿主相合，不验证真实端-宿主相合（占位通过 ⊬ 真实端通过）；真实端的行为等价属运行期（T6 类）。
 - **可判定性全景**：
 
 | 验证对象 | 判定性 | 执行时刻 |
@@ -230,9 +230,9 @@ All graph paradigms share the same M-structure (open system = cell, wiring, host
 
 **Proposition 7.5 (Inter-System Seams and Contractual Slots)**. Cross-system interaction surfaces (device trees, plugin systems, client–server, cross-machine microservices) are four binding forms of one structure:
 
-- **Contractual slot**: the interaction surface exists at compile time as "type = contract" (the external system's signature: message type, direction, obligation class, modality); the implementation is installed in the future / at runtime, and the external system is **absent from the compilation graph**—each constitution compiles independently without compiling the counterpart. The parametrization is **binding time × binding mechanism**: device trees (build-time compilation + runtime enumeration, match-table pairing), plugin systems (runtime loading, interface registration), client–server (connection establishment, address + protocol handshake), microservices (network carrier, contract + delivery states).
+- **Contractual slot**: the interaction surface exists at compile time as "type = contract" (the external system's signature: message type, direction, obligation class, modality); the implementation is installed in the future / at runtime, and the external system is absent from the compilation graph—each constitution compiles independently without compiling the counterpart. The parametrization is **binding time × binding mechanism**: device trees (build-time compilation + runtime enumeration, match-table pairing), plugin systems (runtime loading, interface registration), client–server (connection establishment, address + protocol handshake), microservices (network carrier, contract + delivery states).
 - **Decidability boundary**: every conformance "about an existent object" is decidable (proof-like: contract conformance ①③, self-implementation internal properties ①②③); every behavior "about a future implementation or external semantics" is undecidable at compile time—only sampling (runtime tests) or honest declaration (④) plus monitoring (empirical-D) apply.
-- **Placeholder role**: a placeholder makes host-internal integration closed at compile time—it verifies **contract–host conformance**, not **counterpart–host conformance** (placeholder passing ⊬ counterpart passing); counterpart behavioral equivalence is a runtime matter (T6 class).
+- **Placeholder role**: a placeholder makes host-internal integration closed at compile time—it verifies contract–host conformance, not counterpart–host conformance (placeholder passing ⊬ counterpart passing); counterpart behavioral equivalence is a runtime matter (T6 class).
 - **Decidability panorama**:
 
 | Verification target | Decidability | When |
@@ -266,9 +266,10 @@ All graph paradigms share the same M-structure (open system = cell, wiring, host
 
 **Open Problem 8.3 (The Fifth State)**. Beyond modalities ①②③④, does a fifth state—unexhibited implicitness—exist? Claim: no; unexhibited implicitness is not a modality but a constitution violation (a violation of Definition 1.5). The claim completes the modality system as a lattice: {①②③④} ∪ {∅}, where ∅ is the violation class (zero point); every obligation occupies exactly one cell or the constitution fails outright. This raises the honesty rule from a moral clause to a defining condition of constitution.
 
-**命题 8.4（迁移诚实 / Transition Honesty）**。放置有版本史：构成会演化（改名、降级、物理层获得义务）。诚实的单位不只是快照，还有迁移——弃用横幅、对账记录、变更日志是 M 的时间实践物；每次审计都是在漂移之后重建不动点。锚点：Lakatos 1963–64（纲领的进步/退化沿时间判定）。
+**命题 8.4（迁移诚实 / Transition Honesty）**。放置有版本史：构成会演化（改名、降级、物理层获得义务）。诚实的单位不只是快照，还有迁移——弃用横幅、对账记录、变更日志是 M 的时间实践物；每次审计都是在漂移之后重建**一致态**（"不动点"一词的此处用法
+与 Feedback 的守卫反馈/迹语义无涉，为免术语污染改称一致态——修正 12.10）。锚点：Lakatos 1963–64（纲领的进步/退化沿时间判定）。
 
-**Proposition 8.4 (Transition Honesty)**. Placements have histories: constitutions evolve (renames, downgrades, physics acquiring obligations). The unit of honesty is not only the snapshot but the transition—deprecation banners, reconciliation records, and changelogs are M's temporal practice artifacts; each audit re-establishes a fixpoint after drift. Anchor: Lakatos 1963–64.
+**Proposition 8.4 (Transition Honesty)**. Placements have histories: constitutions evolve (renames, downgrades, physics acquiring obligations). The unit of honesty is not only the snapshot but the transition—deprecation banners, reconciliation records, and changelogs are M's temporal practice artifacts; each audit re-establishes a **consistent state** after drift (the word "fixpoint" here has no bearing on Feedback's guarded-feedback/trace semantics; renamed to avoid terminology contamination—amendment 12.10). Anchor: Lakatos 1963–64.
 
 **命题 8.5（承认规则 / Rule of Recognition）**。"三分区由谁决定"的答案是：由一个被承认的程序决定——宪法修正程序。Grundnorm 要成为规范而非个人趣味，预设一个批准共同体。仓库封闭清单"新增概念须经集体裁定显式作出、不容隐性新规则"即该程序的现行实例。锚点：Hart 1961（承认规则：官员据以识别有效法律的社会规则）；Lewis 1969（惯例＝解决协调问题的均衡）；Kelsen 1934（基本规范预设法律秩序）；Wittgenstein 1969（《论确定性》：根基的确定性立于行动之中，不立于论证链条）。
 
@@ -278,7 +279,7 @@ All graph paradigms share the same M-structure (open system = cell, wiring, host
 
 
 **开放问题 8.4（初对象猜想 / Initial-Object Conjecture）**：猜想——五概念呈现
-（生成元＋关系）在"安全构造学科"的范畴中是**初对象候选**：任何其他可审计构造体系
+（生成元＋关系）在"安全构造学科"的范畴中是初对象候选：任何其他可审计构造体系
 存在唯一保持判定时刻的射入本呈现。未证；仅与开放问题 8.2（放置唯一性）并列登记，
 作为元问题树的收敛点假说。
 
@@ -291,7 +292,7 @@ All graph paradigms share the same M-structure (open system = cell, wiring, host
 极小基律 A4 与迁移诚实（命题 8.4）使"找补"可判违法：凡新增成员可由其余加规则导出即伪验证缺陷；
 凡以"新"自称却只是既有锚点的重命名即撤回。**主张（核心存在 = 约束固定点，非结论）**：核心不是先于推理而
 存在的柏拉图对象——该意义不成立，语料历史显示基的每一项都历经撤回与正名，非"早已存在、终被看清"——而是
-少数硬约束（自洽 / 极小 / 充分）的**固定点**：约束够少够硬，解几乎唯一；从任何预设路径进入都品尝同一约束
+少数硬约束（自洽 / 极小 / 充分）的固定点：约束够少够硬，解几乎唯一；从任何预设路径进入都品尝同一约束
 集，故收敛到同一点。收敛的决定性条件是每次修改都须过承继映射、减少而非增加模糊、能回答"既有哪条已压着此
 项、为何仍不够"；由此每次挡住孟浪条款，剩下的自然是唯一自洽的谷底。与本注记并列的是开放问题 8.4 的初对象
 猜想。"唯一终点"是一体化主张，与放置唯一性（开放问题 8.2）一同作为收敛点假说登记，未证。
@@ -319,18 +320,19 @@ Expression Set: Turing Machines, Category Theory, Type Theory; Stratified Emerge
 各贡献一个真实但边界不同的固定点：
 - **可计算性的底固定点**：丘奇—图灵论题——凡可按机械程序计算的函数恰为部分递归函数。三系统中最接近"真正的
   底固定解"者（独立直觉层层逼近后收敛到唯一类）。但只约束"能否被计算出"，不约束"高层代数 / 几何长什么样"。
-- **Rust 类型论非类型论固定解**，而是以 Hindley–Milner 为基础、加特征 / 常量泛型的**受约束切片**：第几阶、
+- **Rust 类型论非类型论固定解**，而是以 Hindley–Milner 为基础、加特征 / 常量泛型的受约束切片：第几阶、
   哪些可判、哪些封顶皆工程选定，非由任一理论强制；故"Rust 的底层表达集合"不唯一对应某个固定解，是众多切片之一。
 - **范畴论不决定上解**，是描述透镜：其内部确有固定点（始对象、万有构造唯一性），但不决定"用哪套公理承载某结构"。
 
-由此落在 axiom 底与顶两处硬固定点：**底 = 可计算函数恰为递归函数**（语言不可超越的输入 / 输出边界，停在可计算性）；
+由此落在 axiom 底与顶两处硬固定点（此处"固定点"是自指 / 约束的数学意义——Lawvere 定理与约束唯一化，与
+`Feedback` 的守卫反馈语义无涉）：**底 = 可计算函数恰为递归函数**（语言不可超越的输入 / 输出边界，停在可计算性）；
 **顶 = 自指 ⟹ 不完备 ⟹ 不可验证残余必然存在**（Lawvere 不动点 = incomplete-unification）——任何一个足够表达且
-自我指涉的形式系统都无法在自己内部判定自己全部语义。中间为一处**软固定点**：少而硬的约束（自洽 / 极小 / 充分）
+自我指涉的形式系统都无法在自己内部判定自己全部语义。中间为一处软固定点：少而硬的约束（自洽 / 极小 / 充分）
 ⟹ 解被就近唯一化（注记 8.6 的"约束固定点"形态），非被定理逼成唯一。
 
 **分层涌现**。辨析弱 / 强两义：**弱涌现**——高层逻辑内容原则上可由底层表达（因底足够表达，模 / 层 / 函子皆可
 用函数类型 / 多态 / 复合编码），涌现只是表达复杂度，非新的本体内容，不逃出底层可表达集合。**强涌现（前一
-半，真实）**——"模 / 层"的**概念**不是从"域"的公理逻辑地推出，须在概念上创造新词汇，新增一层抽象而非既有公理
+半，真实）**——"模 / 层"的概念不是从"域"的公理逻辑地推出，须在概念上创造新词汇，新增一层抽象而非既有公理
 的推论；但**强涌现（后一半，须诚实）**——概念一旦被创造并形式化，其可检验内容仍落在系统内——凡可导的皆已在
 系统内，故同一形式系统内的涌现不可能是逻辑内容上的强涌现；强仅发生在"概念创造"动作上，创造落地即成验证。
 **层位图的唯一读法**：算出来的内容层层可编码（弱），创造出来的词汇层层不可推导（强），而每次创造一旦落地即成
@@ -339,8 +341,8 @@ Expression Set: Turing Machines, Category Theory, Type Theory; Stratified Emerge
 **不可表达的边界（分两层，皆有定理背书）**。(i) **类型层不可钉死**：类型切片对某些结构给不出类型级存在性
 （无完备依赖类型，常量泛型 / 特征各有封顶）；凡类型层表达不出的进不去 ②③ 见证，只能作运行期对象或 ④ 声明。
 (ii) **语义层不可验证**：即便某结构能被类型表达，其完整语义仍被 Lawvere 不动点挡在系统自证之外——越是足够表达、
-自我指涉的系统，此残余越必然；可由定理证明的封顶，非遗漏。两层的共同结论：**每一层之上都有不可表达 / 不可验证
-的封顶，由定理保证不由工程决定**，这是 axiom 把容量未来对象、超时与取消、跨机器一致性放入 ④ 声明而非误置于
+自我指涉的系统，此残余越必然；可由定理证明的封顶，非遗漏。两层的共同结论：每一层之上都有不可表达 / 不可验证
+的封顶，由定理保证不由工程决定，这是 axiom 把容量未来对象、超时与取消、跨机器一致性放入 ④ 声明而非误置于
 ②③ 验证的原因——诚实贴住定理标注的高度，而非次优。**主张（非结论）**：本注记是注记 8.6"固定点"说法在"三个
 形式系统对 Rust 底层"上的具体展开，与开放问题 8.2 / 8.4 共同作为收敛点假说登记。
 
@@ -372,33 +374,33 @@ systems over Rust, registered alongside Open Problems 8.2 / 8.4 as a convergence
 ⟺ 布线是纯连接）的有效域内，载体会往边上加状态与效果（缓冲、阻塞、丢弃），于是"全局性质能否从局部线上拼出"
 这一分解问题，取决于投递格（Block / Drop-Newest / Drop-Oldest / Fail / 尽力）本身是否组合。两问未答：
 (i) 两个 Block 边串联复合为何态？(ii) Block 边接 Drop 边、不同饱和策略复合为何态？当前以"载体契约 + 投递格"
-工程回应，但**格的复合代数未形式化**——"T4 验证可分解"在有损边上是否仍成立未证。**相关边界（诚实落点）**：
+工程回应，但格的复合代数未形式化——"T4 验证可分解"在有损边上是否仍成立未证。**相关边界（诚实落点）**：
 共享只读配置（多线程围观只读 cell）与 affine 型端口（所有权随 send 转移，GPU 缓冲 / 文件句柄穿 `Broadcast` 不
 克隆）是同一"状态所有权与共享读"轴上的开放形态，未定域。与 8.2 / 8.4 同族登记为收敛点假说：若投递格是组合幺
 半群，则 T4 可延拓至有损边；未证。
 
 **开放问题 8.9（非确定下的语义等价）/ Open Problem 8.9 (Semantic Equivalence under Non-determinism)**。
-T6（同一抽象组合、不同物理实现、语义等价）在**有损 / 非确定**载体（Drop / Latest）下被削弱：确定性 KPN
+T6（同一抽象组合、不同物理实现、语义等价）在有损 / 非确定载体（Drop / Latest）下被削弱：确定性 KPN
 （确定节点 + FIFO + 阻塞读）上 T6 是定理；引入丢弃后系统非确定，"等价"退化成什么——迹包含？互模拟的某弱化？
-语义等价类未定义。直指机械化目标（轮 5 双模拟同余）的硬化条件：**优雅要求非确定性也被范畴化，而不只是被枚举**。
+语义等价类未定义。直指机械化目标（轮 5 双模拟同余）的硬化条件：非确定性本身须被范畴化，而不只是被枚举。
 收敛点假说登记，未证。
 
 **开放问题 8.10（活性/死锁自由性）/ Open Problem 8.10 (Liveness / Deadlock-freedom of Bounded Networks)**。
 安全性质（不接错线、不超界）有类型见证；**活性**（公平、无饥饿、最终送达）不可类型化。`BoundedMailbox` 的
-每生产者一席反饥饿，是对"有界通道网络 + `Feedback` 组出的环可能死锁"的工程性回应，但**有界通道网络的死锁
-自由性检查目前不存在**——KPN 定理只保证无界通道安全。能否做编译期 / 构造期的保守死锁分析（流量互作用 + 依赖
+每生产者一席反饥饿，是对"有界通道网络 + `Feedback` 组出的环可能死锁"的工程性回应，但有界通道网络的死锁
+自由性检查目前不存在——KPN 定理只保证无界通道安全。能否做编译期 / 构造期的保守死锁分析（流量互作用 + 依赖
 图判环）未决，这是"活性不可类型化"之后诚实可触的下限。收敛点假说登记，未证。
 
 ## 9. 对 axiom 与 axiom-semantics 的应用 / Application to axiom and axiom-semantics
 
-- **构成**：五概念（端口体 / T1 对偶 / 组合封闭 / 代换绑定 / 激活）是词汇表；其中良构部分经类型系统执行为文法区 G——`Conforms`/`Wire` 的 T1 配对即其类型论执行（命题 4.3）。谱系诚实：五概念是从既有代码溯回概括、后经批准的宪法条款（foundations §8.1 封闭清单），其发生史属于展出内容，不呈现为未证公设。公理区成员须按定义 1.4 分类：全函数、纯度、Moore 声明 ∈ 逻辑-D；**零成本相对等式 ∈ 经验-D**——它是可证伪的经验命题，已有带噪声底的实测证据（Δ 在噪声区间内），随时可被新工具链推翻，不是公理。消除性验证（C1 精确同型等）∈ P 的机械。
+- **构成**：五概念（端口体 / T1 对偶 / 组合封闭 / 代换绑定 / 激活）是词汇表；其中良构部分经类型系统执行为文法区 G——`Conforms`/`Wire` 的 T1 配对即其类型论执行（命题 4.3）。谱系诚实：五概念是从既有代码溯回概括、后经批准的宪法条款（foundations §8.1 封闭清单），其发生史属于展出内容，不呈现为未证公设。公理区成员须按定义 1.4 分类：全函数、纯度、Moore 声明 ∈ 逻辑-D；零成本相对等式 ∈ 经验-D——它是可证伪的经验命题，已有带噪声底的实测证据（Δ 在噪声区间内），随时可被新工具链推翻，不是公理。消除性验证（C1 精确同型等）∈ P 的机械。
 - **认识论强度谱**：模态 ② 见证 / ③ 验证 / ④ 声明 = 定理 3.1 的落地形式；诚实纪律（contract.rs"声明看起来已验证比诚实缺口更糟"）= 推论 3.2 的执行。
 - **语义 = ④ 声明，与类型判定互补**：语义真值不在任何分层阶 tₖ 被系统验证（semantics-constitution 定义卷 D6）；类型判定与语义互补、不重叠——可判定者归 ①②③，不可系统验证者只允许 ④。axiom-semantics 的语义函数 ⟦·⟧ 是 σ 的范畴级推广（semantics-constitution 前置"层位身份"段）。
 - **semantics = 义务代数的机械**：物理层自分层（boundary-ontology §9 在物理层内的递归应用）；义务类语法（投递态 × 资源类 × 引用有效 × 生命周期）为物理层的前四阶公理；`assemble_link`/`assemble_seam` 为装配校验（模态③ 机械）。
 - **审计 = 展出，非证明**：每一次审计、每一处标注，是 M 在行动中的回答（推论 2.2 与 3.2 的实践对应）。
-- **最深的公理**：不是零成本，不是全函数，而是**显式构成的意志**（选择在显式构成下建造，而非在隐含假定下漂移）；它是 Grundnorm——不可证明，只能行动。
+- **最深的公理**：不是零成本，不是全函数，而是显式构成的意志（选择在显式构成下建造，而非在隐含假定下漂移）；它是 Grundnorm——不可证明，只能行动。
 
-**Application.** The five concepts are the vocabulary; their well-formed part is executed as the grammar region G by the type system—the `Conforms`/`Wire` T1 pairing is its type-theoretic execution (Proposition 4.3). Genealogical honesty: the five concepts are an abductive generalization from existing code, later ratified as a constitutional clause (the foundations §8.1 closure checklist); their genesis belongs to the exhibition, not to bare postulation. Axiom-region members must be classified per Definition 1.4: totality, purity, and the Moore declaration ∈ logical-D; **the zero-cost relative equality ∈ empirical-D**—a falsifiable empirical claim with measured evidence under a noise floor (Δ within noise bands), refutable by any new toolchain, not an axiom. Elimination verifications (C1 exact sameness, etc.) are machinery of P. Modalities ①②③④ are Theorem 3.1 realized; the honesty discipline is Corollary 3.2 executed. The runtime is the machinery of the obligation algebra; the obligation-class grammar is the first four instances of physical self-stratification. Audit is exhibition, not proof. The deepest axiom is not zero cost nor totality but the will to explicit constitution—a Grundnorm held by a ratifying community (Proposition 8.5): unprovable, actable only.
+**Application.** The five concepts are the vocabulary; their well-formed part is executed as the grammar region G by the type system—the `Conforms`/`Wire` T1 pairing is its type-theoretic execution (Proposition 4.3). Genealogical honesty: the five concepts are an abductive generalization from existing code, later ratified as a constitutional clause (the foundations §8.1 closure checklist); their genesis belongs to the exhibition, not to bare postulation. Axiom-region members must be classified per Definition 1.4: totality, purity, and the Moore declaration ∈ logical-D; the zero-cost relative equality ∈ empirical-D—a falsifiable empirical claim with measured evidence under a noise floor (Δ within noise bands), refutable by any new toolchain, not an axiom. Elimination verifications (C1 exact sameness, etc.) are machinery of P. Modalities ①②③④ are Theorem 3.1 realized; the honesty discipline is Corollary 3.2 executed. The runtime is the machinery of the obligation algebra; the obligation-class grammar is the first four instances of physical self-stratification. Audit is exhibition, not proof. The deepest axiom is not zero cost nor totality but the will to explicit constitution—a Grundnorm held by a ratifying community (Proposition 8.5): unprovable, actable only.
 
 ---
 

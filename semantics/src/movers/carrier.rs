@@ -7,7 +7,7 @@ use axiom::cell_core::PortCell;
 
 /// 载体的时空成本声明——"部署期物理"的量化（非性能承诺，是可选信息）。
 ///
-/// 默认值取最保守的 [`External`](CarrierCost::External)：第三方载体**必须显式声明**
+/// 默认值取最保守的 [`External`](CarrierCost::External)：第三方载体必须显式声明
 /// 成本，忘写不会被静默当成"零分配"。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum CarrierCost {
@@ -33,9 +33,9 @@ pub enum SaturationPolicy {
     /// 饱和时阻塞（背压上传；值绝不丢弃）。
     #[default]
     Block,
-    /// 饱和时丢弃**新值**并随错误回传（`Full(v)` 形态，值不消失）。
+    /// 饱和时丢弃新值并随错误回传（`Full(v)` 形态，值不消失）。
     DropNewest,
-    /// 饱和时丢弃**最旧值**（新值入列；旧值随错误回传）。
+    /// 饱和时丢弃最旧值（新值入列；旧值随错误回传）。
     DropOldest,
     /// 饱和即失败（`try_send` 语义；值随 `Full(v)` 回传，调用方裁决）。
     Fail,
@@ -44,11 +44,11 @@ pub enum SaturationPolicy {
 }
 
 impl SaturationPolicy {
-    /// 饱和策略的兼容偏序（A1；**设计决断，非命题结论**）：
+    /// 饱和策略的兼容偏序（A1；设计决断，非命题结论）：
     /// `NotApplicable < {DropNewest, DropOldest, Fail} < Block`（`Drop*` 两两不可比较）。
     ///
     /// 语义来自 A1/L1 对照：`Block`/`Drop*`/`Fail` 都随 `Full(v)` 回传拒值，不违
-    /// L1 无静默丢失；档高只承诺**更少丢弃**（`Block` 不丢、`Drop*`/`Fail` 丢但有回执、
+    /// L1 无静默丢失；档高只承诺更少丢弃（`Block` 不丢、`Drop*`/`Fail` 丢但有回执、
     /// `NotApplicable` 无饱和点）。偏序因此非"强弱"总分，而是"候选策略是否承诺不弱于
     /// 剖面下限"的合取。两条规则：
     /// 1. 剖面下限为 `NotApplicable` ⇒ 任何策略满足（无饱和义务）；
@@ -68,12 +68,12 @@ mod sealed {
     pub trait Sealed {}
 }
 
-/// 注册载体（C3）：**密封**（外部不可实现）的官方载体族标记。
+/// 注册载体（C3）：密封（外部不可实现）的官方载体族标记。
 ///
-/// 白名单从"文档约定"升为**编译期事实**（模态①）：注册门剖面
+/// 白名单从"文档约定"升为编译期事实（模态①）：注册门剖面
 /// （`Profile::GATED`，Kernel/Service）的装配入口
 /// [`assemble_profile_gated`](crate::checks::profile::assemble_profile_gated) 要求
-/// `C: Registered`——未注册（第三方）载体在该剖面**编译失败**。
+/// `C: Registered`——未注册（第三方）载体在该剖面编译失败。
 /// 生态开放不受损（§7 机制自由）：未注册载体仍可用于开放剖面
 /// （Tool/Embedded）与直接驱动；注册是"官方载体目录"的语义，不是 Carrier 的
 /// 许可。
@@ -111,7 +111,7 @@ where
         CarrierCost::External
     }
 
-    /// 本载体接缝的义务类声明（C10 分化）。默认**保守 fail-closed**（资源=External）；
+    /// 本载体接缝的义务类声明（C10 分化）。默认保守 fail-closed（资源=External）；
     /// 每个实现者应覆写：resource 取 [`Self::cost`] 同值，有投递语义者再补 delivery 轴。
     fn obligation() -> crate::checks::obligation::ObligationClass {
         crate::checks::obligation::ObligationClass::default()
@@ -165,7 +165,7 @@ where
     }
 }
 
-/// 队列载体（类型擦除传递的**演示形态**）：把 `A` 的输出经一次装箱/解包流入 `B`。
+/// 队列载体（类型擦除传递的演示形态）：把 `A` 的输出经一次装箱/解包流入 `B`。
 ///
 /// 每次传递 = 一次 `Box<dyn Any>` 堆分配 + downcast（类型擦除的物理代价）。
 /// **本形态不是真实 FIFO 缓冲**：装箱立即解包，无跨步延迟/重排——它演示的是
@@ -200,7 +200,7 @@ where
     fn flow(sa: &mut A::State, sb: &mut B::State, input: A::In) -> B::Out {
         // ① A 产出输出。
         let mid = A::step(sa, input);
-        // ② 类型擦除传递：装箱（每消息堆分配）→ 立即解包（**非真实 FIFO 缓冲**）。
+        // ② 类型擦除传递：装箱（每消息堆分配）→ 立即解包（非真实 FIFO 缓冲）。
         //   （演示"队列/类型擦除"的成本形态；真实有界背压见 BoundedCarrier/bounded_pump。）
         let boxed: Box<dyn core::any::Any + Send> = Box::new(mid);
         let unboxed: Box<A::Out> = boxed
@@ -211,9 +211,9 @@ where
     }
 }
 
-/// 有界/背压载体：把 `A` 的输出经一个**有界** FIFO（容量 `CAP`）中转。
+/// 有界/背压载体：把 `A` 的输出经一个有界 FIFO（容量 `CAP`）中转。
 ///
-/// 这是 §9.1"有界/背压"的**载体侧**：容量上限 `CAP` 是编译期常量，物理形态为有界通道/队列。
+/// 这是 §9.1"有界/背压"的载体侧：容量上限 `CAP` 是编译期常量，物理形态为有界通道/队列。
 /// **编译期门**：`CAP >= 1` 由 [`assert_capacity_nonzero`](crate::checks::contract::assert_capacity_nonzero)
 /// 强制（`CAP = 0` 是 rendezvous：同线程 `send` 先于 `recv` 会永久死锁）；真正的多消息
 /// **阻塞背压**由 [`bounded_pump`](crate::drive::flow::bounded_pump)（生产端满时阻塞）与
@@ -325,7 +325,7 @@ where
 /// `B`（`In = X`），`Err` 短路返回（`B` 不被执行）。
 ///
 /// **诚实说明（A5）**：标准 [`Carrier`] 的界 `B::In = A::Out` 无法表达 X-lane
-/// （`A::Out = Result<X,E>` 而 `B::In = X`），故短路以**一等能力**形态落地，不改动
+/// （`A::Out = Result<X,E>` 而 `B::In = X`），故短路以一等能力形态落地，不改动
 /// `Carrier` trait（T6 契约不变）；与组合子 [`TryChain`](crate::drive::flow::TryChain)/
 /// [`drive_try`](crate::drive::flow::drive_try) 同语义、不同物理表达。§9.2 余项由此收账。
 pub trait ShortCircuit<A, B, X, E>

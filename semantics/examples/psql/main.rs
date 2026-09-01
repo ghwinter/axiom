@@ -1,7 +1,7 @@
 //! psql —— 用 cell_core 四构件 + runtime 错误/短路驱动构建的 SQL REPL 流水线。
 //!
 //! 健壮性增强（现实问题驱动 runtime）：`Lexer`/`Parser` 会失败（`Out = Result`），
-//! 主流程把 Lexer→Parser→Executor **串成一个单层可失败链** `TryChain`——词法/语法/执行
+//! 主流程把 Lexer→Parser→Executor 串成一个单层可失败链 `TryChain`——词法/语法/执行
 //! 错误都是单层 `Result`，任一环节 `Err` 即短路；整条腐用管线是一个可组合的 `PortCell`。
 //!
 //! 运行：`cargo run --example psql`

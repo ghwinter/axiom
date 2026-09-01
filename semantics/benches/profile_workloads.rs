@@ -7,7 +7,7 @@
 //! - **tool**：冷启动单遍（构造＋一次驱动的端到端延迟）；
 //! - **game**：帧批处理（一批 step 的每帧成本）。
 //!
-//! 方法学同 dynamic_tax 的简化形态：预热＋min-of-N；**不含自噪声底计算**
+//! 方法学同 dynamic_tax 的简化形态：预热＋min-of-N；不含自噪声底计算
 //! （形状基准，如实行：仅报整轮 best；噪声面与阈值语义见 dynamic_tax/
 //! benchmark_common）。debug 自跳过。
 //! 运行：`cargo bench --manifest-path runtime/Cargo.toml --bench profile_workloads`。

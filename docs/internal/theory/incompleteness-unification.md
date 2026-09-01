@@ -1,7 +1,7 @@
 # 不完备统一：Lawvere–Yanofsky 不动点、Tarski 真层级与 axiom 分层谱系
 # Incompleteness Unification: the Lawvere–Yanofsky Fixed Point, Tarski's Truth Hierarchy, and axiom's Layering
 
-> **性质**：I1 层理论注记（`docs/internal/theory/`，不入 git）。**非已实现、非承诺**。
+> **性质**：I1 层理论注记（`docs/internal/theory/`，不入 git）。非已实现、非承诺。
 > **上游**：[`boundary-ontology.md`](boundary-ontology.md) §2 四轴、§5 三归宿、§9 分层律；
 > `docs/en-us/foundations.md` §0 承诺、T3（时序归载体）、§5.8；`docs/en-us/semantics.md` §1。
 > 本文把"不可判断、不可表达、定义边界、表达边界、概念边界"统一到对角化/不动点骨架，
@@ -26,11 +26,11 @@
 
 ### 1.1 定义边界：递归论的不可完备化 / The Boundary of Definition: Recursion-Theoretic Incompletability
 
-**定理 1.1（Gödel–Rosser）**。对任何包含足够算术的一致递归可枚举理论 T，**不存在**一致递归可枚举扩展 T′ ⊇ T 使 T′ 完备（对每一句子 φ，T′ ⊢ φ 或 T′ ⊢ ¬φ）。
+**定理 1.1（Gödel–Rosser）**。对任何包含足够算术的一致递归可枚举理论 T，不存在一致递归可枚举扩展 T′ ⊇ T 使 T′ 完备（对每一句子 φ，T′ ⊢ φ 或 T′ ⊢ ¬φ）。
 
-**Theorem 1.1 (Gödel–Rosser)**. For every consistent r.e. theory T extending a modicum of arithmetic, there is **no** consistent r.e. extension T′ ⊇ T that is complete (for every sentence φ, T′ ⊢ φ or T′ ⊢ ¬φ).
+**Theorem 1.1 (Gödel–Rosser)**. For every consistent r.e. theory T extending a modicum of arithmetic, there is no consistent r.e. extension T′ ⊇ T that is complete (for every sentence φ, T′ ⊢ φ or T′ ⊢ ¬φ).
 
-不得不断言"不可完备化"是集合/理论层面的性质，对应 boundary-ontology 定义 1.2 的**定义边界**：T 的定理集是 r.e. 的，但"T 的真"不是。这一层是"概念集合不可完备化"的算术层版本。
+不得不断言"不可完备化"是集合/理论层面的性质，对应 boundary-ontology 定义 1.2 的定义边界：T 的定理集是 r.e. 的，但"T 的真"不是。这一层是"概念集合不可完备化"的算术层版本。
 
 ### 1.2 概念边界：Tarski 真不可定义 / The Conceptual Boundary: Tarski's Undefinability of Truth
 
@@ -46,7 +46,7 @@
 
 **Theorem 1.3 (Lawvere; unified by Yanofsky)**. Let 𝓒 be cartesian closed, A an object. If there is a self-map α : A → Yᴬ with α(a)(a) = y for all a ∈ A, y ∈ Y ("A enumerates all maps A→Y"), and s : Y → Y has no fixed point, then contradiction. ∎
 
-直觉：**一个系统若能枚举/谈论关于自身的一切，就能构造出"自身未曾说出的命题"，而它不可能在自身之内**。Cantor 对角线、Russell 悖论、Gödel 不完备、Tarski 不可定义、停机问题均是该定理的实例。所有边界词汇——不可判断、不可表达、定义边界、概念边界——是同一不动点定理在一阶逻辑/可计算性/类型论/集合论中的投射。
+直觉：一个系统若能枚举/谈论关于自身的一切，就能构造出"自身未曾说出的命题"，而它不可能在自身之内。Cantor 对角线、Russell 悖论、Gödel 不完备、Tarski 不可定义、停机问题均是该定理的实例。所有边界词汇——不可判断、不可表达、定义边界、概念边界——是同一不动点定理在一阶逻辑/可计算性/类型论/集合论中的投射。
 
 ## 2. 统一与层级差异 / Unification and Strata
 
@@ -80,9 +80,9 @@
 
 **Corollary 4.1 (Necessity of tunnel layering)**. Self-reference entails incompleteness, hence an abstraction layer cannot fully delimit its physical residue in its own language. The three layers therefore necessarily form a tunnel—bidirectional residue (A∖M and M∖A) between layers—rather than a progressive spectrum on one scale. The felt "gap" is a corollary of the theorem, not an implementation defect.
 
-**推论 4.2（接缝 = 不动点安置）**。三归宿定理（D1 类型增强 / D2 运行期降级 / D3 显式声明）与模态②③④构成对 Lawvere 定理的工程应答：既然闭包不可能，就把"不可能的那个点"固定为接缝并显式分类安置（声明、见证、对拍），而非对其不作显式安置。
+**推论 4.2（接缝 = 残余安置）**。三归宿定理（D1 类型增强 / D2 运行期降级 / D3 显式声明）与模态②③④构成对 Lawvere 定理的工程应答：既然闭包不可能，就把"不可能的那个点"固定为接缝并显式分类安置（声明、见证、对拍），而非对其不作显式安置。（"安置"非"不动点"：与 `Feedback` 的守卫反馈/迹语义无涉——术语卫生，修正 12.10；Lawvere 定理本身的使用不变。）
 
-**Corollary 4.2 (Seams as fixed-point placement)**. The three destinations (D1 type strengthening / D2 runtime degradation / D3 explicit declaration) and modalities ②③④ constitute the engineering answer to the Lawvere theorem: since closure is impossible, the impossible point is pinned as a seam and explicitly classified—declaration, witness, cross-check—rather than pretended away.
+**Corollary 4.2 (Seams as residue placement)**. The three destinations (D1 type strengthening / D2 runtime degradation / D3 explicit declaration) and modalities ②③④ constitute the engineering answer to the Lawvere theorem: since closure is impossible, the impossible point is pinned as a seam and explicitly classified—declaration, witness, cross-check—rather than pretended away. ("Placement," not "fixpoint": no bearing on `Feedback`'s guarded-feedback/trace semantics—terminological hygiene, amendment 12.10; the use of the Lawvere theorem itself stands.)
 
 **推论 4.3（T6 的角色）**。多物理实现语义等价对拍（T6）管理边界而非消除边界：物理替换的正确性由"同输入同输出"的对拍确立，不声称超越闭包定理的完备性。对拍是定理约束下的最优工程，不是完备性证明。
 

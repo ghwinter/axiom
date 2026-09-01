@@ -4,7 +4,7 @@
 //! 经 `TryChain` 组合为单一端口体 `ParseChain`（`Out = Result<TcpSeg, NetErr>`）。
 //! **短路载体**（`ResultCarrier` vs `MaybeCarrier`）把这条 Result 车道送入纯消费端
 //! `Deliver`（`In = TcpSeg`）——`Ok` 直通、`Err` 短路（单层 `Result<Delivered, NetErr>`，
-//! 与 `drive_try` 语义一致）。双载体线路语义等价（T6）；整线重跑验证**确定性**；
+//! 与 `drive_try` 语义一致）。双载体线路语义等价（T6）；整线重跑验证确定性；
 //! 解析失败计入类型化错误台账（杜绝零值/空串污染）。
 //!
 //! 运行：`cargo run --manifest-path runtime/Cargo.toml --example netpath`
@@ -27,7 +27,7 @@ fn main() {
     let packets = vec![
         Packet { raw: "aa:bb:06:100:8080.10".into() },
         Packet { raw: "aa:bb:06:200:9090.20".into() },
-        // 畸形/截断（各阶段都应**类型化拒绝**，而非静默默认）。
+        // 畸形/截断（各阶段都应类型化拒绝，而非静默默认）。
         Packet { raw: "malformed-garbage".into() },      // Eth 级缺段
         Packet { raw: "aa:bb:06:badip:8080.10".into() },  // Ip 级源地址非法
         Packet { raw: "aa:bb:06:100:badport.10".into() }, // Tcp 级端口非法

@@ -1,6 +1,6 @@
 //! # axiom-demo-sql-over-redis — 综合用例（跨层演示）
 //!
-//! 首个综合用例 = **SQL-over-Redis**：redis 协议面 × psql 计算面在**单一组合核心**
+//! 首个综合用例 = SQL-over-Redis：redis 协议面 × psql 计算面在单一组合核心
 //! （组合 `PortCell`）内协同；同一计划由 sync 与 async 两组物理驱动承载，行级等价
 //! 对拍（T6）。分层：
 //!
@@ -33,5 +33,5 @@ pub mod composite;
 pub mod observe;
 
 /// 激活模型目录·第一期（call/response 关联调度，时间作值）。
-/// 用例侧首个**目录件**：把"在途关联 + 超时清扫"打包成纯、可确定性测试的组件。
+/// 用例侧首个目录件：把"在途关联 + 超时清扫"打包成纯、可确定性测试的组件。
 pub mod callresp;

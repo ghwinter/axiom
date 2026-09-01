@@ -1,6 +1,6 @@
 //! 异步流水线驱动：把 `PortCell` 与其前后两级异步块环接通。
 //!
-//! 场景：数据形态转换链（块级数据经多段 `PortCell` 变换）以**异步块环**为交接点
+//! 场景：数据形态转换链（块级数据经多段 `PortCell` 变换）以异步块环为交接点
 //! 的流水线化。每个 cell 是一个流水线段：
 //!
 //! ```text
@@ -9,11 +9,11 @@
 //! ```
 //!
 //! - [`run_source`]：生产侧——把一组输入逐条经 `A::step` 计算，输出 `send` 到环
-//!   （满则**异步等待空位**）；全部投递后 `close()`（消费侧据此收尾）。
-//! - [`run_sink`]：消费侧——`recv`（空则**异步等待新块**）逐条驱动 `B::step`，
+//!   （满则异步等待空位）；全部投递后 `close()`（消费侧据此收尾）。
+//! - [`run_sink`]：消费侧——`recv`（空则异步等待新块）逐条驱动 `B::step`，
 //!   环关闭且排空后返回输出序列。
 //!
-//! `run_source`/`run_sink` 是**单任务驱动单元**：生产与消费可并发（不同执行上下文）
+//! `run_source`/`run_sink` 是单任务驱动单元：生产与消费可并发（不同执行上下文）
 //! ——实例层（`axiom-instances` tokio feature）用 `tokio::spawn` 装配二者；
 //! 单线程串行语义由「先跑完 source、再跑 sink」的调用序获得（学业化对照）。
 //!
@@ -89,14 +89,14 @@ mod tests {
     }
 
     impl<C: Send> AsyncBlockRing<C> for TestRing<C> {
-        fn send(&self, item: C) -> impl core::future::Future<Output = Result<(), crate::movers::async_ring::Closed>> + Send {
+        fn send(&self, item: C) -> impl core::future::Future<Output = Result<(), crate::movers::async_ring::Closed<C>>> + Send {
             async move {
                 if *self.closed.lock().unwrap() {
-                    return Err(crate::movers::async_ring::Closed);
+                    return Err(crate::movers::async_ring::Closed(item));
                 }
                 let mut q = self.q.lock().unwrap();
                 if q.len() >= self.cap {
-                    return Err(crate::movers::async_ring::Closed);
+                    return Err(crate::movers::async_ring::Closed(item));
                 }
                 q.push_back(item);
                 Ok(())

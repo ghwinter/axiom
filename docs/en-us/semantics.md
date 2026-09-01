@@ -3,26 +3,26 @@
 # axiom-semantics (formerly axiom-runtime): the semantics / contract layer
 
 > **Status**: renamed on the experimental branch `rework/rename-runtime-semantics` as the
-> first step of the runtime → **semantics** repositioning (runtime = the semantics functor
+> first step of the runtime → semantics repositioning (runtime = the semantics functor
 > ⟦core shape category⟧ → behavior category). This page's full prose re-framing — moving
 > from the now-inaccurate "physical layer" framing to the semantics/契约 layer framing
 > (physical/binding realizations belong to `axiom-instances`) — is a follow-up pass, not yet
 > written. Mechanical rename (dir/package/crate/doc paths) is complete and test-green.
 >
-> **Nature** (legacy framing, being revised): the **physical-layer architecture specification**
+> **Nature** (legacy framing, being revised): the physical-layer architecture specification
 > of axiom. Answers "what axiom's physical layer is": the core `cell_core` only declares
-> **causal data flows** (`A.out -> B.in`), and the runtime answers the single question —
-> **how the value of this flow gets from `A.out` to `B.in`, at what space–time cost**. This
+> causal data flows (`A.out -> B.in`), and the runtime answers the single question —
+> how the value of this flow gets from `A.out` to `B.in`, at what space–time cost. This
 > volume describes the shape of the runtime, consistent with the converged
 > implementation (layered: `semantics/src/{checks,movers,seams,drive}/*.rs`).
 >
 > **Normativity**: a self-consistent authoritative specification, focused
 > on the shape of axiom's physical layer itself.
 >
-> **Positioning (in one sentence)**: runtime = **Carrier catalog + redemption verification**:
+> **Positioning (in one sentence)**: runtime = Carrier catalog + redemption verification:
 > a physical implementation (how the value moves) for each causal data flow of
 > `cell_core`, each embodying a different space–time cost, modular and replaceable. The
-> runtime is the core's **physical-layer implementation use case** — axiom has no runtime
+> runtime is the core's physical-layer implementation use case — axiom has no runtime
 > objects, only two phases: "compile time" and "after compilation".
 
 ---
@@ -32,7 +32,7 @@
 - `cell_core`: open systems (`PortCell`: In/Out/State/step) + causal flows (`Wire`/`Chain`/
   `Broadcast`/`Merge`/`Feedback`) + staticness (`Static`) + compile-time verification (unified `Conforms`).
 - A blueprint is a type: zero size, zero runtime objects, exhausted at compile time.
-- **The runtime does not re-declare the core** — the runtime only answers "for this causal flow, how does the
+- The runtime does not re-declare the core — the runtime only answers "for this causal flow, how does the
   value get from A.out to B.in".
 
 ---
@@ -57,11 +57,11 @@ The carrier catalog (`semantics/src/movers/carrier.rs`):
 | `InlineCarrier` | Direct pass on the stack (`B::step(A::step(x))`); compile-time expansion (`Direct` merged into it) | Zero allocation, inlined | Single-threaded | carrier.rs |
 | `QueueCarrier` (std) | Heap-queue relay (`Box<dyn Any>`, allocated per message) | Per-message allocation | Within a single thread | carrier.rs |
 | `BoundedCarrier<CAP>` (std) | Bounded-channel relay (`CAP ≥ 1` enforced at compile time) | Per-message allocation | Within a single thread | carrier.rs |
-| `spawned_flow` (std) | mpsc channel + dedicated thread, `B::State` on the dedicated thread; worker panic propagates via reply channel | Per-message allocation + synchronization | **Cross-thread** | carrier.rs |
+| `spawned_flow` (std) | mpsc channel + dedicated thread, `B::State` on the dedicated thread; worker panic propagates via reply channel | Per-message allocation + synchronization | Cross-thread | carrier.rs |
 
 Storage primitive (not a `Carrier`; the bounded FIFO beneath pumps/mailboxes):
 `ring::BoundedRing<T, CAP>` — no_std+alloc, dual counters (`readable`/`writable`),
-O(1) push/pop with **typed** `Full(v)`/`Empty` verdicts (value conservation), one reserve
+O(1) push/pop with typed `Full(v)`/`Empty` verdicts (value conservation), one reserve
 allocation at construction and zero per-message allocation in steady state. Single-threaded
 by contract; a cross-thread variant is pending the critical-section decision. Serves the
 `EmbeddedProfile` (zero-alloc steady-state budget).
@@ -72,10 +72,10 @@ by contract; a cross-thread variant is pending the critical-section decision. Se
 > | Primitive | Blocking semantics | Producers | Saturation surface | Home |
 > |---|---|---|---|---|
 > | `BoundedQueue` | `push` blocks; `try_push` → `Full(v)` | many (std channel) | Block / Fail via caller choice | buffer.rs (std) |
-> | `BoundedMailbox` | `send` parks on own guaranteed seat; `try_send`/`fire` nonblocking | many, **anti-starvation (one seat per producer)** | Block / Fail / best-effort (three modes) | mailbox.rs (std) |
+> | `BoundedMailbox` | `send` parks on own guaranteed seat; `try_send`/`fire` nonblocking | many, anti-starvation (one seat per producer) | Block / Fail / best-effort (three modes) | mailbox.rs (std) |
 > | `BoundedRing` | none (storage only); `push` immediate `Full(v)` | one (single-threaded contract) | attempted push = verdict | ring.rs (no_std+alloc) |
 >
-> `BoundedCarrier<CAP>` is **carried by `BoundedQueue`** today; a mid-term swap of its
+> `BoundedCarrier<CAP>` is carried by `BoundedQueue` today; a mid-term swap of its
 > innards onto `BoundedMailbox` (removing one wrapper layer) and a deprecation track for
 > `BoundedQueue` are open; the disambiguation table above answers the "stacked look"
 > objection in the meantime. Also noted (docgate blind spot): prose API names in the
@@ -95,7 +95,7 @@ by contract; a cross-thread variant is pending the critical-section decision. Se
 
 ### Third-party adapter guide (2026-08)
 
-To attach a physical implementation **without touching the core**: (1) implement
+To attach a physical implementation without touching the core: (1) implement
 `Carrier<A, B>` for your seam (S: interface + observable behavior; L: declare
 `cost()`/`obligation()`/`saturation()` truthfully); (2) test it as an external consumer
 (examples/tests style; T6 sampling equivalence where claimed); (3) use open profiles
@@ -105,7 +105,7 @@ gated profiles by design (whitelist = official catalog); (4) async executors imp
 the `Executor` contract (C7 layer 3) instead of axiom shipping one (zero-dependency
 promise, D6). Each entry point is a declaration + a check, never a silent default.
 
-Each carrier is **independently selectable and replaceable**: swapping one implementation
+Each carrier is independently selectable and replaceable: swapping one implementation
 does not change the topology (T6, multiple physical implementations).
 
 > **Replaceability layers (constitution)**: pluggability is *stratified*, not universal.
@@ -120,11 +120,11 @@ does not change the topology (T6, multiple physical implementations).
 > Layer ③ being non-pluggable is what makes layer ① interoperate.
 
 > **Placement continuum (linking to `foundations.md` §8.6 items 7–8)**: "single-threaded /
-> cross-thread" in the table are **not two models, but the two ends of one physical-placement
-> decision spectrum** — the same blueprint, via placement, decides where each edge sits on the
+> cross-thread" in the table are not two models, but the two ends of one physical-placement
+> decision spectrum — the same blueprint, via placement, decides where each edge sits on the
 > spectrum. The carriers in the table are the physical forms at different positions on the
 > spectrum: single-threaded carriers = the native form of "all edges placed on the same thread"
-> (family A = 0); cross-thread carriers honestly bear family A (concurrency-maintenance toll).
+> (family A = 0); cross-thread carriers bear family A explicitly (concurrency-maintenance toll).
 > The zero-cost promise (family B = 0, see below) holds equally for both.
 
 > **Carrier as attribute (deployment-time physicality)**: the blueprint declares "which
@@ -140,10 +140,10 @@ does not change the topology (T6, multiple physical implementations).
 
 - **`flow`** (`semantics/src/drive/flow.rs`): `drive_link` — after compile-time
   wiring verification (unified `Conforms<Wire>`), drives one A→B causal flow with the selected carrier;
-  **verification happens at compile time, zero runtime overhead**. (`drive_wired` removed as a
+  verification happens at compile time, zero runtime overhead. (`drive_wired` removed as a
   redundant alias of `drive_link`.)
 - **`static_path`** (`semantics/src/drive/static_path.rs`): `run_static` / `run_declared_static` —
-  inline-expands at **compile time** the subgraph declared by `Static<SUB>` as "requiring
+  inline-expands at compile time the subgraph declared by `Static<SUB>` as "requiring
   zero cost" (zero runtime objects).
 - **Declaration macros** (`semantics/src/drive/macros.rs`): `wire!` — a macro/compile-time technique
   that completes "wiring + carrier + verification" in one step at compile time.
@@ -152,15 +152,15 @@ does not change the topology (T6, multiple physical implementations).
 
 ## 3b. Unified-model activation (runtime, `std`)
 
-The runtime gives *activation* to the unified-model constructs (which are **definitions** in
+The runtime gives *activation* to the unified-model constructs (which are definitions in
 `core.md`; activation stays the run/carrier side):
 
 - **`SlotPending<I,O>` → `SlotDrive<I, O>`** — *existential binding* (`semantics/src/drive/slot.rs`) —
-  the ∃ existential fill of a `Slot<I,O>` under a **license lifecycle (typestate, modality ①)**:
+  the ∃ existential fill of a `Slot<I,O>` under a license lifecycle (typestate, modality ①):
   `SlotPending::install` (Adding) installs a compile-time-conforming inhabitant
   (`T: PortCell<In=I,Out=O>` ⟹ core `Conforms`), type-erases its state to `Box<dyn Any + Send>`;
-  `commit()` (Ready→Live) authorizes `SlotDrive` — driving before commit is a **type-level
-  refusal** (no runtime check, Placement Law A3); `SlotDrive` then `drive`/`swap`s at runtime
+  `commit()` (Ready→Live) authorizes `SlotDrive` — driving before commit is a type-level
+  refusal (no runtime check, Placement Law A3); `SlotDrive` then `drive`/`swap`s at runtime
   (swap bumps a generation, so a previously created `Seat` is rejected as stale); `retire()`
   terminates the license (Cleaned). Physical side of "dynamic loading": interface fixed &
   T1-verified at compile time, inhabitant existentially chosen at runtime.
@@ -169,27 +169,27 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
   outputs, with state held across steps (count decided at runtime, not compile time).
 - **`drive_feedback_inline<BODY, FEED>`** (`semantics/src/drive/flow.rs`) — the physical activation of a
   `Feedback` cell form: one inline-unbuffered loop (`BODY -> FEED -> BODY`) per input step,
-  gated by the **Moore declaration** (`FEED: Moore`, modality ④ — declaration, not proof).
+  gated by the Moore declaration (`FEED: Moore`, modality ④ — declaration, not proof).
 - **`contract` module** (`semantics/src/checks/contract.rs`) — deployment & compile-time seam contracts:
   `Moore` marker (④); `assert_capacity_nonzero` (②); `validate_cost` / `validate_capacity` /
   `validate_seam` (③); `ContractError`.
 - **`obligation` module** (`semantics/src/checks/obligation.rs`) — the obligation-class type system
-  (delivery × resource × reference × lifecycle) and the **obligation ledger** (`LEDGER`):
+  (delivery × resource × reference × lifecycle) and the obligation ledger (`LEDGER`):
   a machine-readable constitution excerpt (seam × obligation × modality × witness ×
   conformance test), enforcing the minimal-basis and honesty rules (A4/A5).
 - **`delivery` module** (`semantics/src/checks/delivery.rs`, `std`) — the four-state delivery taxonomy:
   `Full` / `Closed` mechanized from `mpsc` errors with the rejected value preserved (②③);
-  `Timeout` / `Cancelled` **declared** as modality ④ (mechanization is a physical choice:
+  `Timeout` / `Cancelled` declared as modality ④ (mechanization is a physical choice:
   timer / request-scoped channels), no fabricated witnesses.
 - **`mailbox` module** (`semantics/src/movers/mailbox.rs`, `std`) — the anti-starvation bounded mailbox:
-  capacity = `CAP` buffer slots **plus one guaranteed slot per producer**;
+  capacity = `CAP` buffer slots plus one guaranteed slot per producer;
   three send modes—`try_send` (strict, `Full(v)` with the value returned), `send` (blocking
   backpressure, parks on its own guaranteed slot), `fire` (best-effort: buffer first, then the
   producer's own slot); `recv` is blocking and never returns `Empty` (`try_recv` observes the
   empty state); close drains then reports `Closed` with values returned. Modality ② capacity
   gate (`CAP ≥ 1`). `bounded_pump` stays as the teaching form; the mailbox is the
   anti-starvation instance of the same obligation class (per-producer slot).
-- **`profile` module** (`semantics/src/checks/profile.rs`) — the **profile catalog** (six-tuple C
+- **`profile` module** (`semantics/src/checks/profile.rs`) — the profile catalog (six-tuple C
   component; F↦C(F)): `KernelProfile` (zero-alloc budget), `ServiceProfile`
   (per-message budget + Full/Closed mechanized), `ToolProfile` (external); a profile is a
   modality-① type token plus a modality-③ budget gate—`assemble_profile<P, A, B, C>()`
@@ -200,10 +200,10 @@ The runtime gives *activation* to the unified-model constructs (which are **defi
 - **`law` module** (`semantics/src/checks/law.rs`, `std`) — runtime-law probes (T-component
   deepening): pairing law (N sends ↔ N verdicts; received ≤ delivered), sequence monotonicity,
   broadcast fan-out counting; `debug_assertions`-gated, release zero-overhead.
-- **`assemble_link` / `assemble_seam`** (`semantics/src/drive/flow.rs`) — the wired **modality ③
-  entries**: validate cost (and, for bounded seams, capacity) once at the deployment assembly
+- **`assemble_link` / `assemble_seam`** (`semantics/src/drive/flow.rs`) — the wired modality ③
+  entries: validate cost (and, for bounded seams, capacity) once at the deployment assembly
   point and return the `drive_link` function pointer (`Driver<A,B>`); a budget violation is an
-  **assembly failure**, never a silent runtime cost. (`BoundedCarrier`'s own const gate is
+  assembly failure, never a silent runtime cost. (`BoundedCarrier`'s own const gate is
   modality ②; `assemble_seam` backstops ungated carriers at deploy time.)
 
 Both families are safe (`#![forbid(unsafe_code)]`); `SlotDrive` is `std`-gated, `drive_seq` and
@@ -212,9 +212,9 @@ seam (see [`unified.md`](unified.md) §5).
 
 ## 4. Modularity and Replaceability (Extensible Physical Carriers)
 
-- Each carrier is an **independent unit** that can be a standalone crate.
-- A new physical carrier is attached by implementing the `Carrier` trait **without changing
-  the cell topology**: for example, replacing the queue/channel-form carrier with a channel
+- Each carrier is an independent unit that can be a standalone crate.
+- A new physical carrier is attached by implementing the `Carrier` trait without changing
+  the cell topology: for example, replacing the queue/channel-form carrier with a channel
   carrier carrying other scheduling/timing semantics, or replacing the zero-allocation carrier
   with other
   low-level mechanisms.
@@ -229,8 +229,8 @@ seam (see [`unified.md`](unified.md) §5).
   flow. Swapping carriers does not change the output.
 - **Determinism and equivalence acceptance**: the real use cases (see §7) produce bit-identical
   output on carriers such as Inline and Queue, and verify determinism (same input rerun yields
-  the same output). This should serve as the **carrier semantic-equivalence regression
-  acceptance** — whenever a new carrier is added, it must first assert output consistency on the
+  the same output). This should serve as the carrier semantic-equivalence regression
+  acceptance — whenever a new carrier is added, it must first assert output consistency on the
   existing use cases, to prevent a carrier from breaking semantics without detection (this is an
   engineering convention derived from netpath practice).
 - **Compile-time vs runtime verification**: wiring legality and staticness verification happen
@@ -285,24 +285,24 @@ reference (`git show main:semantics/examples/<name>/main.rs`).
 
 ## 8. Boundaries (Honest Statement)
 
-- This is a **physical-layer implementation use case + template**, not "the most feature-complete
+- This is a physical-layer implementation use case + template, not "the most feature-complete
   general-purpose runtime".
-- **N2N belongs to the physical layer**: many-to-many parallel scheduling, queue arbitration,
+- N2N belongs to the physical layer: many-to-many parallel scheduling, queue arbitration,
   borrowing, caching, and threading belong to the physical-implementation domain — axiom does
   not reinvent them; axiom provides the "carrier contract" (declaring preferences) and
   "redemption verification", so that many-to-many implementations can be attached replaceably.
-- **The dynamic tax is unavoidable and legitimate**: the tax is paid if and only if the structure
+- The dynamic tax is unavoidable and legitimate: the tax is paid if and only if the structure
   must be determined at runtime (configuration/plugins/dynamic topology) (linking to T7/T9);
   otherwise the static path must be taken.
-- **Scope of the zero-cost promise**: what is promised is **family B = zero** (the abstraction
-  does not charge for distinction demands); the **family A** of cross-thread edges
+- **Scope of the zero-cost promise**: what is promised is family B = zero (the abstraction
+  does not charge for distinction demands); the family A of cross-thread edges
   (synchronization/wakeup/visibility) is a physical toll that an equivalent hand-written
   multi-threaded program pays as well, and is not an "abstraction tax" (linking to
   `foundations.md` §8.6 item 8).
 - **No-panic convention (A3; 2026-08)**: engineering convention — a cell's `step` must not
   panic; failure must be a value (`Out = Result`); a violator is the declarer's responsibility.
-  Cross-trust-boundary defense uses `flow::drive_catch` (`catch_unwind`; **External-class
-  high cost** — after a panic the states may be half-updated and are the seam's
+  Cross-trust-boundary defense uses `flow::drive_catch` (`catch_unwind`; External-class
+  high cost — after a panic the states may be half-updated and are the seam's
   responsibility); hot paths do not pay this tax. `spawned_flow` / `bounded_pump*` already
   propagate cross-thread panics (teardown is explicit).
 - **Topology-level resource budget (C4 feasible subset; 2026-08)**: thread count is
@@ -317,16 +317,16 @@ reference (`git show main:semantics/examples/<name>/main.rs`).
 
 ## 9. Known Open Boundaries
 
-> The following are **thin edges** within the runtime's positioning, exposed by the real use
-> cases, currently **unresolved but acknowledged**. They belong to "engineering
+> The following are thin edges within the runtime's positioning, exposed by the real use
+> cases, currently unresolved but acknowledged. They belong to "engineering
 > accretion/optimization + a handful of theoretical boundaries" and do not change the existing
 > composition of the core (`cell_core`).
 
 ### 9.1 Backpressure / Bounded Buffering
 The unbounded mpsc form (queue/thread transport) is covered by `QueueCarrier`/`spawned_flow`
-(the latter is **unbounded**); real systems need bounded + backpressure semantics for
+(the latter is unbounded); real systems need bounded + backpressure semantics for
 "producer fast, consumer slow".
-- Layer: **purely runtime** (`foundations.md` has already placed "backpressure/timing" under
+- Layer: purely runtime (`foundations.md` has already placed "backpressure/timing" under
   physical carriers).
 - **Provided**:
   - `BoundedQueue<T, CAP>` (`buffer.rs`, `std`) — a bounded FIFO built on `sync_channel(CAP)`:
@@ -334,16 +334,16 @@ The unbounded mpsc form (queue/thread transport) is covered by `QueueCarrier`/`s
     signal; the drop/propagate policy is left to the caller);
   - `BoundedCarrier<CAP>` (`carrier.rs`) — a `Carrier` whose physical form is a bounded channel
     (`CAP` as a compile-time constant; `PerMessageAlloc` cost);
-  - `bounded_pump<A, B, It, CAP>` (`flow.rs`) — **real blocking backpressure**: the producer
+  - `bounded_pump<A, B, It, CAP>` (`flow.rs`) — real blocking backpressure: the producer
     pushes `A`'s output into a capacity-`CAP` bounded queue and *blocks when full* until the
     consumer thread drains; returns the `B::step` output sequence.
 
 ### 9.2 Error / Failure Pathways (Theory–Practice Divergence)
 Real cells (e.g. parsers) need "can fail" semantics; `PortCell::step` is assumed to be a
-**total transition** (the `foundations.md` boundary has already faithfully noted this: the
+total transition (the `foundations.md` boundary has already faithfully noted this: the
 total-function assumption). Currently patched together with the `Out = Result` convention plus
 short-circuit carriers.
-- Layer: **attributable to the runtime** (using the `Result` convention + short-circuit),
+- Layer: attributable to the runtime (using the `Result` convention + short-circuit),
   isomorphic to "drop/block is physical"; if "cells that can fail" were axiomatized
   (partial functions/error output ports), it would be a theoretical boundary (`foundations.md`
   §7, open question 5).
@@ -355,7 +355,7 @@ short-circuit carriers.
     psql expresses its full REPL as `TryChain<TryChain<Lexer, Parser>, Executor>`).
 - Resolved: first-class short-circuit carriers — `ShortCircuit` /
   `ResultCarrier` / `MaybeCarrier` (`carrier.rs`) with the `drive_try_carrier` entry:
-  `Ok` passes through to `B`, `Err` short-circuits **without executing `B`**; the standard
+  `Ok` passes through to `B`, `Err` short-circuits without executing `B`; the standard
   `Carrier` bound (`B::In = A::Out`) cannot express the X-lane, so they are implemented as a
   first-class capability, leaving the `Carrier` trait unchanged (T6 unaffected).
   The combined failure × backpressure semantics is provided by `bounded_pump_try`
@@ -373,7 +373,7 @@ short-circuit carriers.
 >     collection in cores);
 >   - *Union/lifting* (join different E per segment): requires an adapter cell;
 >   - *Degrade* (fallback value on Err): `MaybeCarrier` — `None` replaces the failure.
->   The policy is a **driver-side placement** (L4), never a core notion; it can be verified
+>   The policy is a driver-side placement (L4), never a core notion; it can be verified
 >   by sampling on a bounded domain (C8-2 counterexample search), never by structure alone
 >   (T5).
 
@@ -383,10 +383,10 @@ interface for "how the external world (socket events, etc.) formally becomes the
 causal flow" has not been formalized. **First realization (landed)**: `redis_like`
 (`semantics/examples/redis_like`, `--tcp PORT` / `--selftcp`) — a std-only TCP server:
 per-connection stateful `LineSplit` (cross-chunk buffering) → `CmdParse` (typed errors,
-short-circuit) → **bounded channel (backpressure)** → a store worker thread owning
+short-circuit) → bounded channel (backpressure) → a store worker thread owning
 `StoreState` (`DataStore` total, no panic path) → RESP reply routing with per-connection
 FIFO order and write-half close on EOF.
-- Layer: **runtime** (an event substrate is just a class of carrier/driver).
+- Layer: runtime (an event substrate is just a class of carrier/driver).
 - **Carrier class formalized and landed** (`semantics/src/seams/event.rs`): an event stream
   (`EventStream`, item-level input source) + chunk-source adapter (`ChunkSource`:
   `io::Read` raw source + splitter + per-source cross-chunk state, with the general
@@ -408,7 +408,7 @@ on the full queue — failure and backpressure are orthogonal and each is explic
 
 ## 10. Cost Semantics (Z1; the formalized core of the zero-cost promise)
 
-The runtime's cost claims as a formal grammar — **edge cost = f(carrier, placement, types)**:
+The runtime's cost claims as a formal grammar — edge cost = f(carrier, placement, types):
 
 ```
 edge_cost(seam) := class(f):
@@ -424,10 +424,10 @@ budget (modality ③):       declared ≤ budget at each seam (validate_cost);
 ```
 
 **Family-A irreducibility (declarative proof skeleton; modality ④).** Claim: the
-cross-thread additive (`Sync` + per-message synchronization) **cannot be eliminated by
-abstraction** — only transferred equitably. Skeleton: (1) causal flow across threads
+cross-thread additive (`Sync` + per-message synchronization) cannot be eliminated by
+abstraction — only transferred equitably. Skeleton: (1) causal flow across threads
 requires shared memory plus synchronization (wakeup/visibility) at the seam; (2) the
-zero-cost promise is **relative equality** (`foundations.md` §0: runtime cost ≡ cost of an
+zero-cost promise is relative equality (`foundations.md` §0: runtime cost ≡ cost of an
 equivalent hand-written program) — a hand-written multithreaded program pays the same
 toll; (3) were the family-A tax eliminable, a zero-synchronization cross-thread value
 transfer would exist, contradicting causal ordering/observability of the flow; hence
@@ -438,7 +438,7 @@ such, never as a single number.
 
 ## 11. Conclusion
 
-> runtime = the `cell_core` **physical-layer implementation use case**: a carrier catalog
+> runtime = the `cell_core` physical-layer implementation use case: a carrier catalog
 > (Inline/Queue/Bounded/spawned_flow/static_path/wire!) + redemption verification, modular and
 > replaceable, explaining and verifying that "the same static graph can be plugged into
 > multiple physical executions (inline/queue/cross-thread), each with verifiable semantic
@@ -462,7 +462,7 @@ The async path: the runtime declares the `Executor` contract (`seams::async_seam
 async path lives in `axiom-instances` (`backend::async_driver`): waits suspend on the tokio
 reactor, deadlines come from tokio's timer (`tokio::time::timeout` around the input wait), and
 commands can arrive while waiting (channel feeding). Output equals the sync path line by line
-(T6; the composite use case checks 195/195 rows). `backend::tokio_exec` is a placeholder. Observation is an ordinary module (collect → summary → print in the
+(T6; the composite use case checks 195/195 rows). `backend::tokio_exec` is on a par with `ThreadExec` — a thread-level wait implementation of the same Executor contract (its deadline wait point is declared as-is in that implementation); there is no placeholder/canonical hierarchy. `async_driver` is the async-domain wait-mode implementation (T6 cross-check). Observation is an ordinary module (collect → summary → print in the
 example), disabled by default. The concurrency demo serves N sessions on one thread with wall
 time independent of N; per-step calibration (release, min-of-N with self-noise floor): sync
 ≈ 0.5 µs/line, async ≈ 0.9 µs/line. On this host, tokio timed waits quantize at ≈ 15.6 ms.

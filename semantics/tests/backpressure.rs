@@ -88,7 +88,7 @@ impl PortCell for PanickyDouble {
 
 #[test]
 fn bounded_pump_consumer_panic_resumes_original_payload() {
-    // 消费线程 `B::step` panic：泵把**原始载荷**续抛给调用方（`resume_unwind`），
+    // 消费线程 `B::step` panic：泵把原始载荷续抛给调用方（`resume_unwind`），
     // 而非吞成通用 "consumer finished"；生产端在断连后停止投递（拆除语义）。
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _ = bounded_pump::<Inc, PanickyDouble, Vec<i32>, 2>(|| (), || (), vec![0, 1, 2, 3, 4]);

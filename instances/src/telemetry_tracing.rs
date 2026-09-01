@@ -3,7 +3,7 @@
 //! 语义层 [`Telemetry`](axiom_semantics::seams::telemetry::Telemetry) 插座的
 //! **tracing 绑定**：把接缝裁决/深度/延迟事件转发为 tracing 事件（结构化字段，
 //! 级别契约见下）。树内第一实现是语义层自带的 `ConsoleTelemetry`/`BufTelemetry`
-//! （println/缓冲）；本模块是 Telemetry 插座的**第二实现者**——按极小基律，插座的
+//! （println/缓冲）；本模块是 Telemetry 插座的第二实现者——按极小基律，插座的
 //! 扩展由真实观测需求引入，本模块即首个此类绑定。
 //!
 //! ## 级别契约（声明的映射，非约定俗成）
@@ -15,8 +15,8 @@
 //! | `on_depth` | `debug` | 背压观测：按需打开（`RUST_LOG=debug`） |
 //! | `on_latency` | `trace` | 采样可能高频：仅诊断期打开 |
 //!
-//! 输出目的地（控制台/文件/JSON/OTLP）由**订阅者**决定，不由本适配器决定——
-//! 这是"打印 vs 观测"边界的机制化：**代码只发事件，格式与目的地是部署决策**。
+//! 输出目的地（控制台/文件/JSON/OTLP）由订阅者决定，不由本适配器决定——
+//! 这是"打印 vs 观测"边界的机制化：代码只发事件，格式与目的地是部署决策。
 //!
 //! 目标（target）：`axiom_instances::telemetry_tracing`，可用 `RUST_LOG=axiom_instances=debug` 单独过滤。
 //!

@@ -1,7 +1,7 @@
 //! 有界邮箱（反饥饿背压；义务类·资源/投递态轴的实例；semantics-constitution 阶段 3）。
 //!
 //! 语义（以 axiom 词汇陈述）：
-//! - **容量** = `CAP`（缓冲槽）+ 每生产者 1 个**保底席位**（`parked`）——一个生产者
+//! - **容量** = `CAP`（缓冲槽）+ 每生产者 1 个保底席位（`parked`）——一个生产者
 //!   无法饿死其他生产者：满时先占自己的席位,永不占用他人；
 //! - **三投递模式**：
 //!   - `try_send`：非阻塞,仅用缓冲槽,满即 `Delivery::Full(v)`（值回传,不消失）；
@@ -79,7 +79,7 @@ impl<T, const CAP: usize> BoundedMailbox<T, CAP> {
         }
     }
 
-    /// 消费一条（**阻塞**）：先缓冲（FIFO），再轮转席位；关闭且排空 → `Closed`。
+    /// 消费一条（阻塞）：先缓冲（FIFO），再轮转席位；关闭且排空 → `Closed`。
     /// 不返回 `Empty`（`Empty` 属非阻塞 [`try_recv`](Self::try_recv) 语义）。
     pub fn recv(&self) -> crate::checks::delivery::Receipt<T> {
         let mut g = self.inner.lock().unwrap();

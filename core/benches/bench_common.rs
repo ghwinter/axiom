@@ -70,7 +70,7 @@ pub fn measure3(
     [ma, mb, mc]
 }
 
-/// Noise-floor estimate (**modality ③ of measurement honesty**): rerun the
+/// Noise-floor estimate (modality ③ of measurement honesty): rerun the
 /// baseline variant in a second independent min-of-N set and report the
 /// relative drift of the two baselines.
 pub fn noise_floor_pct(baseline_first: u128, mut baseline_again: impl FnMut()) -> f64 {

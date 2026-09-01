@@ -1,10 +1,10 @@
 //! psql —— SQL REPL 流水线，用 cell_core 四构件 + runtime 错误/短路驱动重建。
 //!
 //! 健壮性设计（现实问题驱动 runtime）：
-//! - `Lexer`/`Parser` 是**会失败**的 cell：`Out = Result<_, PErr>`（词法/语法错误显露，
+//! - `Lexer`/`Parser` 是会失败的 cell：`Out = Result<_, PErr>`（词法/语法错误显露，
 //!   而非静默吞掉变成默认语句）；
 //! - `Executor` `Out = Result<ExecOut, PErr>`（执行错误，如表不存在）；
-//! - 主流程用 runtime 的 `TryChain` 对 Lexer→Parser→Executor 做**单层短路**：任一级
+//! - 主流程用 runtime 的 `TryChain` 对 Lexer→Parser→Executor 做单层短路：任一级
 //!   错误立即停，不流到后续级。这是"错误/失败通路"（`runtime.md` §9.2）在一个
 //!   真实 REPL 上的使用。
 

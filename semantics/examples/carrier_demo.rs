@@ -1,8 +1,8 @@
 //! runtime 载体用例：用 cell_core 蓝图 + Carrier 物理载体驱动一个二阶拓扑。
 //!
 //! 演示 runtime 的定位——"cell_core 的物理层实现用例"：同一张四构件蓝图
-//! （链 + 广播），用不同载体（Inline / Queue / Bounded）驱动，**语义等价，
-//! 但时空成本不同**（T6 多物理实现）。换载体不改拓扑。
+//! （链 + 广播），用不同载体（Inline / Queue / Bounded）驱动，语义等价，
+//! 但时空成本不同（T6 多物理实现）。换载体不改拓扑。
 
 use axiom::cell_core::{Broadcast, Chain, PortCell};
 use axiom_semantics::movers::carrier::{Carrier, CarrierCost, InlineCarrier, QueueCarrier};

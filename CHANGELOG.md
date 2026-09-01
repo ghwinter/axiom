@@ -1,9 +1,9 @@
 # Changelog
 
 All notable changes to this project are documented in this file. The format
-follows [Keep a Changelog](https://keepachangelog.com/), and versioning follows
-[Semantic Versioning](https://semver.org/) (before 1.0, breaking changes are
-expressed by incrementing the minor version).
+follows the Keep a Changelog convention, and versioning follows Semantic
+Versioning (before 1.0, breaking changes are expressed by incrementing the
+minor version).
 
 ## [Unreleased]
 
@@ -11,7 +11,7 @@ expressed by incrementing the minor version).
 
 - **`TracingTelemetry`** (`instances/src/telemetry_tracing.rs`, feature
   `telemetry-tracing`): the semantic `Telemetry` contract bound to `tracing` —
-  the socket's **second implementer** (first: in-tree `ConsoleTelemetry`/
+  the socket's second implementer (first: in-tree `ConsoleTelemetry`/
   `BufTelemetry`), pulled by a real consumer observation need per the
   minimal-basis rule. Declared level contract: `Delivered`
   → `trace`, `Full/Failed/Dropped` → `warn`, depth → `debug`, latency →
@@ -42,13 +42,13 @@ expressed by incrementing the minor version).
   gate in profile assembly, A3 NoPanic declaration discipline.
 - **Activation-model catalog, phase 1** (`examples/sql-over-redis/src/callresp.rs`):
   call/response correlation dispatcher — in-flight association + timeout sweep
-  as a pure, deterministically testable component. **Time-as-value**: deadline
+  as a pure, deterministically testable component. Time-as-value: deadline
   verdicts take an injected `now` (no ambient clock); tests are fully
-  deterministic. Deliberately **not** a `PortCell` (single-In/Out cannot carry
+  deterministic. Deliberately not a `PortCell` (single-In/Out cannot carry
   "in-flight call + independent deadline + association"); it exists as a
   compatible neighbor, admitted through the closed-boundary checklist. Real
   wiring is deferred to the first real out-of-order async service (see
-  `frontier-notes.md` item 8). **Uncommitted at audit time.**
+  `frontier-notes.md` item 8). Uncommitted at audit time.
 - **Audit & convergence plan** (`docs/internal/theory/audit-2026-08.md`):
   evidence-backed full audit (builds/tests/benches/stability markers),
   necessity-filtered gap register (P0/P1/P2), and dignified non-goal
@@ -63,8 +63,8 @@ expressed by incrementing the minor version).
 ### Changed — subtraction discipline (2026-08-29)
 
 - Frontier item 4 (behavior-verification tooling incl. deterministic
-  simulation replay) downgraded from "extension/undone" to **registered
-  deferral** — no promised claim, no forcing scenario; shape to be defined by
+  simulation replay) downgraded from "extension/undone" to registered
+  deferral — no promised claim, no forcing scenario; shape to be defined by
   the first real consumer.
 - Boundary-ontology note 7.5 (boundary criteria & handover checklist)
   withdrawn: it was review-dialogue residue growing new governance vocabulary
@@ -76,8 +76,8 @@ expressed by incrementing the minor version).
 - **Dynamic-tax bench** (`runtime/benches/dynamic_tax.rs`): same topology
   (`Inc -> Double`) across four channels — hand-written baseline / static
   generic `drive_link<Inline>` / erased `SlotDrive` / generation-checked `Seat`.
-  Headline (stable): erased seam ≈ **+2.0 ns/op** (fn-pointer indirect +
-  downcast), `Seat` adds ≈ +0.25 ns/op, `swap` ≈ **30 ns** incl. one heap
+  Headline (stable): erased seam ≈ +2.0 ns/op (fn-pointer indirect +
+  downcast), `Seat` adds ≈ +0.25 ns/op, `swap` ≈ 30 ns incl. one heap
   allocation. Channel B is layout-sensitive across builds (~0%…+50%) and is
   documented as such instead of being quoted as a single number.
 - **Executable obligation ledger**: each `LedgerEntry` now carries a `probe`
@@ -247,7 +247,7 @@ expressed by incrementing the minor version).
   restoration.
 ## [0.3.0] — 2026-08 — Axiometric core (current design baseline)
 
-The crate is the **four-constituent compile-time core** (`cell_core`) plus a
+The crate is the four-constituent compile-time core (`cell_core`) plus a
 physical-layer crate (`axiom-semantics`) of replaceable carriers. Blueprint =
 zero-sized Rust type; verification happens at compile time (`Conforms`);
 after compilation there are no axiom objects.
@@ -275,7 +275,7 @@ after compilation there are no axiom objects.
 
 ### Runtime
 
-- `axiom-semantics`: physical-layer crate of **replaceable carriers** (template
+- `axiom-semantics`: physical-layer crate of replaceable carriers (template
   for third-party adapters); core has zero runtime objects.
 - `contract` module — seam contracts with explicit proof modality:
   `Moore` declaration + `declare_inline_loop_moore` (modality ④),
