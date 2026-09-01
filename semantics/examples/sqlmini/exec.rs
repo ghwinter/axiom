@@ -250,10 +250,10 @@ fn accumulate(plan: &Plan, schema: &Schema, rows: &[Record]) -> Result<(Acc, Run
     let mut stats = RunStats::default();
     for row in rows {
         stats.scanned += 1;
-        if let Some(w) = &plan.where_ {
-            if !is_true(&eval(schema, row, w)?) {
-                continue;
-            }
+        if let Some(w) = &plan.where_
+            && !is_true(&eval(schema, row, w)?)
+        {
+            continue;
         }
         stats.filtered += 1;
         if plan.aggs.is_empty() {

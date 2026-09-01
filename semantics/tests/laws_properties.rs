@@ -114,8 +114,7 @@ proptest! {
     #[test]
     fn broadcast_copies_faithfully(x in any::<i32>()) {
         // 复制忠实：Δ(x) = (x, x)（含极值；wrapping 语义下无特殊值）。
-        let mut st = <Duplicate<i32> as PortCell>::State::default();
-        prop_assert_eq!(Duplicate::<i32>::step(&mut st, x), (x, x));
+        prop_assert_eq!(Duplicate::<i32>::step(&mut (), x), (x, x));
     }
 
     #[test]

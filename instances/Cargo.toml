@@ -3,8 +3,8 @@ name = "axiom-instances"
 version = "0.3.0"
 edition = "2024"
 # Edition 2024 stabilized in Rust 1.85 (Feb 2025); matches core/runtime.
-rust-version = "1.85"
-description = "axiom 实例层：经 socket（Executor/Carrier/Telemetry）接入可替换物理实现。官方标准集 = 融合单 crate + feature 门控（tokio），默认全关；第三方实例可自建独立 crate 走开放路径（双形态边界，instance-layer-design §3）。"
+rust-version = "1.98"
+description = "axiom instance layer: replaceable physical implementations plugged in through the sockets (Executor/Carrier/Telemetry). The official standard set is one fused crate with feature gating (tokio), all off by default; third parties may self-build separate crates via the open path (dual-form boundary, instance-layer-design §3)."
 license = "MIT"
 repository = "https://github.com/ghwinter/axiom"
 homepage = "https://github.com/ghwinter/axiom"
@@ -13,34 +13,42 @@ keywords = ["dataflow", "carrier", "zero-cost", "compile-time", "executor", "tok
 categories = ["concurrency", "asynchronous", "rust-patterns"]
 
 [dependencies]
-# 依赖方向单向：core(semantics) ← instances，符合 workspace M6 组合法则。
-# default-features=false：默认<无实例>——实例层 feature 门控（默认全关），
-# 只拉需要的接缝；不隐式启用 semantics 的空闲缺省载族。
+# Dependency direction is one-way: core(semantics) ← instances, per the
+# workspace M6 composition law.
+# default-features=false: the default is <no instances> — instance features
+# are gated (all off by default), pulling only the needed seams; no implicit
+# enablement of semantics' idle default carrier family.
 axiom = { path = "../core", version = "0.3.0", default-features = false }
 axiom-semantics = { path = "../semantics", version = "0.3.0", default-features = false }
 
-# ── 实例层 feature 门控（默认全关，推演既定）──────────────────────────
-#   default = []            （空实例面：合法，无替换发生）
-#   async   = 拉起 semantics 的异步接缝（Executor/SeamPoller）
-#   tokio   = async + 可选外部依赖 tokio（真外部依赖只在开启时入图）
-#   embedded= 预留嵌入式流（无外部依赖；副作用是启用 semantics std）
+# ── Instance-layer feature gates (all off by default, as ruled) ─────────────
+#   default = []             (empty instance face: legal, no replacement happens)
+#   async   = pulls semantics' async seam (Executor/SeamPoller)
+#   tokio   = async + optional external dep tokio (a real external dep, in the
+#             graph only when enabled)
+#   embedded= reserved embedded flow (no external deps; side effect: enables
+#             semantics std)
 [features]
 default = []
 async = ["axiom-semantics/async-seam"]
 tokio = ["async", "dep:tokio"]
-embedded = ["axiom-semantics/std"]  # 预留：嵌入式流适配（后续落）
-# tracing 观测汇：Telemetry 契约的第二实现者（第一实现 = semantics Console/Buf）。
-# 拉语义层 telemetry 特性 + 可选依赖 tracing；输出目的地由订阅者决定（打印 vs 观测的边界机制化）。
+embedded = ["axiom-semantics/std"]  # reserved: embedded-flow adaptation (to land later)
+# tracing observation sink: the Telemetry contract's second implementer
+# (first: in-tree semantics Console/Buf).
+# Pulls the semantics telemetry feature + optional dep tracing; the output
+# destination is the subscriber's decision (the print-vs-observe boundary,
+# mechanized).
 telemetry-tracing = ["axiom-semantics/telemetry", "dep:tracing"]
 
 [dependencies.tracing]
 version = "0.1"
 optional = true
-# std：`with_default`（测试捕获订阅者）需要；tracing 默认 feature 集。
+# std: required by `with_default` (test capture subscriber); tracing's default
+# feature set.
 features = ["std"]
 
 [dependencies.tokio]
 version = "1"
 optional = true
 default-features = false
-features = ["time", "rt-multi-thread", "sync"]  # time: 期限语义; rt-multi-thread: 多线程 Runtime::new; sync: mpsc 馈入（tokio_poll_fed, 步骤二）。不拉全套 IO/net
+features = ["time", "rt-multi-thread", "sync"]  # time: deadline semantics; rt-multi-thread: multithreaded Runtime::new; sync: mpsc feeding (tokio_poll_fed). Does not pull the full IO/net set

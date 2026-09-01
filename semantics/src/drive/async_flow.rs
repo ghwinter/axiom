@@ -89,29 +89,25 @@ mod tests {
     }
 
     impl<C: Send> AsyncBlockRing<C> for TestRing<C> {
-        fn send(&self, item: C) -> impl core::future::Future<Output = Result<(), crate::movers::async_ring::Closed<C>>> + Send {
-            async move {
-                if *self.closed.lock().unwrap() {
-                    return Err(crate::movers::async_ring::Closed(item));
-                }
-                let mut q = self.q.lock().unwrap();
-                if q.len() >= self.cap {
-                    return Err(crate::movers::async_ring::Closed(item));
-                }
-                q.push_back(item);
-                Ok(())
+        async fn send(&self, item: C) -> Result<(), crate::movers::async_ring::Closed<C>> {
+            if *self.closed.lock().unwrap() {
+                return Err(crate::movers::async_ring::Closed(item));
             }
+            let mut q = self.q.lock().unwrap();
+            if q.len() >= self.cap {
+                return Err(crate::movers::async_ring::Closed(item));
+            }
+            q.push_back(item);
+            Ok(())
         }
 
-        fn recv(&self) -> impl core::future::Future<Output = Option<C>> + Send {
-            async move {
-                let mut q = self.q.lock().unwrap();
-                let v = q.pop_front();
-                if v.is_none() && *self.closed.lock().unwrap() {
-                    None
-                } else {
-                    v
-                }
+        async fn recv(&self) -> Option<C> {
+            let mut q = self.q.lock().unwrap();
+            let v = q.pop_front();
+            if v.is_none() && *self.closed.lock().unwrap() {
+                None
+            } else {
+                v
             }
         }
 
@@ -131,7 +127,7 @@ mod tests {
     fn drive<F: core::future::Future>(fut: F) -> F::Output {
         use std::task::{Context, Poll, Waker};
         let waker = Waker::noop();
-        let mut cx = Context::from_waker(&waker);
+        let mut cx = Context::from_waker(waker);
         let mut fut = std::pin::pin!(fut);
         loop {
             match fut.as_mut().poll(&mut cx) {

@@ -173,13 +173,13 @@ impl<R> CallDispatch<R> {
         // 带索引遍历，转 Timed 时据此出账到对应 CallId。
         let mut fired = 0;
         for (idx, slot) in self.slots.iter_mut().enumerate() {
-            if let Some(Slot::Await { deadline }) = slot {
-                if now >= *deadline {
-                    let id = CallId(idx as u64);
-                    self.settled.push_back((id, CallResult::TimedOut));
-                    *slot = Some(Slot::Timed);
-                    fired += 1;
-                }
+            if let Some(Slot::Await { deadline }) = slot
+                && now >= *deadline
+            {
+                let id = CallId(idx as u64);
+                self.settled.push_back((id, CallResult::TimedOut));
+                *slot = Some(Slot::Timed);
+                fired += 1;
             }
         }
         fired

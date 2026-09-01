@@ -237,8 +237,7 @@ mod tests {
     fn discard_announces_termination() {
         // 余单位：Out = () 类型层声明"值在此终止"。
         type D = Discard<i32>;
-        let mut st = <D as PortCell>::State::default();
-        assert_eq!(D::step(&mut st, 42), ());
+        assert_eq!(D::step(&mut (), 42), ());
         // 组合封闭：任何格输出可布入 Discard。
         type C = Chain<Inc, Discard<i32>>;
         let mut st2 = <C as PortCell>::State::default();

@@ -499,7 +499,7 @@ mod tests {
     fn deep_chain_reassociation() {
         // 工作表在负载下：8 原子深链，全左嵌套 ≡ 全右嵌套。
         // （全图扫描版本此测试即穷；工作表版本近线性。）
-        const CELLS: [&'static str; 8] = ["A", "B", "C", "D", "E", "F", "G", "H"];
+        const CELLS: [&str; 8] = ["A", "B", "C", "D", "E", "F", "G", "H"];
         let mut a = Term::Cell(CELLS[0]);
         for c in CELLS.iter().skip(1) {
             a = Term::chain(a, Term::Cell(c));
@@ -540,6 +540,8 @@ mod tests {
         eg.add(&b);
         eg.saturate(BUDGET);
         assert!(eg.clean());
+        // bench 编译（release）下方法不存在（cfg(debug_assertions) 门控）——调用随门控。
+        #[cfg(debug_assertions)]
         eg.check_invariants();
     }
 }
