@@ -283,6 +283,33 @@ All graph paradigms share the same M-structure (open system = cell, wiring, host
 存在唯一保持判定时刻的射入本呈现。未证；仅与开放问题 8.2（放置唯一性）并列登记，
 作为元问题树的收敛点假说。
 
+**精确化（2026-09-01 分析批；方向辨析与两级拆分）**。原表述混淆了两个相反的
+射方向，拆分后两级地位不同：
+
+- **(a) 自由面——定理级（已证）**：项呈现 T(Σ)（生成元 + 组合子 + 组合律）
+  在"带生成元指定的 Σ-代数"（coslice）中是初对象：对任何满足已登记组合律的
+  可审计构造体系 X 及其判定保持的生成元指定，存在唯一同态
+  T(Σ)/≡_beh → X。唯一性由项结构归纳强制（同态在生成元上定死后逐步被
+  迫）；良定义性由"X 满足组合律 ⟹ 同态保持 ≡_beh"给出。代码落点：
+  term.rs（`Reify` 项提取）＋ egraph.rs（≡_beh 的可执行近似商机器）。
+  这给出**部署语义**：呈现可唯一地映射入任何合规体系。
+- **(b) 终点面——假说级（未证，方向与 (a) 相反）**：原猜想的字面方向——
+  任何可审计体系存在唯一保持判定时刻的射**入**本呈现——是完备性主张
+  （五概念词汇足以描述任意可审计构造体系），不可自内证明；只能经预测
+  先行协议（P1）逐系统检验。此面与开放问题 8.2（放置唯一性）并列保持
+  假说登记。
+
+方向辨析：初对象方向的射从呈现出发（(a)，部署），原猜想所写的射从体系
+进入呈现（(b)，审计）。两级共同构成"呈现 ↔ 体系"的双向主张；仅 (a)
+可由自由对象泛性质自内证明，(b) 是经验残余。
+
+**Refinement (2026-09-01 analysis batch; direction disambiguation and two-level split)**. The original wording conflates two opposite arrow directions; once split, the two levels carry different statuses:
+
+- **(a) Free side—theorem level (proved)**: the term presentation T(Σ) (generators + combinators + composition laws) is initial in the coslice of Σ-algebras with a chosen generator assignment: for any auditable construction system X satisfying the registered composition laws and any judgment-preserving assignment of the generators, there exists a unique homomorphism T(Σ)/≡_beh → X. Uniqueness is forced by induction on term structure (a homomorphism is pinned down step by step once fixed on generators); well-definedness follows from "X satisfies the laws ⟹ the homomorphism preserves ≡_beh". Code landing points: term.rs (`Reify` term extraction) and egraph.rs (the executable-approximation quotient machine for ≡_beh). This yields the **deployment semantics**: the presentation maps uniquely into any compliant system.
+- **(b) Terminal side—hypothesis level (unproven; direction opposite to (a))**: the literal direction of the original conjecture—every auditable system admits a unique judgment-preserving map **into** the presentation—is a completeness claim (the five-concept vocabulary suffices to describe any auditable construction system) that cannot be proved from within; it can only be tested system by system under the prediction-first protocol (P1). This side remains registered as a hypothesis alongside Open Problem 8.2 (uniqueness of placement).
+
+Direction disambiguation: the initial-object arrow leaves the presentation ((a), deployment); the arrow as originally written enters it ((b), audit). Together the two levels form the bidirectional claim "presentation ↔ systems"; only (a) is provable from within via the free-object universal property, while (b) is the empirical residual.
+
 **注记 8.6（收敛与找补；核心存在 = 约束固定点 / Convergence vs. Patching; the Core as a Fixpoint）**。
 对构成的每一次修改可分两类：
 - **合法精化（收敛）**：消解歧义、收紧定义、每处有锚点与承继记录、可逆——减少解的数目，把设计空间推向

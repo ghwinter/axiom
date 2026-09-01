@@ -17,7 +17,7 @@
 //! 判据同 laws.rs：行为等价（模态③器械——证明律在被测实例上成立）。
 
 use axiom::cell_core::{Chain, Id, PortCell};
-use axiom::monoidal::{Duplicate, Par};
+use axiom::monoidal::{Duplicate, Par, Slide, SlideInv};
 use proptest::prelude::*;
 
 /// 多步游程：同一实例状态上依次喂入序列，收集全迹。
@@ -156,5 +156,32 @@ proptest! {
         let composite = run_trace::<W>(&xs);
         let expanded: Vec<(i32, i32)> = ta.into_iter().zip(tb).collect();
         prop_assert_eq!(composite, expanded);
+    }
+
+    // ── 5. slide 律（半辫，H3 追认时登记的增补项）────────────────────
+
+    #[test]
+    fn slide_round_trip_runs(
+        wing in proptest::collection::vec((any::<i32>(), (any::<i64>(), any::<i32>())), 0..64),
+    ) {
+        // slide 往返：slide⁻¹∘slide ≡ Id 与 slide∘slide⁻¹ ≡ Id（随机游程面；
+        // S=i64 中心，A=B=i32 两翼）。有状态实例不适用——slide 是纯重排，
+        // 这里连同一路径用 Id 对照，覆盖全值域。
+        type Fwd = Chain<Slide<i64, i32, i32>, SlideInv<i64, i32, i32>>;
+        type Back = Chain<SlideInv<i64, i32, i32>, Slide<i64, i32, i32>>;
+        type Wing = Id<(i32, (i64, i32))>;
+        prop_assert_eq!(run_trace::<Fwd>(&wing), run_trace::<Wing>(&wing));
+        prop_assert_eq!(run_trace::<Back>(&wing), run_trace::<Wing>(&wing));
+    }
+
+    #[test]
+    fn slide_naturality_runs(
+        wing in proptest::collection::vec((any::<i32>(), (any::<i64>(), any::<i32>())), 0..64),
+    ) {
+        // 半辫自然性：slide ∘ (f⊗id_S⊗g) ≡ (g⊗id_S⊗f) ∘ slide——有状态实例
+        // （Acc/Scaler）多步游程面，两侧状态独立演化互不串扰。
+        type L = Chain<Par<Acc, Par<Id<i64>, Scaler>>, Slide<i64, i32, i32>>;
+        type R = Chain<Slide<i64, i32, i32>, Par<Scaler, Par<Id<i64>, Acc>>>;
+        prop_assert_eq!(run_trace::<L>(&wing), run_trace::<R>(&wing));
     }
 }

@@ -89,6 +89,7 @@ impl<T> Receipt<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::collections::VecDeque;
 
     #[test]
     fn try_send_maps_full_and_closed_distinctly() {
@@ -133,6 +134,29 @@ mod tests {
         );
     }
 
+    /// 测试装置：有界边。`lossy = false` 为 Fail 策略（满则 Full 回传，
+    /// 判定守恒）；`lossy = true` 为 Drop 策略（满则无声丢弃，外层仍
+    /// 报 Delivered）。装置仅存在于本测试模块，不进词汇表。
+    struct Edge<T> {
+        q: VecDeque<T>,
+        cap: usize,
+        lossy: bool,
+        dropped: usize,
+    }
+    impl<T> Edge<T> {
+        fn push(&mut self, v: T) -> Delivery<()> {
+            if self.q.len() < self.cap {
+                self.q.push_back(v);
+                Delivery::Delivered
+            } else if self.lossy {
+                self.dropped += 1;
+                Delivery::Delivered // 有损边：外层判定照报成功（反例核心）
+            } else {
+                Delivery::Full(()) // Fail 策略：满即判定，值守恒由调用方持 v 重试
+            }
+        }
+    }
+
     /// P6（投递格复合性，closure-audit 3.5）最小复合反例。
     ///
     /// 命题：可分解验证（T4）依赖投递格对复合封闭——复合体边界的判定
@@ -144,36 +168,19 @@ mod tests {
     ///   判定的真实值（Drop）不在四态格内——`Delivered` 无法由格内分段
     ///   判定复合得出。
     ///
-    /// 结论（P6 可证伪预测的机械化见证）：凡载体边以投递四态格声明判定
-    /// （无 Drop），复合验证可分解；引入有损边则复合性破坏，除非饱和
-    /// 策略升格为显式判定。预测绑定下一个被研究系统验证（§0.13 预测先行
-    /// 协议）；命中则 P6 升格为投递格公理条款。
+    /// **P6 升格注记（2026-09-01，代数化完成）**：格封闭的代数内容已
+    /// 机械化为**投递判定幺半群**——序复合 `seq`（上游 `Delivered` ⟹ 复合
+    /// 判定 = 下游判定；上游 `Full`/`Closed` ⟹ 吸收，值未到达下游）：
+    /// `Delivered` 为幺元，`Full`/`Closed` 为吸收元，结合律对全部三元组
+    /// 穷举成立（`p6_verdict_monoid_laws`），多边链的"格内折叠 = 外层判定"
+    /// 封闭性见 `p6_verdict_closure_multi_edge`。**公理条款**：四态格对
+    /// 复合封闭（幺半群）——这是 T4 分解验证的代数前提；格外结果（Drop）
+    /// 入边即破坏封闭，故载体边必须以四态格声明判定，饱和策略必须升格为
+    /// 显式判定（词汇表成员均满足）。可证伪预测的外部验证绑定不变
+    /// （§0.13 预测先行协议，Phase A）。
     #[test]
     fn p6_drop_edge_breaks_verdict_compositionality() {
         use alloc::collections::VecDeque;
-
-        /// 测试装置：有界边。`lossy = false` 为 Fail 策略（满则 Full 回传，
-        /// 判定守恒）；`lossy = true` 为 Drop 策略（满则无声丢弃，外层仍
-        /// 报 Delivered）。装置仅存在于本测试，不进词汇表。
-        struct Edge<T> {
-            q: VecDeque<T>,
-            cap: usize,
-            lossy: bool,
-            dropped: usize,
-        }
-        impl<T> Edge<T> {
-            fn push(&mut self, v: T) -> Delivery<()> {
-                if self.q.len() < self.cap {
-                    self.q.push_back(v);
-                    Delivery::Delivered
-                } else if self.lossy {
-                    self.dropped += 1;
-                    Delivery::Delivered // 有损边：外层判定照报成功（反例核心）
-                } else {
-                    Delivery::Full(()) // Fail 策略：满即判定，值守恒由调用方持 v 重试
-                }
-            }
-        }
 
         // 面 1：无损边复合可分解——3 投 1 容量：Delivered / Full / Full，
         // 分段判定与外层判定一一对应（值不消失）。
@@ -208,5 +215,100 @@ mod tests {
         );
         assert_eq!(lossy.q.len(), 1, "仅 1 值真正入格");
         assert_eq!(lossy.dropped, 2, "2 值无声消失——四态格在复合处漏值（P6 反例成立）");
+    }
+
+    /// P6 升格：投递判定幺半群（序复合 `seq`）的代数律，穷举面。
+    ///
+    /// `seq(a, b)`：上游判定 a、下游判定 b 的复合——a 为 `Delivered`（值到达
+    /// 下游）⟹ 复合判定取 b；a 为 `Full`/`Closed`（值未到达下游）⟹ 吸收 a。
+    /// 幺元 = `Delivered`；`Full`/`Closed` 为吸收元。结合律对三态全部 27 个
+    /// 三元组穷举成立——复合的"怎么分组"不影响判定（T4 分解验证的代数前提）。
+    #[test]
+    fn p6_verdict_monoid_laws() {
+        use Delivery::{Closed, Delivered, Full};
+        let elements = [Delivered, Full(()), Closed(())];
+        // 序复合：上游到达才看下游；上游吸收则下游不执行。
+        let seq = |a: Delivery<()>, b: Delivery<()>| match a {
+            Delivered => b,
+            other => other,
+        };
+        // 结合律（穷举）：(a∘b)∘c ≡ a∘(b∘c)。
+        for a in &elements {
+            for b in &elements {
+                for c in &elements {
+                    let left = seq(seq(a.clone(), b.clone()), c.clone());
+                    let right = seq(a.clone(), seq(b.clone(), c.clone()));
+                    assert_eq!(left, right, "投递判定序复合必须可结合");
+                }
+            }
+        }
+        // 幺元：Delivered 左右幺元。
+        for a in &elements {
+            assert_eq!(seq(Delivered, a.clone()), a.clone(), "Delivered 左幺元");
+            assert_eq!(seq(a.clone(), Delivered), a.clone(), "Delivered 右幺元");
+        }
+        // 吸收元：Full/Closed 吞掉下游判定（值未到达，下游判定无从发生）。
+        for a in &elements {
+            assert_eq!(seq(Full(()), a.clone()), Full(()), "Full 吸收");
+            assert_eq!(seq(Closed(()), a.clone()), Closed(()), "Closed 吸收");
+        }
+    }
+
+    /// P6 升格：多边链的格封闭性——"格内折叠 = 外层判定"在无损链上成立，
+    /// 有损边在格内不可见（封闭性破坏的登记面）。
+    ///
+    /// 三条无损边串联：外层逐投判定 == 以 `seq` 折叠分段判定的结果，且值
+    /// 全部守恒（Fail 策略下被拒值由调用方持重试）。对照：链中任一边换为
+    /// 有损边，真实结果（部分值 Drop）不在四态格内——格内折叠照报
+    /// `Delivered`，与真实值守恒性矛盾；该矛盾即"格外结果破坏封闭"的
+    /// 机械化形式（载体边必须以四态格声明判定的依据）。
+    #[test]
+    fn p6_verdict_closure_multi_edge() {
+        use Delivery::{Delivered, Full};
+        let seq = |a: Delivery<()>, b: Delivery<()>| match a {
+            Delivered => b,
+            other => other,
+        };
+        // 三条无损边（容量 1）串联成链：值从首边注入，段判定 Delivered 才
+        // 续传下游，首个非 Delivered 判定即该值的终止判定（Fail 策略下
+        // 被拒值由调用方持于 held 重试）。
+        let mut edges: Vec<_> = (0..3)
+            .map(|_| Edge { q: VecDeque::new(), cap: 1, lossy: false, dropped: 0 })
+            .collect();
+        let mut held = Vec::new();
+        for v in 1..=3i32 {
+            let mut outer = Delivery::Delivered;
+            let mut fold = Delivery::Delivered;
+            for e in edges.iter_mut() {
+                let seg = e.push(v);
+                fold = seq(fold, seg.clone());
+                outer = seg.clone();
+                if let Full(()) = seg {
+                    // Fail 边：值由上游段持有（本装置以 held 汇总守恒）。
+                    held.push(v);
+                    break;
+                }
+            }
+            assert_eq!(outer, fold, "无损链：外层判定 = 分段判定折叠（格封闭）");
+        }
+        // 无损链值守恒：每个输入值恰好终止于一个位置——链上首个非
+        // Delivered 判定处（held），或穿过全部段后驻留于末边队列。
+        let terminated_in_edges = edges.last().map(|e| e.q.len()).unwrap_or(0);
+        assert_eq!(terminated_in_edges + held.len(), 3, "无损链：值全部存活（守恒）");
+        assert!(held.iter().all(|&v| v >= 2), "容量 1 下 v=1 穿全链，v≥2 停于首边（Fold=Outer 已逐投断言）");
+
+        // 对照：末段换有损边（首段容量充裕不拒收）——格内折叠照报成功，
+        // 但值在末段无声消失（封闭破坏可见）。
+        let mut a = Edge { q: VecDeque::new(), cap: 8, lossy: false, dropped: 0 };
+        let mut b = Edge { q: VecDeque::new(), cap: 1, lossy: true, dropped: 0 };
+        let mut fold = Delivered;
+        for v in 1..=3i32 {
+            let s1 = a.push(v);
+            let s2 = b.push(v);
+            fold = seq(fold, seq(s1, s2));
+        }
+        assert_eq!(fold, Delivered, "有损边在格内不可见（折叠照报成功）");
+        assert!(b.dropped > 0, "但真实结果在格外（Drop）——封闭性破坏的机械化形式");
+        assert_eq!(b.q.len() + b.dropped, 3, "末段收到的 3 值仅 1 值存活（Drop 在格外）");
     }
 }
