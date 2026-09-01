@@ -245,6 +245,13 @@ minor version).
 - `flow::drive_link`: missing cross-crate `#[inline(always)]` cost a real call
   per drive in some layouts (+45%…+89% on the C9 bench) — zero-cost promise
   restoration.
+
+### Changed — license
+
+- Project license switched MIT → Apache-2.0: `LICENSE` replaced with the full
+  Apache License 2.0 text; `license = "Apache-2.0"` in all four crate
+  manifests (`axiom`, `axiom-semantics`, `axiom-instances`,
+  `axiom-demo-sql-over-redis`).
 ## [0.3.0] — 2026-08 — Axiometric core (current design baseline)
 
 The crate is the four-constituent compile-time core (`cell_core`) plus a

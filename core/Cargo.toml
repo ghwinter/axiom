@@ -6,7 +6,7 @@ edition = "2024"
 # on later stable releases; bump only when adopting newer language features.
 rust-version = "1.98"
 description = "Four-constituent compile-time core: open systems + causal dataflow + composition + staticity declaration. Blueprints are defined in Rust code/types — no JSON or value-form intermediate layer; the model is exhausted at compile time, and the compiled artifact is equivalent to hand-written plain Rust with zero runtime objects. Zero-dependency."
-license = "MIT"
+license = "Apache-2.0"
 readme = "../README.md"
 repository = "https://github.com/ghwinter/axiom"
 homepage = "https://github.com/ghwinter/axiom"

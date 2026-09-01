@@ -5,7 +5,7 @@ edition = "2024"
 # Edition 2024 stabilized in Rust 1.85 (Feb 2025); matches core/runtime.
 rust-version = "1.98"
 description = "axiom instance layer: replaceable physical implementations plugged in through the sockets (Executor/Carrier/Telemetry). The official standard set is one fused crate with feature gating (tokio), all off by default; third parties may self-build separate crates via the open path (dual-form boundary, instance-layer-design §3)."
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/ghwinter/axiom"
 homepage = "https://github.com/ghwinter/axiom"
 documentation = "https://docs.rs/axiom-instances"

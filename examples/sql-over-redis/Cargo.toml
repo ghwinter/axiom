@@ -5,7 +5,7 @@ edition = "2024"
 # Edition 2024 stabilized in Rust 1.85 (Feb 2025); matches core/runtime/instances.
 rust-version = "1.98"
 description = "axiom comprehensive demo (cross-layer use case): planned lib + thin per-driver bins + equivalence cross-checks. First use case = SQL-over-Redis (the Redis protocol face × the psql computation face over one composition core); sync by default, the tokio variant driven truly asynchronously via axiom-instances."
-license = "MIT"
+license = "Apache-2.0"
 repository = "https://github.com/ghwinter/axiom"
 homepage = "https://github.com/ghwinter/axiom"
 documentation = "https://docs.rs/axiom-demo-sql-over-redis"
