@@ -246,6 +246,32 @@ All graph paradigms share the same M-structure (open system = cell, wiring, host
 
 - **Theoretical placement**: the largest-scale application of concept 4 (typed hole); the inter-system seam proposition (multiple constitutions interconnected via inter-system carriers, contract conformance ∀ verified at compile time, existence ∃ bound at runtime, absence = delivery state Closed); also the cross-project form of Props. 7.1/7.3. Industrial convergences: the Linux device model (driver–device matching), FIDL/protocol schemas (protobuf/OpenAPI), consumer-driven contract testing (Pact), FFI/ABI boundaries—all specializations of one structure; axiom provides the minimal kernel (typed hole + four modalities + obligation algebra) and, via the law of stratification (Thm. 9.6), locates the undecidable part at the seam (L₂) instead of hiding it.
 
+**注记 7.2（两种动态语义 / Two Semantics of the Dynamic）**。工程文献中的"动态"至少混用两种不同层面的语义；区分它们是命题 7.5 参数化（绑定时刻 × 绑定机制）的直接推论。
+
+- **派发语义**：以绑定机制论动态——同一调用点执行谁的代码由运行期决定（类型擦除、虚表、接口注册）。此语义下，派发目标全部编译期已知的分支派发（match 表）被归为"静态"，尽管其目标同样在运行期才被实例化。
+- **存在语义**：以存在事件论动态——某个编译期已被证明的形态，在未来某时刻是否驻留于宿主（堆栈、线程、图实例）。决定它的事件（分支、部署参数、设备树挂载）不触及证明结构；挂载是事件，不是定义。
+
+两者的差异是范畴性的，不是程度性的：派发语义把"动态"安置在调用机制中（虚表项指向谁），存在语义把"动态"安置在时间中（哪个被证形态此刻存在）。据此三条推论：
+
+1. **时间性不依赖派发机制**。代码在时空上存在先后关系：任何程序——含零分支直线程序——都在运行期被实例化到宿主上。以存在语义度量，"静态/动态"二分覆盖一切执行；以派发语义度量，它只覆盖调用点目标的可变性。两个词法对同一程序给出不同分类，故擦除派发意义上的动态与存在意义上的动态不可互译。
+2. **证明对未来是全称的**。正确性由契约承载：证明对契约参数化（对任意满足契约的实现，组合均正确——命题 7.5 "契约相合可判"面），不提及具体实现。因此绑定点后移（编译期 → 构建期 → 运行期 → 未来装载）不减损正确性，只改变绑定时刻与绑定机制两个参数。设备树即为常设实例：树不拥有设备代码，契约拥有正确性，挂载产生存在。
+3. **擦除的物理角色是放置，不是证明**。类型擦除的真实使用场景是异构集合与跨编译单元边界：它解决"放进同一容器/同一调用点"的放置问题，不产生正确性、不定义缝。在"契约承载正确性"的度量上，编译期泛型严格强于运行期擦除——前者在实例化时保留类型信息，后者在调用点之前已将其消除。
+
+推论（部署的语义）：以绑定机制论"动态"是范畴错误。部署期分支派发与任何未来装载形态处于同一名义之下——被证形态的时间性实例化；差异只剩命题 7.5 的两个参数（绑定时刻 × 绑定机制），不构成"静态/动态"的等级。
+
+**Remark 7.2 (Two Semantics of the Dynamic)**. Engineering usage conflates at least two senses of "dynamic"; distinguishing them is a direct corollary of the parametrization of Proposition 7.5 (binding time × binding mechanism).
+
+- **Dispatch semantics**: dynamic is judged by the binding mechanism—whose code a single call site executes is decided at runtime (type erasure, vtables, interface registration). Under this lexical rule, branch dispatch whose targets are all compile-time known (a match table) counts as "static", even though its targets are likewise instantiated only at runtime.
+- **Existence semantics**: dynamic is judged by existence events—whether a form already proven at compile time resides in the host (stack, thread, graph instance) at some future moment. The event that decides it (a branch, a deployment parameter, a device-tree mount) touches no proof structure; mounting is an event, not a definition.
+
+The difference is categorical, not gradual: the dispatch semantics places the dynamic in the call mechanism (whom the vtable entry targets); the existence semantics places it in time (which proven form exists now). Three consequences:
+
+1. **Temporality is independent of the dispatch mechanism.** Code stands in spatiotemporal precedence relations: every program—including a branch-free straight-line one—is instantiated into a host at runtime. Measured by the existence semantics, the static/dynamic dichotomy covers all execution; measured by the dispatch semantics, it covers only variability of call-site targets. The two lexicons classify the same program differently; the dynamic of erasure-dispatch and the existential dynamic are not intertranslatable.
+2. **Proof is universal over the future.** Correctness is carried by the contract: the proof is parametric in the contract (for any implementation satisfying it, the composition is correct—the "contract conformance decidable" face of Prop. 7.5) and mentions no concrete implementation. Postponing the binding point (compile → build → runtime → future loading) therefore costs no correctness; it changes only the two parameters, binding time and binding mechanism. The device tree is the standing instance: the tree owns no device code; the contract owns correctness; mounting produces existence.
+3. **The physical role of erasure is placement, not proof.** Type erasure is genuinely needed for heterogeneous collections and cross-compilation-unit boundaries: it solves the placement problem of "fitting into one container / one call site"; it produces no correctness and defines no seam. Measured on "the contract carries correctness", compile-time generics strictly dominate runtime erasure—the former preserves type information at instantiation, the latter has already eliminated it before the call site.
+
+Corollary (semantics of deployment): judging "dynamic" by the binding mechanism is a category error. Deployment-time branch dispatch and any future loading form stand under one heading—the temporal instantiation of proven forms; what remains is only the two parameters of Prop. 7.5 (binding time × binding mechanism), not a static/dynamic hierarchy.
+
 ---
 
 ## 8. 构成最优性 / Constitutional Optimality
