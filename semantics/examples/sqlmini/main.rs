@@ -6,8 +6,8 @@
 //! `SELECT 表达式 … FROM 表 [WHERE …] [GROUP BY …] [ORDER BY …] [LIMIT n]`，
 //! 聚合 `COUNT/SUM/AVG/MIN/MAX`。
 //!
-//! 运行：`cargo run --manifest-path runtime/Cargo.toml --example sqlmini -- <query>`
-//! 测试：`cargo test --manifest-path runtime/Cargo.toml --example sqlmini`
+//! 运行：`cargo run --manifest-path semantics/Cargo.toml --example sqlmini -- <query>`
+//! 测试：`cargo test --manifest-path semantics/Cargo.toml --example sqlmini`
 
 mod errors;
 mod lexer;

@@ -11,7 +11,7 @@
 //! | 2 | Type-level contract (`Conforms`) covers composed units, not just leaves | `type_level_contracts_cover_composites` |
 //! | 3 | Non-invasion axiom: every definition is a ZST; a frozen blueprint lives in a `const` | `definitions_are_zero_sized_and_const_livable` |
 //! | 4 | Static entry is semantically transparent: generic drive == hand-unrolled steps (bit-exact) | `static_entry_matches_handwritten_bit_exact` |
-//! | 5 | Definition↔activation split: defined-but-undriven subgraphs have zero runtime presence (∃-side evolution: see runtime/tests/unified.rs) | `defined_without_activation_has_zero_presence` |
+//! | 5 | Definition↔activation split: defined-but-undriven subgraphs have zero runtime presence (∃-side evolution: see semantics/tests/unified.rs) | `defined_without_activation_has_zero_presence` |
 //! | 6 | Determinism (R001): identical input sequences through fresh states yield identical outputs | `determinism_rerun_is_identical` |
 //!
 //! All comments in this file are in English per project convention for new code.

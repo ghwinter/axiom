@@ -31,8 +31,8 @@
 //! 可删、可加、可平行替换三者同时成立，边界在架构上成立。
 //!
 //! 那为何必须有实例层？为存在性证明（witness）：(1) T6（同抽象组合、多物理实现、语义等价）
-//! 是定理宣称，若一律不实现载体，它便是空洞形式化——真异步驱动（`async_driver`）证明"抽象层可对
-//! async 全然无知、经契约接入执行器"，只能由真写出来测过的实现证明，不能由文档宣称；(2) 接缝契约的
+//! 是定理宣称，若一律不实现载体，它便是空洞形式化——异步驱动（`async_driver`）证明"抽象层可对
+//! async 全然无知、经契约接入执行器"，只能由实际编写并测试过的实现证明，不能由文档宣称；(2) 接缝契约的
 //! 缺陷（隐含假设、泄漏）只由实现者暴露，本层由项目自己任第一实现者验证插座设计（故文档称
 //! "实现用例"——use-case，身份是证据非权威）；(3) 无实例层等于挖护城河——连适配器都要用户自写，
 //! 不是自由是门槛。
@@ -46,10 +46,10 @@
 //!
 //! ## 布局（目录 = 语义分层）
 //!
-//! - [`backend`]（`tokio` feature 门控）：异步后端——`async_driver`（真异步驱动：
-//!   把轮询等待点经语言原生 `.await` 挂进 tokio reactor，`tokio_poll_until`/
+//! - [`backend`]（`tokio` feature 门控）：异步后端——`async_driver`（异步驱动：
+//!   把轮询等待点经语言原生 `.await` 接入 tokio reactor，`tokio_poll_until`/
 //!   `tokio_roll_until`/`tokio_poll_fed`，不扩 `Executor` 契约；同步 `park` 桥实测
-//!   接入失败，真接入在此域落地）+ `tokio_exec`（同步 `Executor` 契约的线程级等待实现，与 `ThreadExec` 平级）。
+//!   接入失败，实际接入在此域落地）+ `tokio_exec`（同步 `Executor` 契约的线程级等待实现，与 `ThreadExec` 平级）。
 //!
 //! **no_std**：本 crate 不参与 no_std 承诺——实例层依赖 `std`（tokio/embedded
 //! 实例均需）。默认 feature 下无 std 使用路径（空实例面），保持最小。
@@ -66,23 +66,30 @@
 
 /// 异步后端（`tokio` feature 门控）：异步等待模式驱动 + 同步线程级等待执行器。
 pub mod backend {
-    /// 真异步驱动：把轮询等待点经语言原生 `.await` 挂进 tokio reactor
+    /// 异步驱动：把轮询等待点经语言原生 `.await` 接入 tokio reactor
     /// （`tokio_poll_until`/`tokio_roll_until`/`tokio_poll_fed`），不扩 `Executor` 契约。
     /// 门控：`tokio` feature。
     #[cfg(feature = "tokio")]
     pub mod async_driver;
 
     /// tokio 依赖的同步执行器——`Executor` 契约的线程级等待实现
-    /// （与 `ThreadExec` 平级；真异步路径在 `async_driver` 的语言原生 `.await`）。
+    /// （与 `ThreadExec` 平级；异步路径在 `async_driver` 的语言原生 `.await`）。
     /// 门控：`tokio` feature。
     #[cfg(feature = "tokio")]
     pub mod tokio_exec;
 
     /// tokio 事件驱动异步块环：实现语义层 `AsyncBlockRing` 契约（send 等非满 /
-    /// recv 等新块，双 Notify 唤醒挂 tokio reactor）。块级流水线的交接原语。
+    /// recv 等新块，双 Notify 唤醒接入 tokio reactor）。块级流水线的交接原语。
     /// 门控：`tokio` feature。
     #[cfg(feature = "tokio")]
     pub mod async_ring;
+
+    /// tokio 事件流实例：`AsyncLineSource`（AsyncRead 块源 + 行分割器）实现
+    /// 语义层 `AsyncEventStream` 契约——外部世界（套接字/流）经块读异步进入
+    /// 因果流，等待点接入 tokio reactor（同步 `ChunkSource` 的异步域对偶，T6）。
+    /// 门控：`tokio` feature。
+    #[cfg(feature = "tokio")]
+    pub mod async_event;
 
     /// 同步块环流水线（embedded 基座）：BoundedRing 背压的单线程块泵（`async_flow` 的
     /// 退化极限，稳态零分配；`EmbeddedProfile` 白名单存储原语）。门控：`embedded` feature。

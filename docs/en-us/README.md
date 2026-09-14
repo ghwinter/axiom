@@ -22,6 +22,11 @@ on its own.
 > registry ([frontier-notes](../internal/theory/frontier-notes.md)), and the historical
 > archive ([theory-archive](../internal/theory/theory-archive.md)). Not part of this
 > specification; on conflicts the documents above prevail.
+>
+> **Concept alignment:** readers who need to align the project's concepts (state-machine
+> semantics, code-vs-runtime domains, the manager pattern, compositionality, time/protocol/
+> dataflow models) should read [concept-alignment](../internal/theory/concept-alignment.md)
+> before the volumes below.
 
 ## Reading path
 

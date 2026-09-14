@@ -5,7 +5,7 @@
 //! Carrier 演示：`PlayerHandler → WorldState`（Result 车道）经短路载体驱动
 //! （`ResultCarrier`，Inline 零分配）。
 //!
-//! 运行：`cargo run --manifest-path runtime/Cargo.toml --example mmo`
+//! 运行：`cargo run --manifest-path semantics/Cargo.toml --example mmo`
 
 mod cells;
 

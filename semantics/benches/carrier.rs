@@ -4,7 +4,7 @@
 //! - **InlineCarrier**（栈上函数传，零分配、单线程）；
 //! - **spawned_flow**（跨线程通道载体，mpsc + 独立线程——每消息同步 + 装箱）。
 //!
-//! 运行：`cargo bench --manifest-path runtime/Cargo.toml --bench carrier`。
+//! 运行：`cargo bench --manifest-path semantics/Cargo.toml --bench carrier`。
 
 use axiom::cell_core::PortCell;
 use axiom_semantics::movers::carrier::{InlineCarrier, spawned_flow};

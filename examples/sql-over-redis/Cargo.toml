@@ -24,12 +24,24 @@ axiom-instances = { path = "../../instances", version = "0.3.0", default-feature
 [features]
 default = []                       # sync demo: zero third-party (pure semantics driver)
 tokio = ["axiom-instances/tokio", "dep:tokio"]  # async demo: true async driver + channel feeding
+# 对抗性 T6 交叉验证：确定性仿真载体（turmoil 镜像 tokio::net）作为同一 async 蓝图的
+# 第三物理域——`src/net.rs` 在 feature 处切换 net 类型；测试 `tests/tcp_sim_adversarial.rs`。
+turmoil = ["axiom-instances/tokio", "dep:tokio", "dep:turmoil"]
 
 [dependencies.tokio]
 version = "1"
 optional = true
 default-features = false
-features = ["time", "rt-multi-thread", "sync"]  # same tokio feature set as instances; time+rt-multi-thread+sync (feeding)
+# 既有：time+rt-multi-thread+sync（并发等待/馈入）；增 net（实际 TCP 套接字）、
+# io-util（AsyncRead/AsyncWriteExt）、macros（#[tokio::main]/#[tokio::test]）。
+features = ["time", "rt-multi-thread", "sync", "net", "io-util", "macros"]
+
+# 仿真载体：tokio-rs 官方确定性仿真框架（单线程模拟主机/时间/网络，rng_seed 可复现）。
+# 仅 `turmoil` feature 下进入编译（`src/net.rs` 切换 net 类型用）。
+[dependencies.turmoil]
+version = "0.7"
+optional = true
+default-features = false
 
 # ── Benchmarks (build use cases, kept) ──────────────────────────────────────
 [[bench]]

@@ -1,6 +1,6 @@
 //! KV 协议面（综合用例 SQL-over-Redis 的协议侧）。
 //!
-//! 迁自 `runtime/examples/redis_like/cells.rs`（原位示例保留）——本模块为组合内计划
+//! 迁自 `semantics/examples/redis_like/cells.rs`（原位示例保留）——本模块为组合内计划
 //! 副本，双参照标注：原位 = 单用例证据（含三物理驱动与 TCP 接缝）；本处 = 组合计划
 //! 的一部分（副本裁剪：StoreDemux / ReadOnlyProxy 未迁入——组合编码由 composite 承接，
 //! ∃ 换装非组合焦点）。
@@ -133,7 +133,7 @@ impl PortCell for LineSplit {
 }
 
 /// 把一行解析为命令（`GET key` / `SET key val` / `DEL key` / `INCR key`）。
-/// 失败是 `Err(Error::Parse(..))` 值——不静默吞成零值/占位。
+/// 失败是 `Err(Error::Parse(..))` 值——不静默降格为零值/占位。
 pub struct CmdParse;
 impl PortCell for CmdParse {
     type In = String;

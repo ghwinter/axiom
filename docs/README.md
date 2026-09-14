@@ -21,7 +21,11 @@ definition–activation, schemas — axiom's upgraded design beyond the static b
 > [meta-foundations](internal/theory/meta-foundations.md)), unrealized-directions registry
 > ([frontier-notes](internal/theory/frontier-notes.md)), and the historical archive
 > ([theory-archive](internal/theory/theory-archive.md)) live under
-> [`docs/internal/theory/`](internal/theory/README.md). On conflicts, the formal specification prevails.
+> [`docs/internal/theory/`](internal/theory/README.md). **Concept alignment: readers who
+> need to align the project's concepts (state machine semantics, code-vs-runtime domains,
+> manager pattern, compositionality, time/protocol/dataflow models) should first read
+> [concept-alignment](internal/theory/concept-alignment.md) before the volumes below.**
+> On conflicts, the formal specification prevails.
 
 > **Workspace layout (non-normative):** the workspace is layered — `core/` (compile-time
 > core), `semantics/` (physical layer; source under checks/movers/seams/drive), `instances/`

@@ -29,12 +29,12 @@
 //!
 //! ## 真实接入的诚实边界（不伪造）
 //!
-//! 仓库现有服务（`ComposeLine`）是单槽同步，不消费关联表；若把本模块硬焊进
-//! demo 便是有名无实的接线。故真实接入登记为二期：随第一个携带相关 id 的
-//! 乱序异步服务（第一个真实网络系统）落地而接线。本模块当前是纯可用、已测的
-//! 目录件，其一期工作是提供可复用的关联与超时语义；接线点（驱动把物理响应路由到
-//! `CallId`）是服务契约，不在本模块范围。此处遵循"组件先于接线、真实需求才接线"的
-//! 纪律。
+//! `ComposeLine` 本身是单槽同步服务，不消费关联表；若把它硬编码进单槽 demo 便是有名无实
+//! 的接线。**二期接线已落地**：[`gateway`](crate::gateway)（批处理网关）——路由时延使
+//! 完成次序 ≠ 提交次序（慢调用超时出账、迟到响应被吸收），关联表不可退化为平凡——
+//! 这是本模块在仓库内的首次真实接线（同一用例内，`gateway.rs` 的收集循环把物理响应经
+//! `complete(call_id, resp)` 路由进来）。接线点（驱动把物理响应路由到 `CallId`）仍是
+//! 服务契约、不在本模块范围；此处遵循"组件先于接线、真实需求才接线"的纪律。
 
 use std::collections::VecDeque;
 use std::time::Instant;
@@ -134,7 +134,7 @@ impl<R> CallDispatch<R> {
         // CallId 单调递增、槽永不复用 → 新 id 恒等于当前槽长，直接 Push（索引 == 值）。
         let expired = _now >= deadline;
         let slot = if expired {
-            // 期限已过：判定已可确定，当场出账（不延后、不静默丢——每调用恰一条）。
+            // 期限已过：判定已可确定，即时出账（不延后、不静默丢——每调用恰一条）。
             self.settled.push_back((id, CallResult::TimedOut));
             Slot::Timed
         } else {
@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn immediate_expired_submit_settles_timed_out() {
-        // 期限已过才 submit → AlreadyExpired，判定当场出账（不静默丢）。
+        // 期限已过才 submit → AlreadyExpired，判定即时出账（不静默丢）。
         let epoch = t0();
         let mut d = CallDispatch::<&'static str>::new();
         let (id, submit) = d.submit(at(epoch, 10), at(epoch, 20));

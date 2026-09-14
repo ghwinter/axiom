@@ -1,9 +1,17 @@
 # Minimal CI for axiom: lint + test + no_std build, on both dev platforms.
 #
+# Bench gates (A2, E1 automation):
+# - Compile gate: `cargo bench --no-run` — release benches must compile
+#   against the current API.
+# - Threshold gate: `dynamic_tax` asserts the erased-seam per-touch tax stays
+#   under `DYNAMIC_TAX_MAX_NS_OP` (C14-A2 hook; min-of-N + self-noise floor).
+#   The threshold is deliberately loose (≥10× the stable reading) so shared-
+#   runner jitter cannot flake the gate, while catastrophic regressions
+#   (per-touch allocation / indirection) still fail.
 # Deliberately NOT included (yet):
-# - `cargo bench`: release-only evidence; benches self-skip under debug and
-#   timing gates are flaky on shared runners. Run `cargo bench` manually when
-#   a zero-cost claim needs re-evidence.
+# - Micro-drift comparison for `carrier` / `profile_workloads`: still manual
+#   (`cargo bench`, see benches/bench_common.rs and CHANGELOG C9 notes) —
+#   run manually when a zero-cost claim needs re-evidence.
 # - `evidence/run.sh|ps1`: probe corpus TRIAGED (2026-08, see evidence/README.md
 #   "triage"); survivors E100/R001/R002 are carried by the no_std build, the
 #   topology determinism test, and the dynamic_tax bench respectively; the
@@ -39,13 +47,18 @@ jobs:
           cargo clippy --workspace --all-targets -- -D warnings
           cargo clippy -p axiom-instances --all-targets --features tokio -- -D warnings
           cargo clippy -p axiom-demo-sql-over-redis --all-targets --features tokio -- -D warnings
+          cargo clippy -p axiom-demo-sql-over-redis --all-targets --features turmoil -- -D warnings
 
       # Tests: workspace (core + semantics unit/integration); instances feature tests.
+      # The use-case crate is exercised in both network domains: tokio = actual
+      # sockets (tcp_t6_crosscheck), turmoil = deterministic simulation
+      # (tcp_sim_adversarial, adversarial invariants; needs the simulation host).
       - name: Test
         run: |
           cargo test --workspace
           cargo test -p axiom-instances --features tokio
           cargo test -p axiom-demo-sql-over-redis --features tokio
+          cargo test -p axiom-demo-sql-over-redis --features turmoil
 
       # Doc drift gate (C11): every ```rust block in formal docs must compile
       # against the current API. Ignore list: tmp/docgate-ignore.txt.
@@ -59,13 +72,18 @@ jobs:
           cargo build -p axiom --no-default-features
           cargo build -p axiom-semantics --no-default-features
 
-      # Bench compile gate (A2, partial): release benches must compile against the
-      # current API. Threshold comparison (E1 automation) stays manual on shared
-      # runners — timing gates are flaky; run `cargo bench` with the noise-floor
-      # method (min-of-N + self-noise floor) when a zero-cost claim needs
-      # re-evidence (see benches/bench_common.rs and CHANGELOG C9 notes).
+      # Bench gates (A2, E1 automation): compile gate + threshold gate. The
+      # threshold uses the C14-A2 hook already in dynamic_tax.rs: per-touch tax
+      # of the erased seams must stay under DYNAMIC_TAX_MAX_NS_OP. Loose on
+      # purpose (shared runners jitter; min-of-N absorbs noise) — this is a
+      # catastrophe gate, not a micro-drift gate.
       - name: Bench compile (release)
         run: cargo bench --no-run -p axiom-semantics
+
+      - name: Bench threshold (dynamic_tax, release)
+        env:
+          DYNAMIC_TAX_MAX_NS_OP: "25"
+        run: cargo bench -p axiom-semantics --bench dynamic_tax
 
       # Feature matrix (convergence 2026-08): seam-family features must each
       # compile standalone against the core family — prevents gate rot
@@ -82,3 +100,4 @@ jobs:
           cargo build -p axiom-instances --no-default-features --features embedded
           cargo build -p axiom-demo-sql-over-redis --no-default-features
           cargo build -p axiom-demo-sql-over-redis --no-default-features --features tokio
+          cargo build -p axiom-demo-sql-over-redis --no-default-features --features turmoil

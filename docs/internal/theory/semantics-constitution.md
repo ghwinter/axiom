@@ -72,11 +72,11 @@
   落点）**：观测可到达接口与载体判定的可观察行为（S），不进入 cell 内部 `State`（`State` 按遗漏无结构，
   core.md §2.1）。**推论**：观测 `State` 内部演化是给 `State` 增加结构的后果（见 D11 资源幺半群），非观测层
   默认能力。
-- **D9 step 边界与卡死放置权**：`step : State×In → State×Out` 是组合节点的（单跳、同步）边界契约——钉住
+- **D9 step 边界与停滞放置权**：`step : State×In → State×Out` 是组合节点的（单跳、同步）边界契约——钉住
   "线缆两端这一跳的输入输出关系"，如同 C 函数签名只描述边界、不捕获内部载体。`step` 的"纯"非计算本性主张，
-  而是"边界不变量在流动不卡死片段上成立"的约定（决策 T；core §2.1）。**卡死放置权二选一**：(a) 归载体
-  （实现现状：卡死放置于队列 / 载体 / async_seam，`step` 保持全函数，core 承诺"step 不卡死"）；(b) 归行为
-  范畴（若要"卡死本身"作原子语义，原子单位是事件 / 握手，非 step，落并发基座 8.6 item9）。二者非定义层冲突，
+  而是"边界不变量在流动不停滞片段上成立"的约定（决策 T；core §2.1）。**停滞放置权二选一**：(a) 归载体
+  （实现现状：停滞放置于队列 / 载体 / async_seam，`step` 保持全函数，core 承诺"step 不停滞"）；(b) 归行为
+  范畴（若要"停滞本身"作原子语义，原子单位是事件 / 握手，非 step，落并发基座 8.6 item9）。二者非定义层冲突，
   是放置层选择；连续性流本非 step 形（流需共归纳，落语义目标范畴）；反馈经听证 D
   裁定为**守卫反馈**（一拍延迟），单元形式即 step 复合（C2 拍次裁定），无求迹
   （trace）语义——"反馈需 trace"不取（positioning §6.1）。
@@ -164,7 +164,7 @@ semantics/src/
 
 **三处边界（非冲突，已声明）**：
 
-1. **同步 flow 签名 vs 真异步库**：`drive_link` 等为同步驱动；真异步库（async 生态）经异步接缝接入（`AsyncCarrier`，D2 已裁定；接缝源码见 `semantics/src/seams/async_seam.rs`——设计文书未入 docs，正式化时随接缝 prose 迁入），义务层（L/C）保持兼容，拓扑不变。
+1. **同步 flow 签名 vs 异步库**：`drive_link` 等为同步驱动；异步库（async 生态）经异步接缝接入（`AsyncCarrier`，D2 已裁定；接缝源码见 `semantics/src/seams/async_seam.rs`——设计文书未入 docs，正式化时随接缝 prose 迁入），义务层（L/C）保持兼容，拓扑不变。
 2. **自研原语 vs 成熟通道库**：`mailbox`/`BoundedQueue` 自研原语与成熟通道库等价竞争——库 = 一个实现 S 的 Carrier + 义务声明（六元组化）；替换不改变链拓扑（T6 等价类）。
 3. **剖面预算 vs 库自由**：`assemble_profile` 施加预算门（Kernel/Service/Tool）；预算约束的是声明，不是机制——库在 ToolProfile 下宽松、在 KernelProfile 下被义务 ②③ 见证，语义不变。
 
@@ -181,7 +181,7 @@ semantics/src/
 
 ## 8. 控制与观测（语义澄清与共形）/ Control and Observation
 
-> 背景：外部审计（2026-08，tmp2.md）引入"控制面/观测面"，与系统内语义存在双义；
+> 背景：外部审计（2026-08）引入"控制面/观测面"，与系统内语义存在双义；
 > 本节把两义钉死，并给出 axiom 的共形（不引入新概念，§8.3）。
 
 - **观测面（两语义一致）**：被观测信息的收集 → 输出（控制台/日志/持久化）；审计补充
@@ -211,7 +211,9 @@ semantics/src/
    边界载体 ＋ "cell 内禁 panic"约定；A4 枚举式候选集 Slot；A5 稳定性/版本政策。
    — **A1 已落地（2026-08, 667ee92）**：饱和枚举与偏序
    （`meets_saturation_floor`）＋ `validate_saturation`；门折进剖面装配而非
-   `validate_seam`（饱和下限是部署剖面属性）。**A3 已落地**：`drive_catch`（catch_unwind）
+   `validate_seam`（饱和下限是部署剖面属性）。**A2 已落地（2026-09-13）**：bench 阈值门
+   进 CI——`ci.yml` 以 `DYNAMIC_TAX_MAX_NS_OP=25` 跑 `dynamic_tax`，断言擦除缝每触税
+   在阈值下（灾难回归门；微漂移仍手动，noise-floor 方法）。**A3 已落地**：`drive_catch`（catch_unwind）
    既存于 flow.rs，补 `NoPanic` ④声明标记纪律。
 3. **理论补丁（C15）**：激活义务小节（foundations）、错误代数小节（§9.2：E 传播/
    合并政策成文——类型层已强制 E ∈ Out，政策层自由）。
@@ -282,13 +284,13 @@ placement 的语义面）：服务的跨机器放置按可判性分四层，各�
   开放剖面（Tool/Embedded，未注册放行）——「未注册不可选型」仅门剖面成立。
 - **EX 泛型化 additive**：`poll_with`/`roll_with` 把等待点交给 `&mut impl Executor`
   （`ThreadExec` 语义不变，现有入口保留）。
-- **真异步驱动（§5.4 已落）**：同步 `park` 内 `block_on(tokio::time::sleep)` 实测三形态均
-  no-reactor（接入失败）⟹ 真接入改走 adapter 侧 async worker（`axiom-instances/async_driver`）：
+- **异步驱动（§5.4 已落）**：同步 `park` 内 `block_on(tokio::time::sleep)` 实测三形态均
+  no-reactor（接入失败）⟹ 实际接入改走 adapter 侧 async worker（`axiom-instances/async_driver`）：
   `poll()`/`roll()` 公开入口不变，等待点经 `tokio::time::sleep(tick).await` 兑现——
-  不扩 `Executor` 契约、零语义层改动，非破坏、无 §4.3 许可。`TimedOut` 由真定时器
+  不扩 `Executor` 契约、零语义层改动，非破坏、无 §4.3 许可。`TimedOut` 由定时器
   产出（Timeout 升 ③ 的机制地面，D2 承载域）；账本行升 ②③ 属 LEDGER 权威变更，后续做。
 - **开放项（不宣称②③）**：同步 `Executor` 插座自身仍为占位（`park_timeout`，不提供
-  tokio 期限）——trait 化的可替换等待点由 `ThreadExec`/`TokioExec` 兑现，真 tokio 语义
+  tokio 期限）——trait 化的可替换等待点由 `ThreadExec`/`TokioExec` 兑现，实际 tokio 语义
   走 async 路径；MSRV/行为待实测。
 
 **层位学说（承接前置"层位身份"段）**：
@@ -299,7 +301,7 @@ placement 的语义面）：服务的跨机器放置按可判性分四层，各�
   `std` 具体类型。唯一不可替换的底 = 语言核心 + `alloc`。
 - **绑定爆发归此层**：`no_std` 在抽象层保持，绑定与宿主依赖在实例层爆发；突破 `no_std` 是实例层的合法行为，非缺
   陷。
-- **基座优先落地**：同步纯 cell 分布性是基座（并发 / 异步）的退化极限，见 D10 边界；实例层提供真异步驱动
+- **基座优先落地**：同步纯 cell 分布性是基座（并发 / 异步）的退化极限，见 D10 边界；实例层提供异步驱动
   （tokio adapter worker，见上），使基座优先在绑定层可兑现，而非把异步当作愧对 no_std 的附加。
 
 ## 12. 宪法修正记录：听证批一（2026-09-01）/ Constitutional Amendment Record: Hearing Batch One
@@ -325,7 +327,7 @@ H2 是 I1 的裁决依据，也是后续一切"要不要第六概念"问题的�
 ①让渡了什么 ②为什么让渡（含可逆性判据的适用记录）③代价由谁承担 +
 边界测试（钉住让渡不无声扩张）。④ 声明域自此从"豁免记号"变为
 "有对价的合同"（delivery.rs Timeout/Cancelled、contract.rs NoPanic、
-flow.rs Moore 门已按此补齐；回溯审计记录 N-G4/N-G5）。
+flow.rs Moore 门已按此补齐；回溯审计已记录在案）。
 
 ### 12.3 I1 —— 物理压力三案分置
 
@@ -333,7 +335,7 @@ flow.rs Moore 门已按此补齐；回溯审计记录 N-G4/N-G5）。
 |---|---|---|
 | 资源幺半群 D11 | **导出物，不收编**：State 上的实例代数，与 monoidal 同构族同格——律的审计对象，非生成元词汇 | H2（实例代数不入词汇）；F1 先例（Par 落码而非新概念） |
 | 效应代数 | **基声明，不物化**：持有 ε/δ 的基非笛卡尔，代数结构写入载体/基的声明面，词汇表不动 | 听证 D 先例（Central Sliding 侧条件 = 对基的声明） |
-| 效果标注（Alloc/Block/Async/Fail） | **④显式声明**：fail-closed + 可推断的标注是诚实声明，随 N1 让渡合同三字段落地；不是第六概念 | tmp1 四模态本体论（④是合法归宿，伪装才是违规）；N1 判据适配 |
+| 效果标注（Alloc/Block/Async/Fail） | **④显式声明**：fail-closed + 可推断的标注是诚实声明，随 N1 让渡合同三字段落地；不是第六概念 | 四模态本体论（④是合法归宿，伪装才是违规）；N1 判据适配 |
 
 ### 12.4 元裁定（物理压力入宪通道）
 
@@ -342,4 +344,4 @@ flow.rs Moore 门已按此补齐；回溯审计记录 N-G4/N-G5）。
 > 侧条件）、**④标注**（附让渡合同）。没有第四条门。
 
 自本裁定起，后续同构压力（D12、D13…）不再逐案听证：按三通道对号入座，
-对不上号的才是真缺口（走宪法修正程序）。
+对不上号的才是实际缺口（走宪法修正程序）。

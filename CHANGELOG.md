@@ -42,6 +42,19 @@ minor version).
   (`AsyncBlockRing` untouched); no-hook fast path unchanged. Hook test
   included.
 
+### Added — bench threshold gate in CI (A2, E1 automation)
+
+- **Threshold gate for the erased-seam tax** (`dynamic_tax` bench + `ci.yml`):
+  CI now runs `cargo bench -p axiom-semantics --bench dynamic_tax` with
+  `DYNAMIC_TAX_MAX_NS_OP=25` (the C14-A2 hook in `dynamic_tax.rs`), asserting
+  the per-touch tax of type-erased/Slot seams stays under the ceiling. The
+  threshold is deliberately loose (≥10× the stable ≈2 ns/op reading) so
+  shared-runner jitter cannot flake the gate while catastrophic regressions
+  (per-touch allocation / indirection) still fail. Micro-drift comparison for
+  `carrier`/`profile_workloads` stays manual (noise-floor method, CHANGELOG C9
+  notes). Closes the previously-manual half of A2 ("bench threshold CI"); the
+  compile gate (`cargo bench --no-run`) is retained.
+
 ### Added — adoption evidence & activation-model catalog, first slice (2026-08-29)
 
 - **Compile-cost probe** (`core/examples/deep_blueprint.rs`): reproducible

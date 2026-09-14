@@ -1,13 +1,13 @@
-//! G22：`BoundedQueue` 有界 FIFO 的 proptest-state-machine 骨架（std 测试面 only）。
+//! `BoundedQueue` 有界 FIFO 的 proptest-state-machine 骨架（std 测试面 only）。
 //!
 //! 参考模型（`ReferenceStateMachine`）= `Vec<i32>` FIFO（容量 `CAP` 封顶）；
 //! 被测系统（SUT）= [`BoundedQueue`]。随机 Push/TryPush/TryPop 序列下验证：
 //! - **配对律**：成功入队 N 次 ⟹ 恰可取 N 次（计数守恒）；
-//! - **序保持（FIFO）**：取出序 = 入队序（async_ring 序保持基声明在同步面的对拍见证）；
+//! - **序保持（FIFO）**：取出序 = 入队序（async_ring 序保持基声明在同步面的交叉验证见证）；
 //! - **值守恒**：满时 `try_push` 拒绝且回传被拒值（不静默丢失）；
 //! - **空 ≠ 断连**：空时 `try_pop` 得 `Err(Empty)`（本测试不断连，断连面见 buffer.rs 单元测试）。
 //!
-//! **std 门控注记（N-G3）**：`proptest-state-machine` 子 crate 结构性依赖
+//! **std 门控注记**：`proptest-state-machine` 子 crate 结构性依赖
 //! `Arc<AtomicUsize>`（seen-counter），仅能在 std 测试面运行——本文件置于 `tests/`
 //! （dev 面，不进 lib 依赖图，零依赖哲学不破）；no_std 侧跨步律维持手写向量。
 
@@ -23,7 +23,7 @@ const CAP: usize = 4;
 /// 抽象转移：阻塞投 / 非阻塞投 / 非阻塞取。值域 0..8（小值域制造重复值，压 FIFO 序）。
 #[derive(Clone, Debug, PartialEq)]
 enum Op {
-    /// 阻塞 push：仅模型非满时生成（单线程测试不能真阻塞）。
+    /// 阻塞 push：仅模型非满时生成（单线程测试不能实际阻塞）。
     Push(i32),
     /// 非阻塞 push：满时被拒（值回传）。
     TryPush(i32),

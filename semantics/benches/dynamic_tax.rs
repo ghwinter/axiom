@@ -14,7 +14,7 @@
 //! Seat 另 +0.25 ns/op（代比较）；swap ≈ 30 ns/次。
 //! 方法学（与核心 crate 基准同纪律）：预热 2×3；8 轮取 min-of-N；自带自噪声底
 //! （同代码双份测量之差）；debug 构建自跳过。安全代码，无 unsafe。
-//! 运行：`cargo bench --manifest-path runtime/Cargo.toml --bench dynamic_tax`。
+//! 运行：`cargo bench --manifest-path semantics/Cargo.toml --bench dynamic_tax`。
 
 #![cfg(feature = "std")]
 

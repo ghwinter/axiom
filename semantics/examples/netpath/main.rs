@@ -7,7 +7,7 @@
 //! 与 `drive_try` 语义一致）。双载体线路语义等价（T6）；整线重跑验证确定性；
 //! 解析失败计入类型化错误台账（杜绝零值/空串污染）。
 //!
-//! 运行：`cargo run --manifest-path runtime/Cargo.toml --example netpath`
+//! 运行：`cargo run --manifest-path semantics/Cargo.toml --example netpath`
 
 mod cells;
 

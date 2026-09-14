@@ -21,6 +21,10 @@
 > （[frontier-notes](../internal/theory/frontier-notes.md)）与历史归档
 > （[theory-archive](../internal/theory/theory-archive.md)）。这些材料不构成
 > 本规范的组成部分；冲突时以上述正式文档为准。
+>
+> **概念对齐**：需要对齐本项目概念的读者（状态机语义、代码与运行时两域、管理器模式、
+> 组合性、时间/协议/数据流模型）应在阅读各卷前先读
+> [concept-alignment](../internal/theory/concept-alignment.md)。
 
 ## 阅读路径
 

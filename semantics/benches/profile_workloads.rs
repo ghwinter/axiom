@@ -10,7 +10,7 @@
 //! 方法学同 dynamic_tax 的简化形态：预热＋min-of-N；不含自噪声底计算
 //! （形状基准，如实行：仅报整轮 best；噪声面与阈值语义见 dynamic_tax/
 //! benchmark_common）。debug 自跳过。
-//! 运行：`cargo bench --manifest-path runtime/Cargo.toml --bench profile_workloads`。
+//! 运行：`cargo bench --manifest-path semantics/Cargo.toml --bench profile_workloads`。
 
 #![cfg(feature = "std")]
 

@@ -8,12 +8,19 @@
 //!   ─▶ A::step（A::Out，可为 Result：失败也是数据）─▶ push（投递裁决：Delivered/Closed）
 //! ```
 //!
-//! `redis_like --tcp`（`runtime/examples/redis_like/server.rs`）是该接缝的参考实现
+//! `redis_like --tcp`（`semantics/examples/redis_like/server.rs`）是该接缝的参考实现
 //! （首案例）；本类是它的泛化形态，`server.rs::handle_conn` 已改为由本类驱动。
+//!
+//! **异步域对偶**：同一接缝的异步形态 = [`AsyncEventStream`]（`next_in` 异步）
+//! ＋ [`pump_events_async`]（泵驱动）。等待点（读块/等新块）由实例层兑现
+//! （如 `axiom-instances` 的 `AsyncLineSource`，tokio `AsyncBufRead` 行源）；
+//! 本层只声明契约与驱动逻辑，不执行任何东西（与 `async_flow`/`async_ring`
+//! 同纪律：等待点归实现）。
 //!
 //! **概念归属**（§8.3 封闭判据）：不引入新概念——事件流是物理层输入侧的迭代器形态
 //! （与 [`flow::bounded_pump`](crate::drive::flow::bounded_pump) 使用 `IntoIterator`
-//! 同属机器类）；泵驱动是 driver 的一个实例。
+//! 同属机器类）；泵驱动是 driver 的一个实例。异步形态不新增概念：
+//! 同一迭代器机器的等待点从同步让步换为异步挂起，契约同构。
 //!
 //! **义务（A3 落位）**：
 //! - 配对律：N 条事件 ↔ N 个判定（`delivered + dropped`），经 [`EventPumpStats`]
@@ -31,6 +38,7 @@
 //!   零分配（除分割器产出的条目本身）。
 
 use alloc::collections::VecDeque;
+use core::future::Future;
 use std::io::Read;
 
 use axiom::cell_core::PortCell;
@@ -176,6 +184,49 @@ where
     while let Some(input) = stream.next_in() {
         let out = A::step(a_state, input);
         match push(out) {
+            PushVerdict::Delivered => stats.delivered += 1,
+            PushVerdict::Closed => {
+                stats.dropped += 1;
+                break;
+            }
+        }
+    }
+    stats
+}
+
+/// 异步事件流：产出因果流的条目级输入 `In` 的异步形态。`None` = 源关闭（EOF）。
+///
+/// 与同步 [`EventStream`] 同构（同一迭代器机器），差异只在等待点：
+/// `next_in` 返回 [`Future`]——读块/等新块的等待由实例层兑现（挂 tokio
+/// reactor 等），本 trait 只声明契约（§8.3 不引入新概念）。
+pub trait AsyncEventStream<In> {
+    /// 异步取下一个 `In`；`None` = 源关闭。
+    fn next_in(&mut self) -> impl Future<Output = Option<In>> + Send;
+}
+
+/// 异步泵驱动：把异步事件流的每个 `In` 经 cell `A` 变换，再把每个 `A::Out` 经
+/// `push` 投递到 sink——同步 [`pump_events`] 的异步对偶（等待点归流实现）。
+///
+/// 义务与同步泵同构（见模块文档）：配对律 / 失败归属 / 拆除语义均一致。
+/// 差异 = **两个等待点都归实例层兑现**：`next_in().await`（拉取）与 `push().await`
+/// （投递）——`push` 是异步闭包（[`AsyncFnMut`]）。这使异步域的背压与同步域同构：
+/// 同步泵的 `push` 可在线程上阻塞（如有界通道满，`redis_like` 首案例即此）；
+/// 异步泵的 `push` 可 `await`（如有界通道满，等待由实例层兑现）——同一台迭代器
+/// 机器、同一裁决账，差异只在等待点的物理兑现。
+pub async fn pump_events_async<A, St, Push>(
+    a_state: &mut A::State,
+    stream: &mut St,
+    mut push: Push,
+) -> EventPumpStats
+where
+    A: PortCell,
+    St: AsyncEventStream<A::In>,
+    Push: AsyncFnMut(A::Out) -> PushVerdict,
+{
+    let mut stats = EventPumpStats::default();
+    while let Some(input) = stream.next_in().await {
+        let out = A::step(a_state, input);
+        match push(out).await {
             PushVerdict::Delivered => stats.delivered += 1,
             PushVerdict::Closed => {
                 stats.dropped += 1;

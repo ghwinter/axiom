@@ -31,7 +31,9 @@ axiom-semantics = { path = "../semantics", version = "0.3.0", default-features =
 [features]
 default = []
 async = ["axiom-semantics/async-seam"]
-tokio = ["async", "dep:tokio"]
+# tokio: async + optional external dep tokio. io-util 供 AsyncRead 块读（异步
+# 事件接缝 AsyncLineSource 的读取面）；event 拉语义层事件接缝契约。
+tokio = ["async", "axiom-semantics/event", "dep:tokio"]
 embedded = ["axiom-semantics/std"]  # reserved: embedded-flow adaptation (to land later)
 # tracing observation sink: the Telemetry contract's second implementer
 # (first: in-tree semantics Console/Buf).
@@ -51,4 +53,4 @@ features = ["std"]
 version = "1"
 optional = true
 default-features = false
-features = ["time", "rt-multi-thread", "sync"]  # time: deadline semantics; rt-multi-thread: multithreaded Runtime::new; sync: mpsc feeding (tokio_poll_fed). Does not pull the full IO/net set
+features = ["time", "rt-multi-thread", "sync", "io-util"]  # io-util: AsyncRead 块读（async_event 行源）；time: deadline; rt-multi-thread: Runtime::new; sync: mpsc feeding

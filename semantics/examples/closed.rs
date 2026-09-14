@@ -9,7 +9,7 @@
 //!
 //! 全程 zero-cost 静态路径（`Chain` 等单态化）、`#![forbid(unsafe_code)]`、no_std 核心。
 //!
-//! 运行：`cargo run --manifest-path runtime/Cargo.toml --example closed`
+//! 运行：`cargo run --manifest-path semantics/Cargo.toml --example closed`
 
 use axiom::cell_core::{Chain, Conforms, PortCell, Slot, Wire, assert_wiring, drive};
 use axiom_semantics::prelude_all::{SlotDrive, SlotPending, TryChain, bounded_pump, drive_seq};

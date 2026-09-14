@@ -4,6 +4,11 @@
 /tmp
 /output/
 
+# Rejected spike kept locally (compile-time quotient, CP1 proc-macro crate).
+# frontier-notes §6 records the decision (macro DSL not adopted); the crate is
+# not a workspace member and is deliberately not tracked.
+/cq/
+
 # Runtime artifacts (training runs, persisted state, logs)
 **/output/
 *.jsonl

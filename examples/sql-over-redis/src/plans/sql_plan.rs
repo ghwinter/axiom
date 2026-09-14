@@ -1,6 +1,6 @@
 //! SQL 计算面（综合用例 SQL-over-Redis 的计算侧）。
 //!
-//! 迁自 `runtime/examples/psql/cells.rs`（原位示例保留）——本模块为组合内计划副本，
+//! 迁自 `semantics/examples/psql/cells.rs`（原位示例保留）——本模块为组合内计划副本，
 //! 双参照标注：原位 = 单用例证据；本处 = 组合计划的一部分。三者均为 `PortCell`：
 //! `Lexer`（String → Result<Tokens, PErr>）、`Parser`（Tokens → Result<Stmt, PErr>）、
 //! `Executor`（Stmt → Result<ExecOut, PErr>，State = Database）；`SqlPipe` =

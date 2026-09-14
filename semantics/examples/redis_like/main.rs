@@ -18,9 +18,9 @@
 //! 失败模型：Error = Parse|Store 单枚举（TryChain 共享 E）；解析失败短路、存储失败为值；
 //! 账本汇总 ok/err；末尾 T6 断言（pump 与 inline 在共享 Ok 通道上逐位等价）。
 //!
-//! 运行：cargo run --manifest-path runtime/Cargo.toml --example redis_like [--corpus N]
+//! 运行：cargo run --manifest-path semantics/Cargo.toml --example redis_like [--corpus N]
 //!       [--max-keys N] [--max-value N] [--help]
-//! 测试：cargo test --manifest-path runtime/Cargo.toml --example redis_like
+//! 测试：cargo test --manifest-path semantics/Cargo.toml --example redis_like
 
 mod cells;
 mod server;

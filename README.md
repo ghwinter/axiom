@@ -28,7 +28,7 @@ equivalent to hand-written plain Rust with zero runtime objects.
 **Core promise**:
 - Blueprint-as-type: zero-sized, no runtime object (`size_of::<Blueprint<T>>()==0`);
 - Verification at compile time, zero runtime overhead;
-- After compilation, equivalent to hand-written plain Rust (see `examples/cell_demo.rs`).
+- After compilation, equivalent to hand-written plain Rust (see `core/examples/cell_demo.rs`).
 
 **Semantics annotations, not physical mechanisms**: FlowKind (Data/Control/Observe) is an
 optional abstract-layer annotation describing how the receiver interprets a value — not a
@@ -65,12 +65,42 @@ Dependency direction is one-way, enforced by the workspace member table: `axiom 
 
 ## Examples
 
+> Index of the contract-layer examples: [`semantics/examples/README.md`](semantics/examples/README.md)
+> (roles, scales, and the relationship to the composite use case). All semantics examples
+> run with `--manifest-path semantics/Cargo.toml`.
+
 | File | Demonstrates |
 |---|---|
-| `examples/cell_demo.rs` | A four-constituent blueprint running as a plain Rust program (zero runtime objects) |
-| `examples/pipeline.rs` | Composite pipeline: chain + broadcast + feedback + compile-time verification |
+| `core/examples/cell_demo.rs` | A four-constituent blueprint running as a plain Rust program (zero runtime objects) |
+| `core/examples/pipeline.rs` | Composite pipeline: chain + broadcast + feedback + compile-time verification |
+| `core/examples/deep_blueprint.rs` | Blueprint depth × compile cost honest probe (adoption evidence: compile time grows with depth, runtime stays zero) |
+| `semantics/examples/closed.rs` | Closed-boundary integration (foundations §8): composition self-closure, failure-as-value, T6, runtime slot swapping |
 | `semantics/examples/carrier_demo.rs` | Same blueprint, multiple replaceable carriers, semantically equivalent, different space–time cost |
 | `semantics/examples/threaded_flow.rs` | Same topology, heterogeneous physics: Inline zero-allocation vs cross-thread channel |
+| `semantics/examples/psql/` | SQL REPL: single-layer `TryChain` short-circuit (lexer/parser/exec errors as values) |
+| `semantics/examples/netpath/` | Network receive path: Eth→IP→TCP parsing, dual-carrier short-circuit equivalence (T6) |
+| `semantics/examples/mmo/` | Multi-player world core subgraph: events→world→view projection→data-driven fan-out |
+| `semantics/examples/redis_like/` | miniredis hardening: closed-composition single port body + three physical drivers + runtime swapping |
+| `semantics/examples/sqlmini/` | SQL subset compile chain (lex→parse→plan→exec) + Inline/partition-parallel dual-physics equivalence (largest example) |
+| `semantics/examples/layered/` | Three-role layering: library author / topology integrator / deployer (contract = `PortCell` types) |
+| `semantics/examples/control_seam/` | Control & observation conformance: control as values + ops control surface + observation triad |
+| `instances/examples/tokio_timeout_async.rs` | True-async timeout with tokio: await-driven polling on a multi-thread reactor (requires `--features tokio`) |
+| `examples/sql-over-redis/` | Composite use case: redis protocol face × psql compute face in one composite core (sync/async concurrent demos) |
+
+## Benchmarks
+
+Benches are the **empirical evidence** layer (zero-cost proof / regression gates); examples
+are the teaching/paradigm-evidence layer. All benches are release-only (they skip
+themselves under debug builds).
+
+| Bench | Answers |
+|---|---|
+| `core/benches/chain.rs` | Composition zero-cost: generic drive ≈ handwritten `step` chain (bit-exact) |
+| `core/benches/dag.rs` | Diamond (serial-then-parallel) generic vs handwritten vs type-erased |
+| `semantics/benches/carrier.rs` | Carrier space–time cost: Inline zero-allocation vs spawned cross-thread channel |
+| `semantics/benches/dynamic_tax.rs` | Dynamic tax: type-slot / seat-erasure cost per drive, swap cost |
+| `semantics/benches/profile_workloads.rs` | Shape workload profiles (min-of-N methodology) |
+| `examples/sql-over-redis/benches/latency.rs` | Composite use-case latency: sync vs async step-by-step, same protocol (requires `--features tokio`) |
 
 ## Build & verify
 

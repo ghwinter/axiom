@@ -218,7 +218,8 @@ pub mod prelude_all {
     pub use crate::movers::mailbox::{BoundedMailbox, Producer};
     #[cfg(all(feature = "std", feature = "event"))]
     pub use crate::seams::event::{
-        ChunkSource, EventPumpStats, EventStream, PushVerdict, pump_events, split_lines,
+        AsyncEventStream, ChunkSource, EventPumpStats, EventStream, PushVerdict, pump_events,
+        pump_events_async, split_lines,
     };
     #[cfg(all(feature = "std", feature = "async-seam"))]
     pub use crate::seams::async_seam::{Executor, Poll, PollResult, Poller, SeamPoller, ThreadExec};

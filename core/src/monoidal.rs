@@ -35,7 +35,7 @@
 //!    需要运行时迭代（`step` 丧失总称性）、惰性 thunk（零成本/no_std 丧失）或
 //!    消息链（拍边界丧失）三选一。**Yanking 律失败**（feedback∘braid ≠ braid，
 //!    多一拍）被升格为断言对象（`laws::tests::yanking_fails_under_guarded_ruling`）。
-//! 2. **相干同构族入词汇**（G1 闭合）：Haskell 实证（circuits 仓库）表明
+//! 2. **相干同构族入词汇**：Haskell 实证（circuits 仓库）表明
 //!    feedback/merge/superpose 三个核心定义缺 α 即不可写。律以 **oracle 行为
 //!    断言**审计而非类型 discharge（"lawfulness is an audit concern rather
 //!    than a discharge concern"——与宪法层听觉面同构）。
