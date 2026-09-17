@@ -2,6 +2,17 @@
 
 **A four-constituent compile-time core: open systems + causal dataflow + composition + staticity declaration.**
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
+> **New here? Start with the [primer](docs/en-us/primer.md) (bilingual:
+> [en](docs/en-us/primer.md) / [zh-cn](docs/zh-cn/primer.md))** — what axiom is, what it is
+> *not*, the vision in a few lines, and how to think without a framework. Three sentences:
+> (1) you write *what connects to what* as **types** — illegal wiring fails to compile;
+> (2) you declare *who must do what* (deadlines / cancellation / backpressure) as **declared
+> items**, not comments; (3) you choose *how waiting and I/O are implemented* by **swapping a
+> carrier** — the topology does not change. axiom is a **constitution layer, not a framework**:
+> topology safety + explicit obligations + physical replaceability, without giving you the system.
+
 axiom is a **constitution layer, not a framework**: it supplies the typed vocabulary
 (shape, contracts, obligation modalities), the compile-time verification, and the
 replaceable-physics seams — not an application, not an all-in-one runtime, no control
@@ -47,6 +58,29 @@ allocation), `QueueCarrier` / `BoundedCarrier<CAP>` (heap queue / bounded channe
 `wire!` declaration macro. Modular and replaceable: a new carrier plugs in by implementing
 the `Carrier` trait without changing the topology; real bases (tokio/io_uring/std/embedded)
 are bound and fulfilled by the instance layer.
+
+## The four seams and the gap ledger
+
+The runtime boundary is a **four-edged seam map**, not a three-way information split.
+Data/Control/Observe are classifications of *seam direction*, not of information —
+the physical edge proves it: it carries no information at all (an allocator is matter).
+
+| Edge | Seam | Surface |
+|---|---|---|
+| Data | `Wire` (core) / `Carrier` (semantics) | In/Out/State |
+| Control | `Executor` (`async-seam`) | wait-point contracts |
+| Observation | `Telemetry` (`telemetry`) | verdicts per seam |
+| **Physical** | `seams::physical` (`PhysicalWindow` / `PhysicalSnapshot`) | **no surface** — process-singleton window (allocator / signals / stdio), declared + observed only, never an In/Out/State |
+
+The **crosscut** seam (`seams::crosscut`, the `CrossCut` marker) is the one variety with no
+surface by design: it rides the call flow and belongs to no module (contexts, cancellation
+tokens). It is not a cell and never enters `assert_wiring`.
+
+The **gap ledger** (`checks::friction`) is a governance artifact, not a vocabulary extension:
+the six frictions the algebra cannot express (waiting / physical singleton / crosscutting /
+residency / derived semantics / completeness) are typed, indexed to their containment seams,
+and left **open** (`#[non_exhaustive]`) — completeness cannot be self-proven inside the law,
+so a new gap is *added to the ledger*, not pretended away.
 
 ## instances (`axiom-instances` · third constituent)
 

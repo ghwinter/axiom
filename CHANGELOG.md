@@ -119,7 +119,9 @@ minor version).
   `Full(v)`/`Empty` verdicts with value conservation, one reserve allocation at
   construction and zero per-message allocation in steady state. Single-threaded
   by contract; cross-thread variant is pending the critical-section decision (D4).
-  Serves `EmbeddedProfile`.
+  **后续（2026-09，R004）**：D4 裁定收口——跨线程变体按域分工（异步 =
+  `AsyncBlockRing`/`TokioBlockRing`，同步 = `BoundedQueue`/`BoundedMailbox`），
+  `BoundedRing` 保持单线程、不承诺 `Sync`（有意声明）。Serves `EmbeddedProfile`.
 - **Event-substrate carrier class** (`runtime/src/seams/event.rs`, std): `EventStream`
   (item-level input source) / `ChunkSource` (`io::Read` raw source + splitter +
   per-source cross-chunk state, const `N` chunk buffer) / `split_lines` /

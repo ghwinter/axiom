@@ -6,15 +6,17 @@ Documentation for axiom is maintained in two languages (English is the authorita
 
 | Language | Index | Docs |
 |---|---|---|
-| **English** (default) | [`docs/en-us/README.md`](en-us/README.md) | `vision` · `foundations` · `core` · `semantics` · `unified` |
-| **中文** | [`docs/zh-cn/README.md`](zh-cn/README.md) | `vision` · `foundations` · `core` · `semantics` · `unified` |
+| **English** (default) | [`docs/en-us/README.md`](en-us/README.md) | `primer` · `vision` · `foundations` · `core` · `semantics` · `unified` |
+| **中文** | [`docs/zh-cn/README.md`](zh-cn/README.md) | `primer` · `vision` · `foundations` · `core` · `semantics` · `unified` |
 
 Choose a language above to read the documentation:
-vision (the charter: why axiom, the four target systems, the AI-era consistency-machine
-thesis — no new axioms; the formal volumes prevail), then the formal specification:
-foundations (definitions · axioms · theorems), core (the compile-time core `cell_core`),
-semantics (the physical-layer Carrier), and unified (the unified model: substitution,
-definition–activation, schemas — axiom's upgraded design beyond the static blueprint).
+the primer (what axiom is and is not, the vision in a few lines, how to think without
+a framework — first reading), vision (the charter: why axiom, the four target systems,
+the AI-era consistency-machine thesis — no new axioms; the formal volumes prevail),
+then the formal specification: foundations (definitions · axioms · theorems), core
+(the compile-time core `cell_core`), semantics (the physical-layer Carrier), and unified
+(the unified model: substitution, definition–activation, schemas — axiom's upgraded design
+beyond the static blueprint).
 
 > **Theory corpus (non-normative):** derivation archives, meta-theory
 > ([boundary-ontology](internal/theory/boundary-ontology.md) ·

@@ -10,6 +10,7 @@
 
 | 文档 | 内容 | 性质 |
 |---|---|---|
+| [`primer.md`](primer.md) | axiom 是什么（与不是什么）、愿景几行、五个概念的简单介绍、无框架时如何思考、不出现幻觉的阅读铁律 | **导览**：第一阅读——先读这一份 |
 | [`foundations.md`](foundations.md) | 基本定义、公理体系、可推导的定理（T1–T9）、数学表达、边界声明 | **奠基**：axiom 的"是什么"从何而来 |
 | [`core.md`](core.md) | 编译期核心 `cell_core`：四构件、蓝图即类型、静态性声明、编译期验证、理论↔Rust 对应 | **架构**：axiom 核心应该是什么 |
 | [`semantics.md`](semantics.md) | 物理层 / 载体（Carrier）：语义层定位、载体目录、多物理实现等价、边界与开放问题 | **架构**：axiom 物理层应该是什么 |
@@ -28,15 +29,17 @@
 
 ## 阅读路径
 
-0. [`vision.md`](vision.md)：纲领卷——为什么构建 axiom、四个目标系统、
+0. [`primer.md`](primer.md)：导览卷——axiom 是什么（与不是什么）、愿景几行、
+   五个概念的简单介绍、无框架时如何思考、不出现幻觉的阅读铁律。**第一阅读。**
+1. [`vision.md`](vision.md)：纲领卷——为什么构建 axiom、四个目标系统、
    AI 时代一致性机器论题；不新增公理，冲突以正式卷为准。
-1. [`foundations.md`](foundations.md)：axiom 的核心承诺、术语
+2. [`foundations.md`](foundations.md)：axiom 的核心承诺、术语
    （尤其"静态/动态"的正式重定义）、公理与定理。
-2. [`core.md`](core.md)：理论与公理如何落成编译期核心（四构件
+3. [`core.md`](core.md)：理论与公理如何落成编译期核心（四构件
    `cell_core`），以及"蓝图即类型、零运行时对象、验证在编译期"的实现。
-3. [`semantics.md`](semantics.md)：核心的物理层实现用例（载体/Carrier），
+4. [`semantics.md`](semantics.md)：核心的物理层实现用例（载体/Carrier），
    以及语义层的定位与边界。
-4. （进阶）[`unified.md`](unified.md)：统一视角——静态/动态/插件/装载/驱动热插拔
+5. （进阶）[`unified.md`](unified.md)：统一视角——静态/动态/插件/装载/驱动热插拔
    如何是同一个"代换"的两种绑定模态，以及定义–激活轴、schema 表达力与
    "未来合规"的(余)归纳证明。
 

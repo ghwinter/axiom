@@ -11,6 +11,7 @@ on its own.
 
 | Document | Content | Nature |
 |---|---|---|
+| [`primer.md`](primer.md) | What axiom is (and is not), the vision in a few lines, the five concepts explained simply, how to think without a framework, and rules for reading without hallucinating | **Guide**: first reading — read this first |
 | [`foundations.md`](foundations.md) | Basic definitions, axiom system, derivable theorems (T1–T9), mathematical expressions, boundary statements | **Foundations**: where axiom's "what" comes from |
 | [`core.md`](core.md) | The compile-time core `cell_core`: four constituents, blueprint-as-type, staticity declaration, compile-time verification, theory↔Rust correspondence | **Architecture**: what axiom's core is |
 | [`semantics.md`](semantics.md) | The physical layer / Carrier: the semantics layer's positioning, carrier catalog, multi-physical-implementation equivalence, boundaries and open questions | **Architecture**: what axiom's physical layer is |
@@ -30,16 +31,19 @@ on its own.
 
 ## Reading path
 
-0. [`vision.md`](vision.md): the charter — why axiom is built, the four
+0. [`primer.md`](primer.md): the guide volume — what axiom is (and is not),
+   the vision in a few lines, the five concepts explained simply, how to think
+   without a framework, and rules for reading without hallucinating. **First reading.**
+1. [`vision.md`](vision.md): the charter — why axiom is built, the four
    target systems, the AI-era consistency-machine thesis; introduces no new
    axioms, and on conflicts the formal volumes prevail.
-1. [`foundations.md`](foundations.md): the core promise, terminology
+2. [`foundations.md`](foundations.md): the core promise, terminology
    (especially the formal redefinition of "static/dynamic"), axioms, and theorems.
-2. [`core.md`](core.md): how the theory becomes a compile-time core (the four-constituent
+3. [`core.md`](core.md): how the theory becomes a compile-time core (the four-constituent
    `cell_core`) realizing "blueprint-as-type, zero runtime object, verification at compile time".
-3. [`semantics.md`](semantics.md): the core's physical-layer implementation use-case
+4. [`semantics.md`](semantics.md): the core's physical-layer implementation use-case
    (Carrier), with the semantics layer's positioning and boundaries.
-4. (Advanced) [`unified.md`](unified.md): the one perspective under which static/dynamic/
+5. (Advanced) [`unified.md`](unified.md): the one perspective under which static/dynamic/
    plugins/loading/driver hot-plug are two binding modes of the same substitution, plus the
    definition–activation axis, schemas, the expressiveness ladder, and the (co)inductive
    proof of "future conformance". This upgrades `core.md`'s "static blueprint".

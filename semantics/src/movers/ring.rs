@@ -10,8 +10,10 @@
 //! 单线程下背压＝立即的 `Full` 判定（调用侧选择重试/丢弃/上抛）。
 //!
 //! 成本声明（模态③）：构造期一次预留分配（`Vec::resize`），稳态每消息零分配；
-//! push/pop 均为 O(1)。跨线程变体待关键节选型裁定（claims-ledger D4），本形态不承诺
-//! `Sync`。
+//! push/pop 均为 O(1)。跨线程变体按 R004 裁定分域落地（异步 =
+//! [`AsyncBlockRing`](crate::movers::async_ring::AsyncBlockRing)/`TokioBlockRing`，
+//! 同步 = [`BoundedQueue`](crate::movers::buffer::BoundedQueue)/`BoundedMailbox`），
+//! 本形态保持单线程存储原语、不承诺 `Sync`（有意声明，非缺口）。
 
 use alloc::vec::Vec;
 
@@ -110,6 +112,7 @@ impl<T, const CAP: usize> Iterator for Drain<'_, T, CAP> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
     use super::*;
 
     #[test]

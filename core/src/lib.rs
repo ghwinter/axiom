@@ -24,6 +24,14 @@
 //! > **移出抽象层的旧语义（归物理载体）**：
 //! > FlowKind（Data/Control/Observe）三分、时序/Delay、线程/同步异步、值形态/JSON。
 //!
+//! > **四边接缝地图（2026-09 接缝完备化修正）**：
+//! > 运行期边界是四边接缝地图——数据（本层 [`Wire`](crate::cell_core::Wire)）、控制
+//! > （语义层 `Executor`）、观测（语义层 `Telemetry`）、物理（语义层
+//! > [`seams::physical`](https://docs.rs/axiom-semantics)）。物理边是唯一不是信息的边
+//! > （allocator 是物质），核心的形状语言（In/Out/State）对它无表面——声明 + 观测
+//! > 归语义层接缝。横切面（上下文/取消令牌）同样无表面，随调用流传播；完备性洞清单
+//! > （六摩擦）由语义层 `checks::friction` 作为开放治理物收容。本层只持有数据边。
+//!
 //! # 安全与 no_std
 //!
 //! - `axiom` 核心无任何 `unsafe`（`#![forbid(unsafe_code)]`——编译期承诺）。

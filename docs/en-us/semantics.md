@@ -61,6 +61,7 @@ The carrier catalog (`semantics/src/movers/carrier.rs`):
 | `QueueCarrier` (std) | Heap-queue relay (`Box<dyn Any>`, allocated per message) | Per-message allocation | Within a single thread | carrier.rs |
 | `BoundedCarrier<CAP>` (std) | Bounded-channel relay (`CAP ≥ 1` enforced at compile time) | Per-message allocation | Within a single thread | carrier.rs |
 | `spawned_flow` (std) | mpsc channel + dedicated thread, `B::State` on the dedicated thread; worker panic propagates via reply channel | Per-message allocation + synchronization | Cross-thread | carrier.rs |
+| `InlineFanOut` / `InlineFanIn` | Stack-direct fan-out (one source → two receivers, `Broadcast::fire`) / fan-in (two sources → one receiver, `Merge::join`); separate `FanOut`/`FanIn` traits since single-in/single-out `Carrier` cannot express 1→2 / 2→1 | Zero allocation, inlined | Single-threaded | route.rs |
 
 Storage primitive (not a `Carrier`; the bounded FIFO beneath pumps/mailboxes):
 `ring::BoundedRing<T, CAP>` — no_std+alloc, dual counters (`readable`/`writable`),
@@ -95,6 +96,7 @@ by contract; a cross-thread variant is pending the critical-section decision. Se
 | `ResultCarrier`/`MaybeCarrier` | X-lane: Ok passes, Err short-circuits (B not run) | MUST: failure-as-value | short-circuit tests (§9.2) | Tool | 0.3 | registry (C3) |
 | `event` substrate (`ChunkSource`/`pump_events`) | external events → `A::In`; teardown = stop pulling | MUST: pairing law (N↔N) | pump tests + ledger row | Service/Tool | 0.3 | ledger (C11) |
 | `async_seam` (`Poller`/`SeamPoller`) | poll; deadline verdict (sync-domain TimedOut) | MUST: step never awaits (D2) | async-seam tests + ledger row | Service/Tool | 0.3 | ledger (C11) |
+| `InlineFanOut`/`InlineFanIn` | 1→2 fan-out / 2→1 fan-in, stack-direct; saturated N/A; zero allocation | MUST: fan ≡ per-branch step; topology reuses `Broadcast`/`Merge` cells | route.rs tests (fan equivalence, honest saturation, Kernel assembly demo) | Kernel/Embedded/Tool | 0.3 | registry (C3) |
 
 ### Third-party adapter guide (2026-08)
 
@@ -317,6 +319,20 @@ reference (`git show main:semantics/examples/<name>/main.rs`).
   generally undecidable — compile-time stack-depth derivation is NOT promised (honest
   boundary; no fake derivation). Mechanical subset pinned at
   `semantics/tests/resource_budget.rs`.
+- **The four-edged seam map and the gap ledger (2026-09 seam-completeness amendment)**:
+  the runtime boundary is a four-edged seam map — data (`Wire` / `Carrier`), control
+  (`Executor`), observation (`Telemetry`), and **physical** (`seams::physical`: the
+  process-singleton window — allocator / signals / stdio). The physical edge is the only
+  edge that is not information (an allocator is matter); it has no `In/Out/State` surface —
+  declared and observed only, never governed (this seam implies no limits management).
+  The **crosscut** seam (`seams::crosscut`, `CrossCut`) is the one variety with no surface
+  by design: it rides the call flow and belongs to no module (contexts, cancellation
+  tokens); not a cell, never enters `assert_wiring`. The **gap ledger**
+  (`checks::friction`) is a governance artifact, not a vocabulary extension: the six
+  frictions the algebra cannot express (waiting / physical singleton / crosscutting /
+  residency / derived semantics / completeness) are typed, indexed to their containment
+  seams, and left open (`#[non_exhaustive]`) — completeness cannot be self-proven inside
+  the law, so a new gap is *added to the ledger*, not pretended away.
 
 ---
 
@@ -409,6 +425,27 @@ Resolved by `bounded_pump_try`: when the buffer is full and a step fails at the 
 the failing value short-circuits (not queued, counted) while successful values keep blocking
 on the full queue — failure and backpressure are orthogonal and each is explicit.
 
+### 9.5 The Four-Edged Seam Map and the Gap Ledger (2026-09)
+The earlier three edges (data / control / observation) left the boundary map incomplete; the
+2026-09 seam-completeness amendment completes it. Both new seams are pure-`core` contracts
+(no `std`), feature-gated on by default.
+- **Physical edge** (`seams::physical`, feature `physical`): the process-singleton window
+  (allocator / signals / stdio) is a matter singleton the language enforces as unique; it
+  cannot enter `In/Out/State`. The seam declares occupancy (`PhysicalWindow`, modality ①)
+  and exposes a read-only snapshot (`PhysicalSnapshot`, modality ③); an honest statement
+  that this seam implies no governance — limits/pressure sensing, when needed, must be
+  explicitly wired, with no modality-④ fakes.
+- **Crosscut** (`seams::crosscut`, feature `crosscut`): the one variety with no surface —
+  `CrossCut` (`Clone + Send + Sync + 'static`) is a posture marker making "not a cell" a
+  type-level fact; derived semantics (cancellation tokens) grow out of it. Not a cell, no
+  `assert_wiring`.
+- **Gap ledger** (`checks::friction`): the completeness gaps are a governance artifact —
+  six frictions typed (`Friction`), each indexed to its standard containment seam
+  (`containment()`) and experimental evidence (`evidence()`), with an open catalog
+  (`catalog()`, `#[non_exhaustive]`). Because completeness cannot be self-proven inside
+  the law (Lawvere/Tarski ceiling, see `docs/internal/theory/incompleteness-unification.md`),
+  the ledger is open: a new gap is *added*, not pretended away.
+
 ---
 
 ## 10. Cost Semantics (Z1; the formalized core of the zero-cost promise)
@@ -458,8 +495,8 @@ such, never as a single number.
 ## Appendix: Source Layout and Async Path
 
 The source is grouped by layer: `checks/` (hookup checks and promise book: contract, profile,
-obligation, law, delivery), `movers/` (value movers: carrier, buffer, ring, mailbox), `seams/`
-(wait, event, observation: async_seam, event, telemetry), `drive/` (composition and drivers:
+obligation, law, delivery, friction), `movers/` (value movers: carrier, buffer, ring, mailbox), `seams/`
+(wait, event, observation, physical, crosscut: async_seam, event, telemetry, physical, crosscut), `drive/` (composition and drivers:
 flow, slot, enum_slot, static_path, macros). `instances/src` has `backend/` (async_driver and
 tokio_exec); `examples/sql-over-redis/src` has `plans/` (sql_plan, redis_plan).
 

@@ -453,21 +453,25 @@ mod short_circuit_tests {
                 SaturationPolicy::NotApplicable,
                 "同步直通：无缓冲、无饱和点"
             );
-            assert_eq!(
-                <QueueCarrier as Carrier<Inc, Double>>::saturation(),
-                SaturationPolicy::Block,
-                "保守默认：不静默丢值"
-            );
-            // 默认 trait 行为 = Block（保守）。
-            fn default_saturation<C, A, B>() -> SaturationPolicy
-            where
-                C: Carrier<A, B>,
-                A: PortCell,
-                B: PortCell<In = A::Out>,
+            // QueueCarrier 为 std 载体（no_std 下仅 Inline 注册，见 register_carrier! 门控）。
+            #[cfg(feature = "std")]
             {
-                C::saturation()
+                assert_eq!(
+                    <QueueCarrier as Carrier<Inc, Double>>::saturation(),
+                    SaturationPolicy::Block,
+                    "保守默认：不静默丢值"
+                );
+                // 默认 trait 行为 = Block（保守）。
+                fn default_saturation<C, A, B>() -> SaturationPolicy
+                where
+                    C: Carrier<A, B>,
+                    A: PortCell,
+                    B: PortCell<In = A::Out>,
+                {
+                    C::saturation()
+                }
+                assert_eq!(default_saturation::<QueueCarrier, Inc, Double>(), SaturationPolicy::Block);
             }
-            assert_eq!(default_saturation::<QueueCarrier, Inc, Double>(), SaturationPolicy::Block);
         }
 
         #[test]
@@ -493,6 +497,7 @@ mod short_circuit_tests {
         }
 
         #[test]
+        #[cfg(feature = "std")]
         fn boundary_state_block_is_not_rendezvous() {
             // 容量 ≥ 1 由装配门保证（退化态拒绝）；Block 策略下满值是显式判定而非丢值。
             const { crate::checks::contract::assert_capacity_nonzero::<1>() };

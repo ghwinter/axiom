@@ -35,7 +35,7 @@ proptest = "1.11"
 proptest-state-machine = "0.8"
 
 [features]
-default = ["std", "event", "async-seam", "telemetry"]
+default = ["std", "event", "async-seam", "telemetry", "physical", "crosscut"]
 std = ["axiom/std"]
 # ── Seam-carrier family (structural convergence 2026-08: fine-grained gates
 #    + umbrella defaults) ──────────────────────────────────────────────────────
@@ -48,6 +48,10 @@ std = ["axiom/std"]
 event = ["std"]
 async-seam = ["std"]
 telemetry = []
+# 物理边接缝（四边之四）：契约纯 core（声明 + 观测），无 std 依赖。
+physical = []
+# 横切面契约：无表面 marker，契约纯 core。
+crosscut = []
 
 # ── Benchmarks (build use cases, kept): space-time cost across carriers ─────
 [[bench]]

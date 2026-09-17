@@ -52,6 +52,7 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 | `QueueCarrier`（std） | 堆队列中转（`Box<dyn Any>` 每消息分配） | 每消息分配 | 单线程内 | carrier.rs |
 | `BoundedCarrier<CAP>`（std） | 有界通道中转（`CAP >= 1` 编译期强制） | 每消息分配 | 单线程内 | carrier.rs |
 | `spawned_flow`（std） | mpsc 通道 + 独立线程，`B::State` 在专用线程；worker panic 经回执传播 | 每消息分配 + 同步 | 跨线程 | carrier.rs |
+| `InlineFanOut` / `InlineFanIn` | 栈上函数直接扇出（一源 → 两接收者，`Broadcast::fire`）/ 汇合（两源 → 一接收者，`Merge::join`）；单出单入的 `Carrier` 无法表达 1→2 / 2→1，故以独立 `FanOut`/`FanIn` trait 落地 | 零分配、内联 | 单线程 | route.rs |
 
 存储原语（非 Carrier；泵/邮箱之下的有界 FIFO）：`ring::BoundedRing<T, CAP>`——no_std+alloc，双计数器式（readable/writable），O(1) push/pop 且满/空为类型化判定（Full(v) 值随错误回传 / Empty，值守恒）；构造期一次预留分配、稳态每消息零分配。契约上单线程；跨线程变体待关键节选型裁定。服务 EmbeddedProfile（稳态零分配预算）。
 
@@ -78,6 +79,7 @@ where A: PortCell, B: PortCell<In = A::Out>,   // T1：因果流本身合法
 | `ResultCarrier`/`MaybeCarrier` | X-lane：Ok 直通、Err 短路（B 不执行） | MUST：失败为值 | 短路测试（§9.2） | Tool | 0.3 | 注册表（C3） |
 | 事件基座（`ChunkSource`/`pump_events`） | 外部事件 → `A::In`；断连停止拉取 | MUST：配对律（N↔N） | 泵测试＋账本行 | Service/Tool | 0.3 | 账本（C11） |
 | 异步接缝（`Poller`/`SeamPoller`） | 轮询；期限判定（同步域 TimedOut） | MUST：step 永不等（D2） | 异步接缝测试＋账本行 | Service/Tool | 0.3 | 账本（C11） |
+| `InlineFanOut`/`InlineFanIn` | 1→2 扇出 / 2→1 汇合，栈上直通；饱和 N/A；零分配 | MUST：fan ≡ 逐路 step；拓扑复用 `Broadcast`/`Merge` 单元 | route.rs 测试（fan 等价、饱和诚实、Kernel 装配演示） | Kernel/Embedded/Tool | 0.3 | 注册表（C3） |
 
 ### 第三方适配器指南（2026-08）
 
@@ -254,6 +256,16 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
   一条线程；装配期算术）；分配可由 `CarrierCost` 代数求和（链每消息类 = 各段最
   大，按声明序；`validate_cost` 已逐缝强制预算）；栈深一般不可判——编译期栈深
   推导不承诺（诚实划界，无伪推导）。机械子集锁定于 `semantics/tests/resource_budget.rs`。
+- **四边接缝地图与洞清单（2026-09 接缝完备化修正）**：运行期边界是四边接缝地图——
+  数据（`Wire`/`Carrier`）、控制（`Executor`）、观测（`Telemetry`）、**物理**
+  （`seams::physical`：进程级单窗——allocator/信号/stdio）。物理边是唯一不是信息的
+  边（allocator 是物质），无 `In/Out/State` 表面——只被声明 + 观测，不隐含任何治理
+  （本接缝不是限额管理器）。**横切面**接缝（`seams::crosscut`，`CrossCut`）是唯一
+  故意无表面的品种：随调用流跑、不属于任何模块（上下文/取消令牌）；不是 cell，不
+  进 `assert_wiring`。**洞清单**（`checks::friction`）是治理物，不是词汇扩展：律表达
+  不了的六摩擦（等待/物理单窗/贯穿/驻留/派生合成/完备性）被类型化、索引到各自标准
+  收容所，并保持开放（`#[non_exhaustive]`）——完备性无法在律内自证，故新洞是*记入
+  清单*，而非假装没有洞。
 
 ---
 
@@ -328,6 +340,22 @@ cargo bench --manifest-path semantics/Cargo.toml --bench carrier
 已由 `bounded_pump_try` 闭合：缓冲满与处理失败同时出现时，失败值短路（不投队列、
 计数），成功值继续在满队列上阻塞（背压）——失败与背压正交，且各自显式。
 
+### 9.5 四边接缝地图与洞清单（2026-09）
+此前三边（数据/控制/观测）让边界地图不完整；2026-09 接缝完备化修正补齐。两个新接缝
+均为纯 `core` 契约（无 `std` 依赖），默认特性开启。
+- **物理边**（`seams::physical`，特性 `physical`）：进程级单窗（allocator/信号/stdio）
+  是语言层强制的物质单窗，进不了 `In/Out/State`。接缝声明占用（`PhysicalWindow`，
+  模态①）+ 暴露纯只读快照（`PhysicalSnapshot`，模态③）；边界诚实声明——本接缝
+  不隐含任何治理，限额/压力感知需要时须显式接线，无模态④伪判定。
+- **横切面**（`seams::crosscut`，特性 `crosscut`）：唯一无表面品种——`CrossCut`
+  （`Clone + Send + Sync + 'static`）是把"不是 cell"变成类型层事实的姿态声明；
+  派生语义（取消令牌）从它长出。不是 cell，不进 `assert_wiring`。
+- **洞清单**（`checks::friction`）：完备性洞是治理物——六摩擦类型化（`Friction`），
+  每洞索引到标准收容所（`containment()`）与实验证据（`evidence()`），开放目录
+  （`catalog()`，`#[non_exhaustive]`）。因完备性无法在律内自证（Lawvere/Tarski
+  天花板，见 `docs/internal/theory/incompleteness-unification.md`），清单保持开放：
+  新洞*记入*，而非假装没有。
+
 ---
 
 ## 10. 成本语义（Z1；零成本承诺的形式化核心）
@@ -368,8 +396,8 @@ edge_cost(seam) := class(f):
 ## 附录：源码布局与异步路径
 
 源码按层分组：`checks/`（接线检查与承诺账本：contract、profile、obligation、law、
-delivery）、`movers/`（值的搬运器：carrier、buffer、ring、mailbox）、`seams/`（等待、
-事件、观测：async_seam、event、telemetry）、`drive/`（流通组合与驱动：flow、slot、
+delivery、friction）、`movers/`（值的搬运器：carrier、buffer、ring、mailbox）、`seams/`（等待、
+事件、观测、物理、横切面：async_seam、event、telemetry、physical、crosscut）、`drive/`（流通组合与驱动：flow、slot、
 enum_slot、static_path、macros）。`instances/src` 下为 `backend/`（async_driver 与
 tokio_exec）；`examples/sql-over-redis/src` 下为 `plans/`（sql_plan、redis_plan）。
 

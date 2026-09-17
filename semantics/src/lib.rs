@@ -17,9 +17,9 @@
 //!
 //! | 目录 | 语义 | 模块 |
 //! |---|---|---|
-//! | [`checks`](crate::checks) | 接线检查 + 承诺账本（证据面） | contract / profile / obligation / law / delivery |
-//! | [`movers`](crate::movers) | 值的搬运器（物理实现） | carrier / buffer / ring / mailbox |
-//! | [`seams`](crate::seams) | 接缝（等待 / 事件 / 观测） | async_seam / event / telemetry |
+//! | [`checks`](crate::checks) | 接线检查 + 承诺账本（证据面） | contract / profile / obligation / law / delivery / friction |
+//! | [`movers`](crate::movers) | 值的搬运器（物理实现） | carrier / buffer / ring / route / mailbox |
+//! | [`seams`](crate::seams) | 接缝（等待 / 事件 / 观测 / 物理 / 横切面） | async_seam / event / telemetry / physical / crosscut |
 //! | [`drive`](crate::drive) | 流通组合与驱动 | flow / slot / enum_slot / static_path / macros |
 //!
 //! ## 载体（Carrier）——"值如何流动"的可替换物理方案
@@ -69,6 +69,18 @@
 //! - E2 成本按 [`CarrierCost`](crate::movers::carrier::CarrierCost) 序声明：
 //!   `ZeroAllocInline < PerMessageAlloc < External`，未声明默认 `External`（fail-closed）。
 //!
+//! **四边与洞清单（2026-09 接缝完备化修正）**：
+//! - 四边 = 数据（[`axiom::cell_core::Wire`]）/ 控制（[`crate::seams::async_seam`] 的
+//!   `Executor`）/ 观测（[`crate::seams::telemetry`]）/ **物理**
+//!   （[`crate::seams::physical`]）。物理边是唯一不是信息的边：语言层进程单窗
+//!   （allocator / 信号 / stdio），进不了 In/Out/State，只有声明 + 观测；它是"限额
+//!   管理器"的边界诚实声明——本接缝不隐含任何治理；
+//! - 横切面（[`crate::seams::crosscut`]）是唯一无表面品种——不是 cell，不进
+//!   `assert_wiring`；派生语义（取消令牌等，依赖链 1）从它长出；
+//! - 洞清单（[`crate::checks::friction`]）是**治理物**：六洞 + 收容所索引。完备性
+//!   无法在律内自证，故洞清单开放（`#[non_exhaustive]`）——洞出现 → 加收容所 →
+//!   记入清单，而不是假装没有洞。
+//!
 //! ## 剖面（六元组 C 构件）与律探针（T 构件）
 //!
 //! [`checks::profile`](crate::checks::profile)：剖面目录——F↦C(F) 的分域承诺（Kernel/Service/Tool），
@@ -85,7 +97,7 @@ extern crate alloc;
 // 源码分层（目录 = 语义分层）：
 //   checks —— 接线检查 + 承诺账本（证据面）
 //   movers —— 值的搬运器（物理实现）
-//   seams  —— 接缝（等待 / 事件 / 观测）
+//   seams  —— 接缝（等待 / 事件 / 观测 / 物理 / 横切面）
 //   drive  —— 流通组合与驱动
 // ═══════════════════════════════════════════════════════════
 
@@ -111,6 +123,11 @@ pub mod checks {
     /// 资源幺半群（D11；可组合所有权的知识单元）：交换幺半群律 + frame 真和探针，
     /// 衔接 L2 单属主与 [`crate::movers::carrier::CarrierCost`]。Stability: experimental。
     pub mod resource;
+
+    /// 洞清单治理物：六摩擦（等待/物理单窗/横切/驻留/派生合成/完备性）类型化 +
+    /// 收容所索引 + 开放目录（`#[non_exhaustive]`，完备性无法在律内自证）。
+    /// Stability: experimental。
+    pub mod friction;
 }
 
 /// 值的搬运器（物理实现）。
@@ -129,13 +146,19 @@ pub mod movers {
     /// 环形缓冲（no_std 单线程 FIFO）。Stability: experimental。
     pub mod ring;
 
+    /// 路由/扇出物理载体（fan-out/fan-in 的 mover 侧）：多出多入形态的独立
+    /// trait（[`route::FanOut`](crate::movers::route::FanOut)/[`route::FanIn`]）
+    /// + 内联令牌（纯 core，与 ring 同档；`Carrier` 单出单入无法表达一对二/二对一）。
+    /// Stability: experimental。
+    pub mod route;
+
     /// 异步事件驱动块环契约（上游等非满 / 下游等新块；tokio 实例在 instances）。
     /// Stability: experimental。门控：`std`。
     #[cfg(feature = "std")]
     pub mod async_ring;
 }
 
-/// 接缝（等待 / 事件 / 观测）。
+/// 接缝（等待 / 事件 / 观测 / 物理 / 横切面）。
 pub mod seams {
     /// 异步接缝（D2 等待点约定）：可轮询单元（Poll/Poller/poll_until 期限探测
     /// ＋SeamPoller 背压等待点）。契约本体 = 三等待点契约（输入就绪/期限/背压）
@@ -154,6 +177,18 @@ pub mod seams {
     /// Stability: experimental。门控：`telemetry` 特性（接缝载体族）。
     #[cfg(feature = "telemetry")]
     pub mod telemetry;
+
+    /// 物理边接缝（四边之四）：进程级单窗（allocator/信号/stdio）的**占用声明 + 观测
+    /// 契约**——唯一不是信息的边，不立 PortCell 表面。契约纯 core，无 std 依赖。
+    /// Stability: experimental。门控：`physical` 特性（接缝载体族）。
+    #[cfg(feature = "physical")]
+    pub mod physical;
+
+    /// 横切面契约：随调用流传播、不属于任何模块的载荷（上下文/取消令牌）——
+    /// 唯一无表面品种，不是 cell，不进 `assert_wiring`。契约纯 core。
+    /// Stability: experimental。门控：`crosscut` 特性（接缝载体族）。
+    #[cfg(feature = "crosscut")]
+    pub mod crosscut;
 }
 
 /// S₁ 项层可执行化（审计 定义 12.2 的代码落点）：[`term::Term`] 值级项表示 +
@@ -203,6 +238,7 @@ pub mod prelude_all {
         Carrier, CarrierCost, InlineCarrier, MaybeCarrier, ResultCarrier, Registered,
         SaturationPolicy, ShortCircuit, drive_try_carrier,
     };
+    pub use crate::movers::route::{FanIn, FanOut, InlineFanIn, InlineFanOut};
     #[cfg(feature = "std")]
     pub use crate::movers::buffer::BoundedQueue;
     #[cfg(feature = "std")]
@@ -229,6 +265,11 @@ pub mod prelude_all {
     };
     #[cfg(all(feature = "std", feature = "telemetry"))]
     pub use crate::seams::telemetry::ConsoleTelemetry;
+    #[cfg(feature = "physical")]
+    pub use crate::seams::physical::{PhysicalSnapshot, PhysicalWindow, assert_physical};
+    #[cfg(feature = "crosscut")]
+    pub use crate::seams::crosscut::{CrossCut, assert_crosscut};
+    pub use crate::checks::friction::{Friction, catalog};
     pub use crate::checks::obligation::{
         DeliveryKind, LedgerEntry, LifecycleKind, Modality, ObligationClass, ReferenceKind, LEDGER,
     };

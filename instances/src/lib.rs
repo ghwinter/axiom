@@ -18,6 +18,7 @@
 //! | `async` | `axiom-semantics/async-seam` | 异步接缝（`Executor` 契约的前提） |
 //! | `tokio` | `async` + 可选依赖 `tokio` | [`backend`] 的 tokio 引擎（异步等待模式驱动 + 线程级等待执行器） |
 //! | `embedded` | `axiom-semantics/std` | `backend::embedded` 同步块环流水线（BoundedRing 背压，单线程基座；feature 门控模块，故以纯文本引用，见本条纪律） |
+//! | `physical` | `axiom-semantics/physical` | `backend::physical_demo` 四边接缝演示（物理边单窗参考形态 + 洞清单遍历；纯 core） |
 //!
 //! ## 为什么存在 / Why an instance layer exists
 //!
@@ -95,6 +96,12 @@ pub mod backend {
     /// 退化极限，稳态零分配；`EmbeddedProfile` 白名单存储原语）。门控：`embedded` feature。
     #[cfg(feature = "embedded")]
     pub mod embedded;
+
+    /// 四边接缝演示（physical 基座）：物理边（进程级单窗声明 + 观测快照）参考形态
+    /// 与洞清单治理物的遍历——第四边的实例层消费侧（T6 witness；纯 core，无 std 依赖）。
+    /// 门控：`physical` feature。
+    #[cfg(feature = "physical")]
+    pub mod physical_demo;
 }
 
 /// tracing 观测汇：语义层 `Telemetry` 契约的 tracing 实现（Telemetry 插座的
