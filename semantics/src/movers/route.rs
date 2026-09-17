@@ -241,7 +241,7 @@ mod tests {
         // 逐路等价（独立状态顺序执行同一因果链）。
         let mut indep = ();
         let mid = Inc::step(&mut indep, 5);
-        assert_eq!(o1, Inc::step(&mut indep, mid.clone()));
+        assert_eq!(o1, Inc::step(&mut indep, mid));
         assert_eq!(o2, Double::step(&mut indep, mid));
     }
 

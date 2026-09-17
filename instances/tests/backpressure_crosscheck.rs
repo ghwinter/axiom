@@ -58,9 +58,8 @@ fn sync_roll_fed(
                 if Instant::now() >= deadline {
                     return PollResult::TimedOut;
                 }
-                match feed.recv_timeout(tick) {
-                    Ok(x) => p.put(x),
-                    Err(_) => {} // timeout / disconnected：继续等
+                if let Ok(x) = feed.recv_timeout(tick) {
+                    p.put(x);
                 }
             }
             SeamRoll::Blocked => {
