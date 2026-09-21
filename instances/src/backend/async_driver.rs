@@ -1,21 +1,19 @@
 //! 真异步驱动（实例层承载体）：把轮询等待点经语言原生 `.await` 挂进 tokio
 //! reactor，不经同步 [`Executor::park`](axiom_semantics::seams::async_seam::Executor)。
 //!
-//! ## 诚实路径（instance-layer-design §5.3 终局）
+//! ## 诚实的 async worker 路径（instance-layer-design §5.3 终局）
 //!
-//! 前述勘察已排除同步桥：syncc `park` 内 `block_on(tokio::time::sleep)` 连试三形态
-//! （current-thread `enable_time` / 多线程 `Runtime::new` / 多线程 `Builder::enable_time`）
-//! 均报 「there is no reactor running」——同步签名把等待挂不进 tokio 定时器。
-//! 真接入因此不在 `Executor` 契约层妥协（扩契约需 §4.3 破坏性许可），而在 adapter
-//! 侧以 async worker 形态落地：`poll()`/`roll()`（语义层 async_seam 已公开的单步
-//! 入口）保持不变，等待点由本模块 [`tokio_poll_until`]/[`tokio_roll_until`] 用
-//! `tokio::time::sleep(tick).await` 兑现。sleep 在运行中的 tokio 运行时内被 await，
-//! 即有 reactor 驱动——这是同步 `park` 内缺少的上下文。
+//! 同步桥经三形态验证不可行（`park` 内 `block_on(tokio::time::sleep)` 连试
+//! current-thread / multi-thread / `enable_time` 均报「there is no reactor running」——
+//! 同步签名把等待挂不进 tokio 定时器），故等待点改经 async worker 落地：
+//! `poll()`/`roll()` 单步入口保持不变，等待点由本模块
+//! [`tokio_poll_until`]/[`tokio_roll_until`] 用 `tokio::time::sleep(tick).await` 兑现——
+//! `sleep` 在运行中的 tokio 运行时内被 await 即有 reactor 驱动，这是同步 `park` 内缺少的上下文。
 //!
-//! **不扩 [`Executor`] 契约、不改语义层**（additive；`poll`/`roll` 已是公开入口）：
+//! 不扩 [`Executor`] 契约、不改语义层（additive；`poll`/`roll` 已是公开入口），
 //! 非破坏，无需 §4.3 许可。同步 [`Executor`](axiom_semantics::seams::async_seam::Executor)
-//! 插座仍保留（它兑现 trait 化的可替换等待点，`ThreadExec`=sleep / `TokioExec`=线程级等待，平级）；
-//! 本模块是语言原生的异步路径，二者互补、均可审计，互不替代。
+//! 插座仍保留（兑现 trait 化可替换等待点，`ThreadExec`=sleep / `TokioExec`=线程级等待，平级）；
+//! 本模块是语言原生的异步路径，二者互补、均可审计。
 //!
 //! ## Timeout 升模态（D2 承载域）
 //!
@@ -47,12 +45,11 @@
 //! 期限以 `std::time::Instant` 断言（与 sync 驱动同墙钟，等价对拍同刻度），等待经
 //! tokio time。
 //!
-//! ## 通道馈入（步骤二）
+//! ## 通道馈入
 //!
-//! [`tokio_poll_fed`] 在等待窗内经 `rx.recv().await` 索取输入（挂 reactor），收到即
-//! 经 `Poller::put`（语义层 additive 入口）注入并同步 `step`——"输入在等待期间异步
-//! 抵达"的使能面；通道关闭后按 `tick` 让步至期限（不忙循环）。综合用例
-//! （`examples/sql-over-redis`）的异步变体即以此把命令序列在等待窗内喂入。
+//! [`tokio_poll_fed`] 在等待窗内经 `rx.recv().await` 索取输入（挂 reactor），收到即经
+//! `Poller::put`（语义层 additive 入口）注入并同步 `step`——"输入在等待期间异步抵达"
+//! 的使能面；通道关闭后按 `tick` 让步至期限（不忙循环）。
 
 use axiom::cell_core::PortCell;
 use axiom_semantics::seams::async_seam::{Poll, PollResult, Poller, SeamPoller, SeamRoll};

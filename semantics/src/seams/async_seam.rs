@@ -219,12 +219,11 @@ where
         }
     }
 
-    /// 放置输入：向 [`SeamPoller`] 注入一条待决输入（对拍/馈入驱动的写入入口）。
+    /// 放置输入：向 [`SeamPoller`] 注入一条待决输入（写入入口）。
     ///
-    /// **additive**：供 `axiom-instances` 的背压对拍（`tests/backpressure_crosscheck`）
-    /// 与通道馈入驱动使用；单槽语义（与 [`new`](SeamPoller::new) 一致）：已有待决
-    /// 输入时覆盖为最新。`held`（Block 滞留值）优先于 `pending` 处理（见
-    /// [`roll`](SeamPoller::roll)）。
+    /// **additive**：不改动既有入口。单槽语义（与 [`new`](SeamPoller::new) 一致）：
+    /// 已有待决输入时覆盖为最新。`held`（Block 滞留值）优先于 `pending` 处理
+    /// （见 [`roll`](SeamPoller::roll)）。
     pub fn put(&mut self, input: A::In) {
         self.pending = Some(input);
     }

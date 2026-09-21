@@ -570,6 +570,34 @@ Runtime freedom over structure is parameterized by "the target interface must al
   equivalent (T6). Concurrency is not a sixth construction concept — it is the instantiation of
   (5) by a run strategy.
 
+**Layer–mathematics division of labor (an explicit layer identity; joins §8.4).**
+The mathematical anchors scattered across this volume are not arbitrary ornament; they express
+three distinct layers, each with its own mathematics — or its honest refusal of one. Lining them
+up here makes the layer identities explicit (no new mathematics; these correspondences are
+already cited above and elsewhere):
+
+- **Structure layer (core shape: composition / connection / part-whole) → a geometric
+  characterization of a compositional structure.** This is exactly the identity of T2: nestable
+  composition forms a compositional class; `Chain` nests at any depth, and wiring-line
+  composition is nested composition of combinators. The structure is often characterized as an
+  operad / a symmetric monoidal category (a geometric perspective; understanding category theory
+  is not a prerequisite for using axiom). "What shape is composable" lives here.
+- **Behavior layer (semantics: execution / waiting / timing / obligation) → session types /
+  process algebra (π, CKA).** S1/S2 already cite Honda/Milner: connection as first-class object +
+  duality. The obligation declaration is a *lightweight projection* of session types — **stated
+  honestly: it is only a projection, it does not run a full behavioral algebra.**
+- **Hole layer (friction: the waiting / physical-singleton / cross-cutting / completeness that
+  algebra cannot express) → explicitly assigned no mathematics**, declared only as a boundary.
+  Honest range: the shape layer gives composition legality, the behavior layer gives the ground
+  of obligation, and the hole layer registers "not provable within the law."
+
+**Well-formedness (a semi-formal ruling rule).** A claim is placed by its object: shape claims
+land in structure-layer mathematics (compile time / types); obligation and timing claims land in
+behavior-layer mathematics; what cannot be cast as either is registered in the hole list and must
+not be forcibly given a mathematics. These correspondences were *already scattered across
+citations*; this section merely makes them layer identities, not new concepts, in keeping with
+the §8.3 closure criterion (no sixth construction concept introduced).
+
 ### 8.5 Conclusion
 
 Accordingly the code layer refactors so: the core is `PortCell` (the cell) with its closed

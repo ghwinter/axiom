@@ -33,7 +33,7 @@ equivalent to hand-written plain Rust with zero runtime objects.
 | **Causal dataflow** `Wire` | `A.out -> B.in`, type-level dual pairing | Illegal wiring fails to compile (T1) |
 | **Many-to-many** `Broadcast` (fan-out) / `Merge` (fan-in) | Broadcast, merge, type-level enforced | No Tee tree |
 | **Loop** `Feedback` | Causal closure of a loop expressed at type level | Timing belongs to physical carriers (T3) |
-| **Composition** `Chain` | A combinator is itself a port cell, nested to any depth | Operad structure |
+| **Composition** `Chain` | A combinator is itself a port cell, nested to any depth | A compositional structure (geometric characterization) |
 | **Staticity** `Static` / `Conforms` / `assert_wiring` | Mark zero-cost subgraphs + compile-time wiring verification | Verification at compile time, zero runtime overhead |
 
 **Core promise**:
